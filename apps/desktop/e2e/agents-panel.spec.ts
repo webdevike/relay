@@ -49,6 +49,16 @@ test('a card opens its ticket view beside the live board; resize, fold, Esc, nar
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('board'))
   await expect(shell.locator(sel('agents-board'))).toBeVisible()
   const boardBefore = await width(shell, '.eva-ab-main')
+  // No host here: the agents board without Linear sync says why, and cards can't be dragged.
+  await expect(shell.locator(sel('agents-freshness'))).toBeVisible()
+  await expect(shell.locator(sel('agents-freshness'))).not.toHaveText(/Synced/)
+  await expect(shell.locator(sel('agents-refresh'))).toHaveCount(0)
+  await expect(shell.locator(sel('agents-card-ENG-9001'))).toHaveAttribute(
+    'data-drag-block',
+    'true',
+  )
+  // Done starts in the Hidden columns group.
+  await expect(shell.locator(sel('agents-hidden-done'))).toBeVisible()
 
   await shell.locator(sel('agents-card-ENG-9001')).click()
   const side = shell.locator(sel('agents-side'))

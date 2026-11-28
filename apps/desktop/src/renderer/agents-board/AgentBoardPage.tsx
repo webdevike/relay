@@ -1,35 +1,61 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
-import { Select, Switch, TextInput, Tooltip } from '@mantine/core'
-import { IconLayoutKanban, IconSearch } from '@tabler/icons-react'
+import {
+  ActionIcon,
+  Button,
+  Group,
+  SegmentedControl,
+  Stack,
+  Text,
+  TextInput,
+  Tooltip,
+  UnstyledButton,
+} from '@mantine/core'
+import { notifications, type NotificationData } from '@mantine/notifications'
+import {
+  DndContext,
+  DragOverlay,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import {
+  IconAt,
+  IconDots,
+  IconEyeOff,
+  IconLayoutKanban,
+  IconRefresh,
+  IconSearch,
+} from '@tabler/icons-react'
 import type { Place } from '@evaos/shell-core'
-import { AGENT_COLUMNS, type AgentCard, type AgentColumn } from '@evaos/contract'
+import { AGENT_COLUMNS, type AgentBoard, type AgentCard, type AgentColumn } from '@evaos/contract'
 import { ListEmpty } from '../ui/list'
-import { AgentCardView, COLUMN_ICON } from './AgentCard'
+import { EvaMenu, EvaModal } from '../overlay'
+import { AgentCardView, CardFace, useCardSensors } from './AgentCard'
+import { COLUMN_ICON } from './CardChips'
+import { HiddenColumns, dropId } from './HiddenColumns'
 import { AgentPanel, BOARD_MIN, PANEL_MIN } from './AgentPanel'
 import { TicketView } from './TicketView'
+import { openAgentLink } from './agent-link'
+import { useCardMove, type CardMove } from './card-move-actor'
 import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
 import {
   collapsePanel,
+  hideColumn,
   selectCard,
   setBoardFilters,
   startAgentsBoard,
+  syncTickets,
   useAgentsBoard,
 } from './agents-store'
 import {
   COLUMN_TITLE,
   byColumn,
-  lanesOf,
-  optionsOf,
+  freshnessLabel,
   visibleCards,
-  type GroupBy,
+  waitingCount,
+  type TicketsSource,
 } from './board-view'
 import './agents-board.css'
-
-const GROUPS: Array<{ value: GroupBy; label: string }> = [
-  { value: 'none', label: 'No grouping' },
-  { value: 'agent', label: 'Group by agent' },
-  { value: 'workspace', label: 'Group by workspace' },
-]
 
 /** Re-renders every 30 s, so "5m ago" stays true between boards. */
 function useNow(): number {
@@ -55,221 +81,472 @@ function useWidth(ref: RefObject<HTMLElement | null>): number {
   return width
 }
 
+/** A card opens its own target (a helper's chat, a harness pane) or, for a ticket or work item, the side panel. */
+function openCard(card: AgentCard): void {
+  if (card.openTarget.kind === 'link') openAgentLink(card.openTarget.open, 'here')
+  else selectCard(card.id)
+}
+
 function ColumnHead({ column, count }: { column: AgentColumn; count: number }) {
+  const [menu, setMenu] = useState(false)
   const Glyph = COLUMN_ICON[column]
   return (
     <div className="eva-ab-colhead" data-column={column} data-testid={`agents-col-${column}`}>
       <Glyph size={16} stroke={1.75} className="eva-ab-colicon" aria-hidden />
-      <span className="eva-ab-coltitle">{COLUMN_TITLE[column]}</span>
+      <span className="eva-ab-colname">{COLUMN_TITLE[column]}</span>
       <span className="eva-ab-count" data-testid={`agents-count-${column}`}>
         {count}
       </span>
+      <span className="eva-ab-spacer" />
+      <EvaMenu opened={menu} onChange={setMenu} position="bottom-end" width={180}>
+        <EvaMenu.Target>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={24}
+            className="eva-ab-colmenu"
+            data-open={menu || undefined}
+            aria-label={`${COLUMN_TITLE[column]} column menu`}
+            data-testid={`agents-colmenu-${column}`}
+          >
+            <IconDots size={15} stroke={1.5} />
+          </ActionIcon>
+        </EvaMenu.Target>
+        <EvaMenu.Dropdown>
+          <EvaMenu.Item
+            leftSection={<IconEyeOff size={15} stroke={1.5} />}
+            onClick={() => hideColumn(column)}
+            data-testid={`agents-hide-${column}`}
+          >
+            Hide column
+          </EvaMenu.Item>
+        </EvaMenu.Dropdown>
+      </EvaMenu>
     </div>
   )
 }
 
-function Lane({
+function Column({
+  column,
   cards,
   selected,
   now,
 }: {
+  column: AgentColumn
   cards: readonly AgentCard[]
   selected: string | null
   now: number
 }) {
-  const cols = byColumn(cards)
+  const drop = useDroppable({ id: dropId(column), data: { column } })
   return (
-    <div className="eva-ab-lane">
-      {AGENT_COLUMNS.map((col) => (
-        <div key={col} className="eva-ab-cell" data-column={col}>
-          {cols[col].map((c) => (
-            <AgentCardView
-              key={c.id}
-              card={c}
-              now={now}
-              active={c.id === selected}
-              onOpen={() => selectCard(c.id)}
-            />
-          ))}
-        </div>
-      ))}
-    </div>
+    <section
+      ref={drop.setNodeRef}
+      className="eva-ab-col"
+      data-column={column}
+      data-over={drop.isOver || undefined}
+      aria-label={COLUMN_TITLE[column]}
+    >
+      <ColumnHead column={column} count={cards.length} />
+      <div className="eva-ab-cards">
+        {cards.map((c) => (
+          <AgentCardView
+            key={c.id}
+            card={c}
+            now={now}
+            active={c.id === selected}
+            onOpen={() => openCard(c)}
+          />
+        ))}
+      </div>
+    </section>
   )
 }
 
-/**
- * The Board page: everything the agents work on (work items, auto-work tickets, helpers,
- * sessions) as Linear-style columns; a card opens its ticket view in the side panel.
- */
-export function AgentBoardPage(_props: { place: Place }) {
-  useEffect(() => startAgentsBoard(), [])
-  const board = useAgentsBoard((s) => s.board)
-  const error = useAgentsBoard((s) => s.error)
-  const selected = useAgentsBoard((s) => s.selected)
-  const collapsed = useAgentsBoard((s) => s.collapsed)
+/** Freshness of the synced tickets, and Refresh (asks the host to sync; rests 30 s after). */
+function Freshness({ tickets, now }: { tickets: TicketsSource; now: number }) {
+  const resting = useAgentsBoard((s) => s.syncRestUntil > 0)
+  const host = tickets.source === 'host'
+  const why = host
+    ? tickets.syncAs
+      ? `Syncing as ${tickets.syncAs}`
+      : 'Synced from the Relay host'
+    : 'Moving cards and Waiting on you need Linear sync on the host'
+  const refresh = async (): Promise<void> => {
+    const error = await syncTickets()
+    if (error !== null) notifications.show({ color: 'red', message: `Couldn't sync: ${error}` })
+  }
+  return (
+    <span className="eva-ab-fresh">
+      <Tooltip label={why} openDelay={300} multiline maw={320}>
+        <span className="eva-ab-freshtext" data-testid="agents-freshness">
+          {freshnessLabel(tickets, now)}
+        </span>
+      </Tooltip>
+      {host ? (
+        <Tooltip label={resting ? 'Synced a moment ago' : 'Sync with Linear and GitHub now'}>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size={24}
+            aria-label="Refresh"
+            disabled={resting}
+            onClick={() => void refresh()}
+            data-testid="agents-refresh"
+          >
+            <IconRefresh size={14} stroke={1.75} />
+          </ActionIcon>
+        </Tooltip>
+      ) : null}
+    </span>
+  )
+}
+
+function BoardBar({ board, shown, now }: { board: AgentBoard; shown: number; now: number }) {
   const filters = useAgentsBoard((s) => s.filters)
-  const now = useNow()
-  const page = useRef<HTMLDivElement>(null)
-  const pageWidth = useWidth(page)
-  const narrow = pageWidth > 0 && pageWidth < BOARD_MIN + PANEL_MIN
-
-  const all = board?.cards ?? []
-  const shown = visibleCards(all, filters)
-  const staleCount = all.filter((c) => c.stale).length
-  const counts = byColumn(shown)
-  const lanes = lanesOf(shown, filters.group)
-  const agents = optionsOf(all, 'agent')
-  const workspaces = optionsOf(all, 'workspace')
-  const card = selected === null ? null : (all.find((c) => c.id === selected) ?? null)
-  const needs = counts.needs.length
-  const working = counts.working.length
-  // Esc closes the side panel (the drawer closes itself); a filter being cleared goes first.
-  useDismissable(DISMISS_PRIORITY.selection, () => selectCard(null), card !== null && !narrow)
-
+  const waiting = waitingCount(board.cards)
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Escape' && filters.query !== '') {
       e.stopPropagation()
       setBoardFilters({ query: '' })
     }
   }
+  return (
+    <div className="eva-ab-bar">
+      <span className="eva-ab-items" data-testid="agents-summary">
+        {shown === 1 ? '1 item' : `${shown} items`}
+      </span>
+      <UnstyledButton
+        className="eva-ab-waittog"
+        aria-pressed={filters.waitingOnly}
+        data-on={filters.waitingOnly || undefined}
+        onClick={() => setBoardFilters({ waitingOnly: !filters.waitingOnly })}
+        data-testid="agents-waiting"
+      >
+        <IconAt size={13} stroke={2} aria-hidden />
+        Waiting on you
+        <span className="eva-ab-waitn" data-testid="agents-waiting-count">
+          {waiting}
+        </span>
+      </UnstyledButton>
+      <Freshness tickets={board.sources.tickets} now={now} />
+      <span className="eva-ab-spacer" />
+      <TextInput
+        size="xs"
+        placeholder="Search"
+        leftSection={<IconSearch size={14} stroke={1.5} />}
+        value={filters.query}
+        onChange={(e) => setBoardFilters({ query: e.currentTarget.value })}
+        onKeyDown={onSearchKey}
+        aria-label="Search cards by key, title, session or agent"
+        data-testid="agents-search"
+        className="eva-ab-search"
+      />
+    </div>
+  )
+}
+
+const MOVE_TOAST = 'agents-move'
+
+function toastAction(label: string, run: () => void) {
+  return (
+    <Button
+      variant="subtle"
+      size="compact-sm"
+      data-testid={`agents-move-${label.toLowerCase()}`}
+      onClick={() => {
+        notifications.hide(MOVE_TOAST)
+        run()
+      }}
+    >
+      {label}
+    </Button>
+  )
+}
+
+/** The toast a move's outcome shows: Undo on a settled move, Retry on a failed one. */
+function moveToast(move: CardMove, key: (id: string) => string): NotificationData | null {
+  const view = move.view
+  switch (view.kind) {
+    case 'staysPut':
+      return { color: 'yellow', message: view.message }
+    case 'conflict':
+      return { color: 'red', message: view.message }
+    case 'failed':
+      return {
+        color: 'red',
+        autoClose: false,
+        message: (
+          <span className="eva-ab-toast">
+            <span>{view.message}</span>
+            {toastAction('Retry', move.retry)}
+          </span>
+        ),
+      }
+    case 'unknown':
+      return { loading: true, autoClose: false, message: 'Checking whether it moved' }
+    case 'settled':
+      return {
+        autoClose: 8000,
+        message: (
+          <span className="eva-ab-toast">
+            <span>
+              Moved {key(view.cardId)} to {COLUMN_TITLE[view.to]}
+            </span>
+            {view.canUndo ? toastAction('Undo', move.undo) : null}
+          </span>
+        ),
+      }
+    default:
+      return null
+  }
+}
+
+/**
+ * One toast per move outcome. A refused or conflicting move is dismissed once it's said (its
+ * column already rolled back); a settled move's Undo window closing doesn't toast again.
+ */
+function useMoveToasts(move: CardMove, keyOf: (id: string) => string): void {
+  const latest = useRef({ move, keyOf })
+  latest.current = { move, keyOf }
+  const said = useRef('')
+  const { view } = move
+  useEffect(() => {
+    const { move: m, keyOf: key } = latest.current
+    const sig = 'cardId' in view ? `${view.kind}:${view.cardId}` : view.kind
+    if (sig === said.current) return
+    said.current = sig
+    const toast = moveToast(m, key)
+    if (toast === null) return
+    notifications.hide(MOVE_TOAST)
+    notifications.show({ id: MOVE_TOAST, ...toast })
+    if (view.kind === 'staysPut' || view.kind === 'conflict') m.cancel()
+  }, [view])
+}
+
+/** A Done or Canceled move asks first; an ambiguous column asks which status. */
+function MoveDialogs({ move, cards }: { move: CardMove; cards: readonly AgentCard[] }) {
+  const { view } = move
+  const keyOf = (id: string): string => {
+    const c = cards.find((x) => x.id === id)
+    return c?.key ?? c?.title ?? 'the card'
+  }
+  useMoveToasts(move, keyOf)
+  const confirming = view.kind === 'confirming' ? view : null
+  const picking = view.kind === 'pickState' ? view : null
+  return (
+    <>
+      <EvaModal
+        opened={confirming !== null}
+        onClose={move.cancel}
+        title={confirming ? `Move ${keyOf(confirming.cardId)} to ${confirming.stateName}?` : ''}
+        testid="agents-move-confirm"
+      >
+        <Stack gap="md">
+          <Text size="sm">This changes its status in Linear.</Text>
+          <Group justify="flex-end" gap="xs">
+            <Button variant="default" onClick={move.cancel}>
+              Cancel
+            </Button>
+            <Button onClick={move.confirm} data-testid="agents-move-confirm-ok">
+              Move
+            </Button>
+          </Group>
+        </Stack>
+      </EvaModal>
+      <EvaModal
+        opened={picking !== null}
+        onClose={move.cancel}
+        title={picking ? `Which status for ${keyOf(picking.cardId)}?` : ''}
+        testid="agents-move-pick"
+      >
+        <Stack gap="xs">
+          {picking?.options.map((o) => (
+            <Button
+              key={o.id}
+              variant="default"
+              justify="flex-start"
+              onClick={() => move.pick(o.id)}
+            >
+              {o.name}
+            </Button>
+          ))}
+        </Stack>
+      </EvaModal>
+    </>
+  )
+}
+
+function Board({
+  cards,
+  selected,
+  now,
+  move,
+}: {
+  cards: readonly AgentCard[]
+  selected: string | null
+  now: number
+  move: CardMove
+}) {
+  const hidden = useAgentsBoard((s) => s.hidden)
+  const [dragging, setDragging] = useState<AgentCard | null>(null)
+  const sensors = useCardSensors()
+  const cols = byColumn(cards, move.columnOf)
+  const onDragStart = ({ active }: DragStartEvent): void => {
+    setDragging((active.data.current as { card: AgentCard } | undefined)?.card ?? null)
+  }
+  const onDragEnd = ({ active, over }: DragEndEvent): void => {
+    setDragging(null)
+    const card = (active.data.current as { card: AgentCard } | undefined)?.card
+    const to = (over?.data.current as { column: AgentColumn } | undefined)?.column
+    if (!card || !to || to === (move.columnOf(card.id) ?? card.column)) return
+    move.drop(card, to)
+  }
+  return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragCancel={() => {
+        setDragging(null)
+      }}
+    >
+      <div className="eva-ab-board" data-testid="agents-board">
+        {AGENT_COLUMNS.filter((c) => !hidden.includes(c)).map((col) => (
+          <Column key={col} column={col} cards={cols[col]} selected={selected} now={now} />
+        ))}
+        <HiddenColumns columns={hidden} cards={cols} onOpen={openCard} />
+      </div>
+      <DragOverlay dropAnimation={null}>
+        {dragging ? (
+          <div className="eva-ab-card" data-overlay>
+            <CardFace card={dragging} now={now} onOpen={() => undefined} />
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  )
+}
+
+/** Title and the view switch; Timeline arrives with its own milestone. */
+function PageHead() {
+  return (
+    <header className="eva-ab-head">
+      <h1 className="eva-ab-title" data-page-title>
+        Board
+      </h1>
+      <SegmentedControl
+        size="xs"
+        value="board"
+        className="eva-ab-viewsw"
+        aria-label="View"
+        data={[
+          { value: 'board', label: 'Board' },
+          {
+            value: 'timeline',
+            disabled: true,
+            label: (
+              <Tooltip label="Coming with the Timeline" openDelay={200}>
+                <span data-testid="agents-view-timeline">Timeline</span>
+              </Tooltip>
+            ),
+          },
+        ]}
+      />
+    </header>
+  )
+}
+
+/** No board yet (reading, or main couldn't), or a board with nothing on it. */
+function NoCards({ board, error }: { board: AgentBoard | null; error: string | null }) {
+  if (board !== null)
+    return (
+      <ListEmpty
+        data-testid="agents-empty"
+        icon={<IconLayoutKanban size={24} stroke={1.5} />}
+        title="Nothing on the board yet"
+      >
+        Your Linear tickets, work items and running helpers show up here.
+      </ListEmpty>
+    )
+  if (error)
+    return (
+      <ListEmpty role="alert" data-testid="agents-error" title="Could not read the board">
+        {error}
+      </ListEmpty>
+    )
+  return (
+    <div className="eva-ab-loading" data-testid="agents-loading">
+      Reading tickets, sessions and helpers
+    </div>
+  )
+}
+
+/** The open card's ticket view: beside the board, or a drawer on a page too narrow for both. */
+function SidePanel({
+  card,
+  pageWidth,
+  now,
+}: {
+  card: AgentCard | null
+  pageWidth: number
+  now: number
+}) {
+  const collapsed = useAgentsBoard((s) => s.collapsed)
+  const narrow = pageWidth > 0 && pageWidth < BOARD_MIN + PANEL_MIN
+  // Esc closes the side panel (the drawer closes itself); a search being cleared goes first.
+  useDismissable(DISMISS_PRIORITY.selection, () => selectCard(null), card !== null && !narrow)
+  return (
+    <AgentPanel
+      open={card ? { key: card.id, label: card.key ?? card.title } : null}
+      narrow={narrow}
+      pageWidth={pageWidth}
+      collapsed={collapsed}
+      onCollapse={collapsePanel}
+      onClose={() => selectCard(null)}
+    >
+      {(chrome) =>
+        card === null ? null : <TicketView key={card.id} card={card} now={now} {...chrome} />
+      }
+    </AgentPanel>
+  )
+}
+
+/**
+ * The Board page: everything the agents work on and Isaac's synced Linear tickets, as Linear's
+ * board. A ticket or work item opens its view in the side panel; a run opens its own target.
+ * Dragging a ticket to another column moves it in Linear (through the host's write gate).
+ */
+export function AgentBoardPage(_props: { place: Place }) {
+  useEffect(() => startAgentsBoard(), [])
+  const board = useAgentsBoard((s) => s.board)
+  const error = useAgentsBoard((s) => s.error)
+  const selected = useAgentsBoard((s) => s.selected)
+  const filters = useAgentsBoard((s) => s.filters)
+  const move = useCardMove()
+  const now = useNow()
+  const page = useRef<HTMLDivElement>(null)
+  const pageWidth = useWidth(page)
+
+  const all = board?.cards ?? []
+  const shown = visibleCards(all, filters)
 
   return (
     <div className="eva-ab" ref={page} data-testid="page-board">
       <div className="eva-ab-main">
-        <header className="eva-ab-head">
-          <div className="eva-ab-heading">
-            <h1 className="eva-ab-title" data-page-title>
-              Board
-            </h1>
-            {board ? (
-              <span className="eva-ab-summary" data-testid="agents-summary">
-                {[working > 0 ? `${working} working` : null, needs > 0 ? `${needs} need you` : null]
-                  .filter(Boolean)
-                  .join(', ') || 'Nothing running'}
-              </span>
-            ) : null}
-          </div>
-          <div className="eva-ab-filters">
-            <TextInput
-              size="xs"
-              placeholder="Filter by key, title or session"
-              leftSection={<IconSearch size={14} stroke={1.5} />}
-              value={filters.query}
-              onChange={(e) => setBoardFilters({ query: e.currentTarget.value })}
-              onKeyDown={onSearchKey}
-              aria-label="Filter cards"
-              data-testid="agents-search"
-              className="eva-ab-search"
-            />
-            <Select
-              size="xs"
-              data={[
-                { value: '', label: 'All agents' },
-                ...agents.map((a) => ({ value: a, label: a })),
-              ]}
-              value={filters.agent ?? ''}
-              onChange={(v) => setBoardFilters({ agent: v ? v : null })}
-              allowDeselect={false}
-              aria-label="Agent"
-              data-testid="agents-filter-agent"
-              className="eva-ab-select"
-            />
-            <Select
-              size="xs"
-              data={[
-                { value: '', label: 'All workspaces' },
-                ...workspaces.map((w) => ({ value: w, label: w })),
-              ]}
-              value={filters.workspace ?? ''}
-              onChange={(v) => setBoardFilters({ workspace: v ? v : null })}
-              allowDeselect={false}
-              aria-label="Workspace"
-              data-testid="agents-filter-workspace"
-              className="eva-ab-select"
-            />
-            <Select
-              size="xs"
-              data={GROUPS}
-              value={filters.group}
-              onChange={(v) =>
-                setBoardFilters({ group: GROUPS.find((g) => g.value === v)?.value ?? 'none' })
-              }
-              allowDeselect={false}
-              aria-label="Grouping"
-              data-testid="agents-group"
-              className="eva-ab-select"
-            />
-            <Tooltip
-              label="Cards untouched for a week with nothing running on them"
-              openDelay={300}
-            >
-              <Switch
-                size="xs"
-                label={`Stale (${staleCount})`}
-                checked={filters.showStale}
-                onChange={(e) => setBoardFilters({ showStale: e.currentTarget.checked })}
-                data-testid="agents-stale"
-                className="eva-ab-stale"
-              />
-            </Tooltip>
-          </div>
-        </header>
-
-        {board === null ? (
-          error ? (
-            <ListEmpty role="alert" data-testid="agents-error" title="Could not read the board">
-              {error}
-            </ListEmpty>
-          ) : (
-            <div className="eva-ab-loading" data-testid="agents-loading">
-              Reading tickets, sessions and helpers
-            </div>
-          )
-        ) : all.length === 0 ? (
-          <ListEmpty
-            data-testid="agents-empty"
-            icon={<IconLayoutKanban size={24} stroke={1.5} />}
-            title="No agent work yet"
-          >
-            Work items, auto-work tickets and running helpers show up here as they start.
-          </ListEmpty>
+        <PageHead />
+        {board ? <BoardBar board={board} shown={shown.length} now={now} /> : null}
+        {board && all.length > 0 ? (
+          <Board cards={shown} selected={selected} now={now} move={move} />
         ) : (
-          <div className="eva-ab-board" data-testid="agents-board">
-            <div className="eva-ab-cols">
-              {AGENT_COLUMNS.map((col) => (
-                <ColumnHead key={col} column={col} count={counts[col].length} />
-              ))}
-            </div>
-            {lanes.map((lane) => (
-              <section
-                key={lane.id}
-                className="eva-ab-group"
-                data-testid={`agents-lane-${lane.id}`}
-              >
-                {lane.title ? (
-                  <div className="eva-ab-lanehead">
-                    <span className="eva-ab-lanetitle">{lane.title}</span>
-                    <span className="eva-ab-count">{lane.cards.length}</span>
-                  </div>
-                ) : null}
-                <Lane cards={lane.cards} selected={selected} now={now} />
-              </section>
-            ))}
-          </div>
+          <NoCards board={board} error={error} />
         )}
       </div>
-      <AgentPanel
-        open={card ? { key: card.id, label: card.key ?? card.title } : null}
-        narrow={narrow}
+      <MoveDialogs move={move} cards={all} />
+      <SidePanel
+        card={all.find((c) => c.id === selected) ?? null}
         pageWidth={pageWidth}
-        collapsed={collapsed}
-        onCollapse={collapsePanel}
-        onClose={() => selectCard(null)}
-      >
-        {(chrome) =>
-          card === null ? null : <TicketView key={card.id} card={card} now={now} {...chrome} />
-        }
-      </AgentPanel>
+        now={now}
+      />
     </div>
   )
 }

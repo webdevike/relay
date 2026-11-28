@@ -1,82 +1,59 @@
-import type { KeyboardEvent } from 'react'
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Tooltip } from '@mantine/core'
-import {
-  IconCircleCheck,
-  IconCircleDashed,
-  IconEye,
-  IconGitMerge,
-  IconGitPullRequest,
-  IconGitPullRequestClosed,
-  IconGitPullRequestDraft,
-  IconHandStop,
-  IconLoader2,
-  IconMessageCircle,
-  IconProgress,
-  IconRobot,
-  IconSchema,
-  IconTerminal2,
-  type Icon,
-} from '@tabler/icons-react'
-import type { AgentCard, AgentColumn, AgentPr, ContextTone } from '@evaos/contract'
-import { ListPill, type ListTone } from '../ui/list'
-import { agoLabel } from './board-view'
+import { PointerSensor, useDraggable, useSensor, useSensors } from '@dnd-kit/core'
+import type { AgentCard } from '@evaos/contract'
+import { CardChips, CardKeyRow, StatusCircle } from './CardChips'
+import { WaitChip } from './WaitChip'
+import { useAgentsBoard } from './agents-store'
+import { footLabel, waitingOf } from './board-view'
 
-export const COLUMN_ICON: Record<AgentColumn, Icon> = {
-  queued: IconCircleDashed,
-  working: IconProgress,
-  needs: IconHandStop,
-  review: IconEye,
-  qa: IconGitMerge,
-  done: IconCircleCheck,
+/** The drag sensor's start distance: a press that moves less is a click. */
+const DRAG_DISTANCE = 5
+
+/**
+ * The board's drag sensor: a card is picked up once the pressed pointer moves DRAG_DISTANCE. Once a
+ * drag has started, dnd-kit swallows the click its release fires, so a drop never opens the card.
+ */
+export function useCardSensors() {
+  return useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_DISTANCE } }))
 }
 
-export const PILL_TONE: Record<ContextTone, ListTone> = {
-  default: 'dim',
-  success: 'ok',
-  danger: 'bad',
-  warning: 'warn',
-  info: 'info',
+/** What a card looks like, also under the pointer while it is dragged. */
+export function CardFace({
+  card,
+  now,
+  onOpen,
+}: {
+  card: AgentCard
+  now: number
+  onOpen: () => void
+}) {
+  const handled = useAgentsBoard((s) => s.handled)
+  const waiting = waitingOf(card, handled)
+  const foot = footLabel(card, now)
+  return (
+    <>
+      <CardKeyRow card={card} />
+      <div className="eva-ab-r2">
+        <StatusCircle card={card} />
+        <span className="eva-ab-cardtitle">{card.title}</span>
+      </div>
+      {waiting ? (
+        <div className="eva-ab-chips">
+          <WaitChip waiting={waiting} now={now} onOpen={onOpen} />
+        </div>
+      ) : null}
+      <CardChips card={card} onOpenPr={onOpen} />
+      {foot ? <div className="eva-ab-foot">{foot}</div> : null}
+    </>
+  )
 }
 
-export const RUN_ICON: Record<AgentCard['kind'], Icon> = {
-  item: IconMessageCircle,
-  session: IconMessageCircle,
-  helper: IconRobot,
-  harness: IconTerminal2,
-  canvas: IconSchema,
-}
-
-export const PR_ICON: Record<NonNullable<AgentPr['state']>, Icon> = {
-  open: IconGitPullRequest,
-  draft: IconGitPullRequestDraft,
-  merged: IconGitMerge,
-  closed: IconGitPullRequestClosed,
-}
-
-const CHECKS_WORDS: Record<NonNullable<AgentPr['checks']>, string | null> = {
-  pass: 'checks passing',
-  fail: 'checks failing',
-  pending: 'checks running',
-  none: null,
-}
-
-/** `react-client-reports-app#254, merged, checks passing`. */
-export function prWords(pr: AgentPr): string {
-  return [
-    `${pr.repo.split('/')[1]}#${pr.number}`,
-    pr.state,
-    pr.decision === 'CHANGES_REQUESTED'
-      ? 'changes requested'
-      : pr.decision === 'APPROVED'
-        ? 'approved'
-        : null,
-    pr.checks ? CHECKS_WORDS[pr.checks] : null,
-  ]
-    .filter(Boolean)
-    .join(', ')
-}
-
-/** One card: key and age, the title, then its status pill, PR and the agent session on it. */
+/**
+ * One board card (after Linear's): key, parent and whose it is; status circle and title; the
+ * waiting chip; priority, project, PRs, sub-issues, labels and session; when it was created.
+ * Picked up by a press that moves (a card that can't move says why instead); a click opens it.
+ */
 export function AgentCardView({
   card,
   now,
@@ -88,67 +65,53 @@ export function AgentCardView({
   active: boolean
   onOpen: () => void
 }) {
-  const running = card.column === 'working'
-  const Run = RUN_ICON[card.kind]
-  const Pr = card.pr ? PR_ICON[card.pr.state ?? 'open'] : null
+  const blocked = card.dragBlock !== null
+  const drag = useDraggable({ id: card.id, data: { card }, disabled: blocked })
+  // A press that moves on a card that can't move: say why, until the pointer leaves.
+  const [why, setWhy] = useState(false)
+  const press = useRef<{ x: number; y: number } | null>(null)
   const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
-    if (e.key !== 'Enter' && e.key !== ' ') return
+    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
     e.preventDefault()
     onOpen()
   }
+  const onMove = (e: PointerEvent): void => {
+    const p = press.current
+    if (!blocked || p === null) return
+    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) >= DRAG_DISTANCE) setWhy(true)
+  }
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="eva-ab-card"
-      data-active={active || undefined}
-      data-stale={card.stale || undefined}
-      data-testid={`agents-card-${card.key ?? card.id}`}
-      onClick={onOpen}
-      onKeyDown={onKey}
-    >
-      <div className="eva-ab-cardtop">
-        <span className="eva-ab-key">
-          {card.key ?? (card.kind === 'helper' ? 'Helper' : 'Session')}
-        </span>
-        {card.activityAt !== null ? (
-          <time className="eva-ab-age" dateTime={new Date(card.activityAt).toISOString()}>
-            {agoLabel(card.activityAt, now)}
-          </time>
-        ) : null}
+    <Tooltip label={card.dragBlock ?? ''} opened={why && blocked} multiline maw={280}>
+      <div
+        ref={drag.setNodeRef}
+        {...drag.attributes}
+        role="button"
+        tabIndex={0}
+        aria-roledescription={blocked ? undefined : 'draggable card'}
+        // Can't be dragged, but still opens: not a disabled control.
+        aria-disabled={undefined}
+        className="eva-ab-card"
+        data-active={active || undefined}
+        data-dragging={drag.isDragging || undefined}
+        data-drag-block={blocked || undefined}
+        data-testid={`agents-card-${card.key ?? card.id}`}
+        onClick={() => onOpen()}
+        onKeyDown={onKey}
+        onPointerDown={(e) => {
+          press.current = { x: e.clientX, y: e.clientY }
+          drag.listeners?.onPointerDown?.(e)
+        }}
+        onPointerMove={onMove}
+        onPointerUp={() => {
+          press.current = null
+        }}
+        onPointerLeave={() => {
+          press.current = null
+          setWhy(false)
+        }}
+      >
+        <CardFace card={card} now={now} onOpen={onOpen} />
       </div>
-      <div className="eva-ab-cardtitle">{card.title}</div>
-      <div className="eva-ab-cardmeta">
-        <Tooltip label={card.reason} openDelay={400} multiline maw={320}>
-          <span className="eva-ab-pill">
-            <ListPill
-              tone={PILL_TONE[card.pill.tone]}
-              icon={
-                running ? (
-                  <IconLoader2 size={12} className="eva-list-spin" aria-hidden />
-                ) : undefined
-              }
-            >
-              {card.pill.label}
-            </ListPill>
-          </span>
-        </Tooltip>
-        {card.pr && Pr ? (
-          <Tooltip label={prWords(card.pr)} openDelay={400}>
-            <span className="eva-ab-chip" data-pr={card.pr.state ?? 'unknown'}>
-              <Pr size={14} stroke={1.75} aria-hidden />#{card.pr.number}
-            </span>
-          </Tooltip>
-        ) : null}
-        {card.session || card.agent ? (
-          <Tooltip label={[card.agent, card.session].filter(Boolean).join(': ')} openDelay={400}>
-            <span className="eva-ab-chip eva-ab-run">
-              <Run size={14} stroke={1.5} aria-hidden />
-              <span className="eva-ab-runname">{card.session ?? card.agent}</span>
-            </span>
-          </Tooltip>
-        ) : null}
-      </div>
-    </div>
+    </Tooltip>
   )
 }
