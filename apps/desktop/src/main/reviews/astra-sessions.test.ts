@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { makeMessage } from '@evaos/chat-core/message'
 import { astraItemUrl } from '@evaos/contract'
-import { ASK_MARK, keyStore, seedPrompt, toTurns } from './astra-sessions'
+import {
+  ASK_MARK,
+  ITEM_SESSION_TOOLS,
+  keyStore,
+  launchArgs,
+  seedPrompt,
+  storeKey,
+  toTurns,
+} from './astra-sessions'
 
 describe('reviews astra sessions', () => {
   it('seeds a new item session with her prime, memory, the item, then the question', () => {
@@ -84,5 +92,40 @@ describe('reviews astra sessions', () => {
       [short]: { title: 'Astra · ENG-6504', file: '/s/a.jsonl' },
       [pr]: { title: 'Astra · app#170', file: null },
     })
+  })
+
+  it('keeps each assistant’s session on an item apart, old bare entries as Astra’s', () => {
+    const short = 'https://linear.app/issue/ENG-6504'
+    expect(storeKey('astra', short)).toBe(short)
+    expect(storeKey('nova', short)).toBe(`nova|${short}`)
+    expect(
+      keyStore({
+        'https://linear.app/ecard-systems/issue/ENG-6504/fix': { title: 'Astra · x', file: null },
+        'nova|https://linear.app/ecard-systems/issue/ENG-6504/fix': {
+          title: 'Nova · x',
+          file: null,
+        },
+      }),
+    ).toEqual({
+      [short]: { title: 'Astra · x', file: null },
+      [`nova|${short}`]: { title: 'Nova · x', file: null },
+    })
+  })
+
+  it('launches with the read-only tool allowlist, profile or not', () => {
+    const tools = `--tools=${ITEM_SESSION_TOOLS}`
+    expect(launchArgs({ id: 'nova', title: 'Nova' }, '/agent')).toEqual(['--no-title', tools])
+    expect(
+      launchArgs({ id: 'astra', title: 'Astra', profile: 'work', model: 'm' }, '/agent'),
+    ).toEqual([
+      '--no-title',
+      tools,
+      '--profile',
+      'work',
+      '--config',
+      '/agent/config.yml',
+      '--model',
+      'm',
+    ])
   })
 })

@@ -29,6 +29,8 @@ export const TICKETS_WRITES_FEATURE = "tickets.writes";
 export const REVIEWS_ACTIONS_FEATURE = "reviews.actions";
 /** Reviews Guide v2 on `reviews.req`. */
 export const REVIEWS_GUIDE2_FEATURE = "reviews.guide2";
+/** Reviews item sessions with any registry assistant: `agent` on `astraAsk`/`astra`. */
+export const REVIEWS_ASSISTANTS_FEATURE = "reviews.assistants";
 
 /** Tickets on the board (the host's store cap). */
 export const MAX_TICKETS = 500;

@@ -336,10 +336,17 @@ export const AstraItem = z.object({
   /** A question or approval the session is blocked on, answered from the session. */
   waiting: z.string().nullable(),
   error: z.string().nullable(),
+  /** The assistant's registry id when it is not Astra (absent means Astra, and on older hosts). */
+  agent: z.string().optional(),
 });
 export type AstraItem = z.infer<typeof AstraItem>;
 
 const Body = z.string().min(1).max(MAX_REVIEW_TEXT);
+/**
+ * A registry assistant id ("astra", "nova"): each has its own private session per item. Sent only
+ * to a host whose `welcome.features` has REVIEWS_ASSISTANTS_FEATURE.
+ */
+const ItemAssistant = z.string().regex(/^[a-z][a-z0-9-]*$/).max(64);
 
 /**
  * Approve on an eCard auto-work draft PR: its ledger on the host is at "9 PR (draft)" with the move
@@ -407,10 +414,10 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
     threadTs: SlackTs.nullable(),
     text: Body,
   }),
-  /** Isaac's question to the item's Astra session, starting or resuming it first. */
-  z.object({ kind: z.literal("astraAsk"), url: nonEmpty, ref: ReviewRef, text: Body }),
-  /** The item's Astra session, if it has one. */
-  z.object({ kind: z.literal("astra"), url: nonEmpty }),
+  /** Isaac's question to the item's session with `agent` (Astra when absent), starting or resuming it first. */
+  z.object({ kind: z.literal("astraAsk"), url: nonEmpty, ref: ReviewRef, text: Body, agent: ItemAssistant.optional() }),
+  /** The item's session with `agent` (Astra when absent), if it has one. */
+  z.object({ kind: z.literal("astra"), url: nonEmpty, agent: ItemAssistant.optional() }),
   /** Hides an item until `until` (epoch ms); null brings it back now. */
   z.object({ kind: z.literal("snooze"), url: nonEmpty, until: ms.nullable() }),
   /** Marks an item seen (`read`, with the `updatedAt` it was seen at) or unread again. */

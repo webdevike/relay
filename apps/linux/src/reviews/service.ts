@@ -125,6 +125,8 @@ export class ReviewsService implements ReviewsRelaying {
       },
       clock: deps.clock,
       log: deps.log,
+      // Item sessions read only: hostile ticket or PR text can't reach Linear or GitHub through them.
+      readOnly: true,
     });
     this.donePath = join(deps.dir, "done.json");
     this.done = readMarks(this.donePath);
@@ -282,10 +284,10 @@ export class ReviewsService implements ReviewsRelaying {
       }
       case "astraAsk": {
         const label = this.label(op.ref);
-        return { astra: await this.astra.ask(op.url, `Astra · ${label}`, label, () => this.context(op.ref, op.url, label), op.text) };
+        return { astra: await this.astra.ask(op.url, `${this.astra.agentName(op.agent)} · ${label}`, label, () => this.context(op.ref, op.url, label), op.text, op.text, op.agent) };
       }
       case "astra":
-        return { astra: await this.astra.snapshot(op.url) };
+        return { astra: await this.astra.snapshot(op.url, op.agent) };
       case "prList":
         return { prs: await this.github.list(op.list) };
       case "prView":
