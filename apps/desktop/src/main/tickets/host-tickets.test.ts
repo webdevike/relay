@@ -8,7 +8,7 @@ import {
   type TicketBoardFacts,
 } from '@relay/protocol'
 import type { RelayFeatures, RelayFrames } from '../relay/client'
-import { createHostTickets, type HostTickets } from './host-tickets'
+import { createHostTickets, replan, savePlan, type HostTickets } from './host-tickets'
 
 const fixture = JSON.parse(
   fs.readFileSync(path.join(__dirname, '../../../e2e/fixtures/tickets/board.json'), 'utf8'),
@@ -178,5 +178,73 @@ describe('host tickets', () => {
     host.push({ t: 'tickets.res', rid: r2, ok: false, error: 'No key' })
     expect(await refused).toMatchObject({ ok: true, res: { refused: { code: 'writesOff' } } })
     await expect(failed).rejects.toThrow('No key')
+  })
+})
+
+describe('Timeline plan routes', () => {
+  const proposal = {
+    summary: 'Ship Beta',
+    changes: [{ key: 'ENG-9001', dueDate: '2026-12-09', reason: 'fits' }],
+  }
+  const sentOps = (host: FakeHost): unknown[] =>
+    host.sent.filter((f) => f.t === 'tickets.req').map((f) => f.op)
+
+  it('sends plan and replan to a host with tickets and passes its answers through', async () => {
+    const host = new FakeHost()
+    const b = bridge(host)
+    await settle()
+    host.silent = true
+    const saved = savePlan(b, [{ key: 'ENG-9001', plannedStart: '2026-12-01' }])
+    const asked = replan(b, { projectId: 'project-board', milestoneId: 'ms-1' })
+    const unreadable = replan(b, { projectId: 'project-board' })
+    const [r1, r2, r3] = host.sent.slice(-3).map((f) => f.rid)
+    host.push({ t: 'tickets.res', rid: r1, ok: true })
+    host.push({ t: 'tickets.res', rid: r2, ok: true, proposal })
+    host.push({
+      t: 'tickets.res',
+      rid: r3,
+      ok: false,
+      refused: { code: 'invalid', message: 'Couldn’t read a plan from this answer' },
+    })
+    expect(await saved).toEqual({ source: 'host' })
+    expect(await asked).toEqual({ source: 'host', proposal })
+    expect(await unreadable).toEqual({
+      source: 'host',
+      refused: { code: 'invalid', message: 'Couldn’t read a plan from this answer' },
+    })
+    expect(sentOps(host).slice(1)).toEqual([
+      { kind: 'plan', rows: [{ key: 'ENG-9001', plannedStart: '2026-12-01' }] },
+      { kind: 'replan', projectId: 'project-board', milestoneId: 'ms-1' },
+      { kind: 'replan', projectId: 'project-board' },
+    ])
+  })
+
+  it('rejects a host error on replan', async () => {
+    const host = new FakeHost()
+    const b = bridge(host)
+    await settle()
+    host.silent = true
+    const asked = replan(b, { projectId: 'project-board' })
+    host.push({ t: 'tickets.res', rid: host.sent.at(-1)!.rid, ok: false, error: 'No Astra' })
+    await expect(asked).rejects.toThrow('No Astra')
+  })
+
+  it('answers the fallback and sends no frame when the host has no tickets', async () => {
+    const host = new FakeHost()
+    host.features = []
+    const b = bridge(host)
+    expect(await savePlan(b, [{ key: 'ENG-9001', plannedStart: null }])).toMatchObject({
+      source: 'fallback',
+      reason: 'oldHost',
+    })
+    expect(await replan(b, { projectId: 'project-board' })).toMatchObject({
+      source: 'fallback',
+      reason: 'oldHost',
+    })
+    host.connected = false
+    expect(await replan(b, { projectId: 'project-board' })).toMatchObject({
+      reason: 'disconnected',
+    })
+    expect(host.sent.filter((f) => String(f.t).startsWith('tickets.'))).toEqual([])
   })
 })

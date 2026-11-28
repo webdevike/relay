@@ -543,6 +543,8 @@ export const TicketPlanProposal = z.object({
       }),
     )
     .max(MAX_TICKET_PLAN_ROWS),
+  /** Keys whose ticket changed since Astra's baseline (the host's check); Apply checks again. */
+  stale: z.array(TicketKey).max(MAX_TICKET_PLAN_ROWS).optional(),
 });
 export type TicketPlanProposal = z.infer<typeof TicketPlanProposal>;
 

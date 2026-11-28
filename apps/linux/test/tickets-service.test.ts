@@ -28,7 +28,7 @@ describe("tickets opt-in (host.json)", () => {
 });
 
 describe("TicketsService ops", () => {
-  it("plan keeps Relay-only starts in plan.json and pushes them on the cards; replan is not available yet", async () => {
+  it("plan keeps Relay-only starts in plan.json and pushes them on the cards; replan needs Astra's sessions", async () => {
     const h = started();
     await h.settled();
     const card = async () => (await h.service.handle("desk", { kind: "board" })).board?.tickets[0];
@@ -39,7 +39,7 @@ describe("TicketsService ops", () => {
     expect(JSON.parse(readFileSync(join(h.dir, "plan.json"), "utf8"))).toEqual({ v: 1, starts: { "ENG-1": "2026-12-01" } });
     await h.service.handle("desk", { kind: "plan", rows: [{ key: "ENG-1", plannedStart: null }] });
     expect((await card())?.plannedStart).toBeUndefined();
-    expect(await h.service.handle("desk", { kind: "replan", projectId: "project-1" })).toEqual({ ok: false, error: "Not available yet" });
+    expect(await h.service.handle("desk", { kind: "replan", projectId: "project-1" })).toEqual({ ok: false, error: "Astra is not available on this host" });
   });
 
   it("summarizes a synced ticket once per snapshot; without Claude it answers an error", async () => {

@@ -995,6 +995,15 @@ function serve(
         writes: ticketsOn.writes,
         log,
         summaryWriter: claudeWriter(bunRun, resolveClaude()),
+        // Ask Astra to re-plan: a private read-only item session per Timeline scope.
+        astra: {
+          agents,
+          launch: agentHome === null ? null : (options) => agents.launchJoined(options),
+          sessionFile: (sessionId) => agents.sessionFile(sessionId),
+          agentHome,
+          socketPath: defaultSocketPath(),
+          clock: systemClock,
+        },
       });
   const meetings = meetingsService({
     agentHome,

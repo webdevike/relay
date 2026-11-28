@@ -74,6 +74,15 @@ export const LIVE_PLAN_DEPS: PlanDeps = {
     const r = await host(invoke('tickets.commit', input))
     return r.refused ? { refused: r.refused } : { outcome: TicketOutcome.parse(r.outcome) }
   },
+  savePlannedStarts: async (rows) => {
+    await host(invoke('tickets.plan', { rows }))
+  },
+  // `invalid`: Astra's answer wasn't a readable plan (the machine says so); other refusals throw.
+  replan: async (scope) => {
+    const r = await host(invoke('tickets.replan', scope))
+    if (r.refused && r.refused.code !== 'invalid') throw new Error(r.refused.message)
+    return r.refused ? null : r.proposal
+  },
 }
 
 function refusal(r: Refused['refused'], rows: readonly DraftRow[]): ApplyOutput {

@@ -7,15 +7,20 @@ import {
   MAX_TICKET_WATCH,
   MAX_TICKET_WATCH_TTL_MS,
   TicketMutation,
-  type TicketsOp,
-  type TicketsResult,
   type TicketsStatus,
 } from '@relay/protocol'
-import type { TicketsFallback } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
 import type { RelayFeatures, RelayFrames, RelaySource } from '../relay/client'
-import { createHostTickets, fallback, type HostTickets, type TicketsView } from './host-tickets'
+import {
+  ask,
+  createHostTickets,
+  fallback,
+  replan,
+  savePlan,
+  type HostTickets,
+  type TicketsView,
+} from './host-tickets'
 
 /** Push bursts become one `tickets.changed`, like `agents.changed`. */
 const CHANGED_DEBOUNCE_MS = 400
@@ -41,16 +46,6 @@ export function ticketsWatch(keys: readonly string[]): void {
   if (!bridge || keys.length === 0) return
   const op = { kind: 'watch', keys: keys.slice(0, MAX_TICKET_WATCH), ttlMs: WATCH_TTL_MS } as const
   void bridge.req(op).catch(() => undefined)
-}
-
-/** A plain host answer: `{source:'host', ...pick(result)}`, or the fallback as is. */
-async function ask<T extends object>(
-  host: HostTickets,
-  op: TicketsOp,
-  pick: (res: TicketsResult) => T,
-): Promise<({ source: 'host' } & T) | TicketsFallback> {
-  const a = await host.req(op)
-  return 'ok' in a ? { source: 'host', ...pick(a.res) } : a
 }
 
 export function registerTicketsIpc(
@@ -124,6 +119,8 @@ export function registerTicketsIpc(
       return { summary: res.summary }
     }),
   )
+  handle(ctx, 'tickets.plan', ({ rows }) => savePlan(host, rows))
+  handle(ctx, 'tickets.replan', (scope) => replan(host, scope))
 
   return () => {
     clearTimeout(timer ?? undefined)
