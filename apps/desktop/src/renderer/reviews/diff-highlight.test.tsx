@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { parseHunks } from './diff'
+import { parseHunks } from '@relay/protocol/unified-diff'
 import { DiffView } from './DiffView'
 import { highlightHunks, languageForPath, splitHighlighted } from './diff-highlight'
 

@@ -7,7 +7,7 @@ import { openLink } from '../navigation/open-link'
 import { EvaMenu } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { DiffView } from './DiffView'
-import { parseDiff, splitPath } from './diff'
+import { parseDiff, splitPath } from '@relay/protocol/unified-diff'
 
 const two = (n: number): string => String(n).padStart(2, '0')
 
