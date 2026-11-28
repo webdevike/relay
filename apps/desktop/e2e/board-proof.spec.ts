@@ -19,6 +19,7 @@ import { pickScheme } from './helpers/appearance'
 import { makeEvaFixture } from './helpers/eva-fixture'
 import { FakeRelayHost } from './helpers/fake-relay-host'
 import { REPO_ROOT } from './helpers/paths'
+import { hostProposal, hostViewerId } from './helpers/timeline-proposal'
 
 const PHASE = process.env['PROOF_PHASE'] === 'before' ? 'before' : 'after'
 const AFTER = PHASE === 'after'
@@ -240,6 +241,12 @@ const test = base.extend<{ hostMode: HostMode }>({
     }
     const tickets = boardTickets()
     host.tickets.board.tickets = hostMode === 'timeline' ? timelineTickets() : tickets
+    // Astra's answer as the host sends it: with its baseline and the account it read the board as.
+    if (hostMode === 'timeline')
+      host.replanProposal = hostProposal(
+        host.tickets.board.tickets,
+        hostViewerId(host.tickets.status),
+      )
     const freshness = host.tickets.status['freshness'] as Json
     freshness['lastSyncAt'] = NOW_MS - 120_000
     host.serveReviews(PR_FIXTURES)

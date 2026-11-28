@@ -21,7 +21,7 @@ import { staysPut, targetState, type TeamState } from './column-states'
 import { agentsBoardStore } from './agents-store'
 
 /** The Linear account the Board shows (the host's `tickets.status` identity); writes carry it. */
-function viewerId(): string {
+export function boardViewerId(): string {
   const id = agentsBoardStore.getState().board?.sources.tickets.viewerId ?? null
   if (id === null) throw new Error('The host hasn’t said which Linear account it writes as yet.')
   return id
@@ -90,14 +90,14 @@ async function resolve(card: AgentCard, to: AgentColumn): Promise<MoveResolution
 }
 
 async function prepare(mutation: SetStateMutation): Promise<PrepareResult> {
-  const r = await host(invoke('tickets.prepare', { viewerId: viewerId(), mutation }))
+  const r = await host(invoke('tickets.prepare', { viewerId: boardViewerId(), mutation }))
   if (r.refused) return { kind: 'refused', ...r.refused }
   return { kind: 'approved', approvalId: TicketApproval.parse(r.approval).id }
 }
 
 /** The write; a missing answer rejects, and the machine reads the ticket before anything else. */
 async function commit({ opId, approvalId, mutation }: CommitInput): Promise<CommitResult> {
-  const input = { viewerId: viewerId(), opId, mutation, ...(approvalId ? { approvalId } : {}) }
+  const input = { viewerId: boardViewerId(), opId, mutation, ...(approvalId ? { approvalId } : {}) }
   const r = await host(invoke('tickets.commit', input))
   if (r.refused) return { kind: 'refused', ...r.refused }
   const outcome = TicketOutcome.parse(r.outcome)

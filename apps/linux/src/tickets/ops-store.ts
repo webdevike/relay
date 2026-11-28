@@ -14,6 +14,8 @@ const RowOutcome = z.object({
   opId: z.string(),
   state: z.enum(["done", "failed", "unknown"]),
   error: z.string().optional(),
+  /** applyPlan: SHA-256 of the row as sent; the gate dedupes a row opId only for the same change. */
+  hash: z.string().optional(),
 });
 
 /** What a finished write answered (TicketOutcome.result without `error`). */
@@ -78,6 +80,11 @@ export class OpsStore {
   ) {
     this.file = join(dir, "ops.json");
     this.ops = loadOps(this.file);
+  }
+
+  /** Every record (the gate's applyPlan looks up earlier rows by their own opId). */
+  records(): IterableIterator<OpRecord> {
+    return this.ops.values();
   }
 
   get(opId: string): OpRecord | undefined {

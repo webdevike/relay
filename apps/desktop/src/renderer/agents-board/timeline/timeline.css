@@ -1,0 +1,224 @@
+/* The Board's Timeline (SVAR Gantt) restyled through SVAR's own --wx-* variables only. */
+
+.rb-timeline {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm);
+  box-sizing: border-box;
+  outline: none;
+}
+
+.rb-timeline-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  flex-wrap: wrap;
+}
+
+.rb-timeline-hint {
+  margin-right: auto;
+}
+
+.rb-timeline-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+}
+
+.rb-timeline[data-narrow] .rb-timeline-body {
+  flex-direction: column;
+}
+
+.rb-timeline-chart {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  overflow: hidden;
+}
+
+.rb-timeline-nodate {
+  flex: 0 0 220px;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+}
+
+.rb-timeline[data-narrow] .rb-timeline-nodate {
+  flex: 0 0 auto;
+  max-height: 30%;
+}
+
+.rb-nodate-item {
+  display: flex;
+  flex-direction: column;
+  padding: var(--mantine-spacing-xs);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.rb-nodate-item:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.rb-timeline-chart .wx-willow-dark-theme {
+  height: 100%;
+  --wx-font-family: var(--mantine-font-family);
+  --wx-background: var(--mantine-color-body);
+  --wx-background-alt: var(--eva-color-surface);
+  --wx-background-hover: var(--mantine-color-default-hover);
+  --wx-color-font: var(--mantine-color-text);
+  --wx-color-font-alt: var(--mantine-color-dimmed);
+  --wx-color-primary: var(--mantine-primary-color-filled);
+  --wx-border-color: var(--mantine-color-default-border);
+  --wx-border: 1px solid var(--wx-border-color);
+  --wx-border-light: 1px solid var(--wx-border-color);
+  --wx-gantt-border-color: var(--wx-border-color);
+  --wx-gantt-border: 1px solid var(--wx-border-color);
+  --wx-grid-body-row-border: 1px solid var(--wx-border-color);
+  --wx-timescale-border: 1px solid var(--wx-border-color);
+  --wx-gantt-select-color: var(--mantine-primary-color-light);
+  --wx-gantt-task-color: var(--mantine-color-blue-filled);
+  --wx-gantt-task-fill-color: var(--mantine-color-blue-filled);
+  --wx-gantt-task-border-color: var(--mantine-color-blue-filled);
+  --wx-gantt-summary-color: var(--mantine-color-dark-5);
+  --wx-gantt-summary-fill-color: var(--mantine-color-dark-5);
+  --wx-gantt-summary-border-color: var(--mantine-color-dark-4);
+  --wx-gantt-bar-border-radius: var(--mantine-radius-sm);
+  --wx-gantt-bar-shadow: none;
+  --wx-gantt-holiday-background: var(--eva-color-surface);
+}
+
+/* Milestone targets and today, portaled into SVAR's .wx-area by DateLines; their labels go on
+   the sticky .wx-scale (the time scale), centered on the line in its last row: an empty band
+   (TimelineView's LABEL_BAND) below the dates, so a label never covers a tick or a date. */
+.rb-timeline-chart .wx-scale > .wx-row:last-of-type .wx-cell {
+  border-right-color: transparent;
+}
+
+/* Date lines and the draft's ghosts run beneath the bars: SVAR's bar layer is lifted above them,
+   so a bar and its label always cover a line or ghost that crosses it. */
+.rb-timeline-chart .wx-area > .wx-bars {
+  z-index: 2;
+}
+
+.rb-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.rb-line-release {
+  border-left: 2px dashed var(--mantine-color-violet-filled);
+}
+
+.rb-line-today {
+  border-left: 2px solid var(--mantine-color-red-filled);
+}
+
+.rb-line-label {
+  position: absolute;
+  bottom: 2px;
+  z-index: 1;
+  transform: translateX(-50%);
+  padding: 0 var(--mantine-spacing-xs);
+  white-space: nowrap;
+  font-size: var(--eva-fz-caption);
+  line-height: 18px;
+  border: 1px solid currentColor;
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-body);
+  pointer-events: none;
+}
+
+.rb-line-label-release {
+  color: var(--mantine-color-violet-text);
+}
+
+.rb-line-label-today {
+  color: var(--mantine-color-red-text);
+}
+
+/* The draft's ghost bars at their new dates, under the bars (over the date lines). */
+.rb-ghost {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 1px dashed var(--mantine-color-violet-filled);
+  border-radius: var(--mantine-radius-sm);
+  background: color-mix(in srgb, var(--mantine-color-violet-filled) 20%, transparent);
+  pointer-events: none;
+}
+
+.rb-ghost[data-error] {
+  border-color: var(--mantine-color-red-filled);
+  background: color-mix(in srgb, var(--mantine-color-red-filled) 20%, transparent);
+}
+
+.rb-plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-violet-outline);
+  border-radius: var(--mantine-radius-md);
+  background: var(--eva-color-surface);
+}
+
+.rb-plan-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 160px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.rb-plan-key {
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-semibold);
+}
+
+.rb-plan-reason {
+  color: var(--mantine-color-dimmed);
+  font-style: italic;
+}
+
+/* The Board page's Timeline view: fills the page under the header. */
+.rb-timeline-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rb-timeline-pane > .rb-timeline {
+  flex: 1 1 0;
+}
+
+.rb-timeline-note {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md) 0;
+}
+
+/* SVAR's bundled themes name Open Sans and Roboto from its CDN (no network from here, and the CSP
+   blocks it): every SVAR theme, portals included, uses the app's font instead. */
+body .wx-willow-dark-theme,
+body .wx-willow-theme,
+body .wx-material-theme {
+  --wx-font-family: var(--mantine-font-family);
+}

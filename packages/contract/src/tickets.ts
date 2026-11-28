@@ -112,6 +112,19 @@ export const ticketsInvoke = {
     input: z.object({ key: TicketKey }).strict(),
     output: fromHost({ summary: z.looseObject({}) }),
   },
+  /**
+   * Ask Astra (private, read-only, never posted) to re-plan a project or one milestone: her
+   * validated proposal (protocol TicketPlanProposal), or `refused` when it isn't a readable plan.
+   */
+  'tickets.replan': {
+    input: z
+      .object({
+        projectId: z.string().min(1).max(200),
+        milestoneId: z.string().min(1).max(200).optional(),
+      })
+      .strict(),
+    output: fromHost({ proposal: z.looseObject({}).optional(), refused: RefusedSchema.optional() }),
+  },
 } as const
 
 export const ticketsEvents = {

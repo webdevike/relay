@@ -8,8 +8,10 @@
 
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { join } from "node:path";
+import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketMutation, type TicketOutcome, type TicketPlanRow, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
+import { AstraSessions, type AstraSessionsDeps } from "../reviews/astra";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
 import { githubExecutor, StaleGithubCredential } from "../reviews/github-writes";
@@ -25,7 +27,9 @@ import { MutationGate, type GatePin } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
-import { linearExecutor } from "./linear-writes";
+import { linearExecutor, startsSaveCheck } from "./linear-writes";
+import { planFreshness, PlanStore, START_MOVED, type LiveIssue, type StartRow } from "./plan";
+import { Replanner, timelineSeed } from "./replan";
 import { boundComments, boundTeams, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
 import { SummaryCache, type SummarySnapshot, type SummaryWriter } from "./summary";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
@@ -63,6 +67,8 @@ export interface TicketsServiceDeps {
   readonly summaryWriter?: SummaryWriter;
   /** gh for PR writes (reviews `prPrepare`/`prCommit`); absent: the gate refuses them. */
   readonly ghWrites?: GhWrites;
+  /** Astra's re-plans (a private read-only item session); absent: `replan` answers an error. */
+  readonly replanner?: Pick<Replanner, "replan" | "stop">;
 }
 
 export interface GhWrites {
@@ -70,13 +76,14 @@ export interface GhWrites {
   readonly gh: string;
 }
 
-const UNAVAILABLE: Answer = { ok: false, error: "Not available yet" };
 const PR_WRITES_OFF: Answer = { ok: false, refused: { code: "writesOff", message: "Writing to GitHub is off on this host" } };
 const NO_ATTENTION: Attention = { waiting: [], needsYou: null };
 const clip = (s: string | null): string | null => (s === null ? null : s.slice(0, 2000));
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 /** A key is compared by its hash; the key itself is never kept. */
 const sha256 = (s: string): string => createHash("sha256").update(s).digest("hex");
+/** A plan row with no Linear field: its only effect is its Relay start. */
+const startOnlyRow = (r: TicketPlanRow): boolean => r.plannedStart !== undefined && r.dueDate === undefined && r.priority === undefined && r.prioritySortOrder === undefined;
 /** A ticket page's description (UTF-8 bytes), each comment body and all comment bodies, before the frame cap. */
 const MAX_DETAIL_DESCRIPTION_BYTES = 256 * 1024;
 const MAX_DETAIL_COMMENT_BYTES = 64 * 1024;
@@ -96,6 +103,9 @@ export class TicketsService implements TicketsRelaying {
   private readonly handled: HandledStore;
   private readonly seen: SeenStore;
   private readonly anchors: AnchorStore;
+  private readonly plan: PlanStore;
+  /** Relay starts a running plan commit holds (`viewerId issueId` -> its batch opId). */
+  private readonly startHolds = new Map<string, string>();
   private readonly linear: LinearSync;
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
@@ -124,6 +134,7 @@ export class TicketsService implements TicketsRelaying {
     this.summaries = deps.summaryWriter === undefined ? null : new SummaryCache(deps.dir, deps.summaryWriter, deps.now);
     this.seen = new SeenStore(deps.dir);
     this.anchors = new AnchorStore(deps.dir, deps.now);
+    this.plan = new PlanStore(deps.dir);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
     this.github = new GithubSync(deps.ghGraphql, this.store);
     this.gate =
@@ -163,6 +174,7 @@ export class TicketsService implements TicketsRelaying {
 
   stop(): void {
     this.actor.stop();
+    this.deps.replanner?.stop();
   }
 
   /** Never rejects: a failure is `{ ok: false, error }`. */
@@ -186,11 +198,10 @@ export class TicketsService implements TicketsRelaying {
       },
       seen: (o) => ({ ok: true, previousSeenAt: this.seen.visit(o.key, this.deps.now()) }),
       handled: (o) => this.markHandled(o),
-      prepare: (o) => this.gate.prepare({ deviceId }, o.mutation, o.viewerId),
+      prepare: (o) => this.prepare(deviceId, o),
       commit: (o) => this.commit(deviceId, o),
       summary: (o) => this.summary(o.key),
-      plan: () => UNAVAILABLE,
-      replan: () => UNAVAILABLE,
+      replan: (o) => (this.deps.replanner === undefined ? { ok: false, error: "Astra is not available on this host" } : this.deps.replanner.replan(o, { tickets: () => this.board().tickets, live: (ids) => this.liveIssues(ids), viewerId: this.me().linearViewerId })),
     };
     const answer = (ops[op.kind] as (o: TicketsOp) => Promise<Answer> | Answer)(op);
     return Promise.resolve(answer);
@@ -305,17 +316,151 @@ export class TicketsService implements TicketsRelaying {
     return { ok: true };
   }
 
+  /** A confirmed write's approval; a plan made from a Relay start another device has moved since is refused. */
+  private async prepare(deviceId: string, op: Op<"prepare">): Promise<Answer> {
+    const answer = await this.gate.prepare({ deviceId }, op.mutation, op.viewerId);
+    if (answer.approval === undefined || op.mutation.kind !== "applyPlan") return answer;
+    const moved = op.mutation.rows.find((r) => (r.plannedStart !== undefined || r.basePlannedStart !== undefined) && this.plan.get(op.viewerId, r.issueId) !== (r.basePlannedStart ?? null));
+    return moved === undefined ? answer : { ok: false, refused: { code: "conflict", message: `${moved.key}: ${START_MOVED}` } };
+  }
+
   private async commit(deviceId: string, op: Op<"commit">): Promise<Answer> {
-    const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.viewerId);
-    // An inline comment made here keeps where its quote sat (Relay-only); a lost answer may still
-    // have landed under the opId, Linear's id for it.
     const m = op.mutation;
-    if (m.kind === "comment" && m.anchor !== undefined && answer.outcome !== undefined && answer.outcome.state !== "failed") {
-      this.anchors.set(answer.outcome.result?.id ?? op.opId, m.anchor);
-    }
-    // The board shows the write once Linear has it: one coalesced cycle.
-    if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
+    if (m.kind === "applyPlan") return this.commitPlan(deviceId, op, m.rows);
+    const answer = await this.gateCommit(deviceId, op);
+    if (m.kind === "comment") this.keepAnchor(m, op.opId, answer);
     return answer;
+  }
+
+  private async gateCommit(deviceId: string, op: Op<"commit">): Promise<Answer> {
+    const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.viewerId);
+    // The board shows the write once Linear has it (any plan row of it): one coalesced cycle.
+    if (answer.outcome?.result?.rows?.some((r) => r.state === "done") ?? answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
+    return answer;
+  }
+
+  /**
+   * A plan's Relay starts are held for the whole commit (another batch changing one of them waits
+   * its turn: refused), and a confirmed commit rechecks them before anything goes to Linear: a start
+   * another device moved since the confirm refuses the plan with nothing written. A batch's own
+   * saved starts (a replayed outcome) pass.
+   */
+  private async commitPlan(deviceId: string, op: Op<"commit">, rows: readonly TicketPlanRow[]): Promise<Answer> {
+    const starts = rows.filter((r) => r.plannedStart !== undefined).map((r) => ({ row: r, hold: `${op.viewerId} ${r.issueId}` }));
+    const busy = starts.find((s) => (this.startHolds.get(s.hold) ?? op.opId) !== op.opId);
+    if (busy !== undefined) return { ok: false, refused: { code: "conflict", message: `${busy.row.key}: another Apply is changing its Relay start right now` } };
+    const moved = op.approvalId === undefined ? undefined : rows.find((r) => this.startMoved(op.viewerId, r));
+    if (moved !== undefined) return { ok: false, refused: { code: "conflict", message: `${moved.key}: ${START_MOVED}` } };
+    for (const s of starts) this.startHolds.set(s.hold, op.opId);
+    try {
+      return await this.saveStarts(op.viewerId, rows, this.savedStarts(op.viewerId, rows, await this.gateCommit(deviceId, op)));
+    } finally {
+      for (const s of starts) if (this.startHolds.get(s.hold) === op.opId) this.startHolds.delete(s.hold);
+    }
+  }
+
+  /** Whether another device moved this row's Relay start since its draft (its own saved start: no). */
+  private startMoved(viewerId: string, r: TicketPlanRow): boolean {
+    if (r.plannedStart === undefined && r.basePlannedStart === undefined) return false;
+    if (this.plan.applied(viewerId, r.opId)) return false;
+    const now = this.plan.get(viewerId, r.issueId);
+    return now !== (r.basePlannedStart ?? null) && (r.plannedStart === undefined || now !== r.plannedStart);
+  }
+
+  /**
+   * An inline comment made here keeps where its quote sat (Relay-only); a lost answer may still
+   * have landed under the opId, Linear's id for it.
+   */
+  private keepAnchor(m: Extract<TicketMutation, { kind: "comment" }>, opId: string, answer: Answer): void {
+    if (m.anchor !== undefined && answer.outcome !== undefined && answer.outcome.state !== "failed") this.anchors.set(answer.outcome.result?.id ?? opId, m.anchor);
+  }
+
+  /**
+   * A start-only row's only effect is its Relay start: once this host saved it (its durable record
+   * in plan.json), the row is done, whatever Linear shows now (a lost answer, a Check). Without that
+   * record nothing is inferred here: the gate's live check decides it.
+   */
+  private savedStarts(viewerId: string, rows: readonly TicketPlanRow[], answer: Answer): Answer {
+    const outcome = answer.outcome;
+    const results = outcome?.result?.rows;
+    const saved = new Set(rows.filter((r) => startOnlyRow(r) && this.plan.applied(viewerId, r.opId)).map((r) => r.opId));
+    if (outcome === undefined || results === undefined || !results.some((o) => o.state !== "done" && saved.has(o.opId))) return answer;
+    const next = results.map((o) => (saved.has(o.opId) ? { key: o.key, opId: o.opId, state: "done" as const } : o));
+    const state: TicketOutcome["state"] = next.some((r) => r.state === "unknown") ? "unknown" : next.some((r) => r.state === "failed") ? "failed" : "done";
+    const out: TicketOutcome = { ...outcome, state, result: { ...outcome.result, rows: next } };
+    return state === "failed" ? { ok: false, error: answer.error ?? "Not every change was written", outcome: out } : { ok: true, outcome: out };
+  }
+
+  /**
+   * applyPlan's Relay starts, under the same approved op: saved for each row the gate reports done
+   * (a start-only row is done without a Linear write) that isn't already in plan.json's saved-start
+   * record, only after a fresh Linear read still holds it up (a gate-done replay included) and while
+   * its start is still the one the draft was made from; failed and unknown rows leave starts
+   * untouched. A start that can't be saved turns its row failed with why, so the device never shows
+   * it applied.
+   */
+  private async saveStarts(viewerId: string, rows: readonly TicketPlanRow[], answer: Answer): Promise<Answer> {
+    const outcome = answer.outcome;
+    const results = outcome?.result?.rows;
+    if (outcome === undefined || results === undefined) return answer;
+    const byOp = new Map(rows.map((r) => [r.opId, r]));
+    const starts = results.flatMap((o): (TicketPlanRow & StartRow)[] => {
+      const row = byOp.get(o.opId);
+      const start = row?.plannedStart;
+      return row !== undefined && start !== undefined && o.state === "done" && !this.plan.applied(viewerId, o.opId) ? [{ ...row, plannedStart: start }] : [];
+    });
+    const problems = await this.storeStarts(viewerId, starts);
+    if (problems.size === 0) return answer;
+    const next = results.map((o) => {
+      const problem = problems.get(o.opId);
+      const row = byOp.get(o.opId);
+      const linear = row !== undefined && !startOnlyRow(row);
+      return problem === undefined ? o : { ...o, state: "failed" as const, error: linear ? `Written to Linear, but ${problem}` : `Not saved: ${problem}` };
+    });
+    const state = next.some((r) => r.state === "unknown") ? "unknown" : "failed";
+    return { ok: false, error: "Not every change was saved", outcome: { ...outcome, state, result: { ...outcome.result, rows: next } } };
+  }
+
+  /**
+   * The one place a Relay start is saved: each start is checked against a fresh Linear read (its
+   * issue still at the draft's revision, or still showing what the row wrote, with a valid
+   * start/due pair), then against plan.json (still the draft's base), then all are saved in one
+   * write; why each other one wasn't.
+   */
+  private async storeStarts(viewerId: string, rows: readonly (TicketPlanRow & StartRow)[]): Promise<Map<string, string>> {
+    const problems = new Map<string, string>();
+    if (rows.length === 0) return problems;
+    const linear = await this.startsInLinear(rows);
+    const ok = rows.filter((r) => {
+      const problem = linear.get(r.opId) ?? this.plan.startProblem(viewerId, r);
+      if (problem !== null) problems.set(r.opId, problem);
+      return problem === null;
+    });
+    if (ok.length === 0) return problems;
+    try {
+      this.plan.save(viewerId, ok);
+      this.publish();
+    } catch (error) {
+      for (const r of ok) problems.set(r.opId, `Relay couldn't save its start (${text(error)})`);
+    }
+    return problems;
+  }
+
+  /** Linear's verdict on each start before it is saved (one read with the host's own key); a failed read refuses them all. */
+  private async startsInLinear(rows: readonly TicketPlanRow[]): Promise<ReadonlyMap<string, string | null>> {
+    const key = this.deps.linearKey();
+    try {
+      if (key === null) throw new HostError("No Linear key on the host");
+      return await startsSaveCheck(this.deps.keyedGql(key), rows);
+    } catch (error) {
+      return new Map(rows.map((r) => [r.opId, `Relay couldn't check Linear before saving its start (${publicError(error, "Linear")})`]));
+    }
+  }
+
+  /** Linear now for a re-plan's freshness check: one read with the host's own key (interactive lane). */
+  private liveIssues(ids: readonly string[]): Promise<ReadonlyMap<string, LiveIssue>> {
+    const key = this.deps.linearKey();
+    return key === null ? Promise.reject(new HostError("No Linear key on the host")) : planFreshness(this.deps.keyedGql(key), ids);
   }
 
   /** A confirmed PR write's approval (reviews `prPrepare`); `login`: the GitHub account the device showed. */
@@ -350,7 +495,8 @@ export class TicketsService implements TicketsRelaying {
       me: this.me(),
       handled: this.handled.state,
     });
-    return { ...ticket, prFacts: prs.map((p) => p.facts), attention };
+    const plannedStart = this.plan.get(this.me().linearViewerId, ticket.id);
+    return { ...ticket, ...(plannedStart !== null && { plannedStart }), prFacts: prs.map((p) => p.facts), attention };
   }
 
   /** Changed cards to subscribed devices as one delta. */
@@ -527,6 +673,7 @@ export class TicketsService implements TicketsRelaying {
   /** Another account: nothing of the old one stays; devices get an empty snapshot. */
   private wipe(): Promise<void> {
     this.store.wipe(this.pending ?? NO_IDENTITY);
+    this.plan.wipe();
     this.pending = null;
     this.deps.log("tickets: account changed, synced tickets wiped");
     this.snapshot();
@@ -547,6 +694,23 @@ export interface HostTicketsOptions {
   readonly log: (line: string) => void;
   /** `claudeWriter` for ticket summaries. */
   readonly summaryWriter: SummaryWriter;
+  /** Astra's item sessions for `replan` (the agents bridge); absent: `replan` answers an error. */
+  readonly astra?: Pick<AstraSessionsDeps, "agents" | "launch" | "sessionFile" | "agentHome" | "socketPath" | "clock">;
+}
+
+/** Re-plans in the Timeline's own read-only Astra sessions (`tickets/astra.json`). */
+function timelineReplanner(o: HostTicketsOptions, astra: NonNullable<HostTicketsOptions["astra"]>): Replanner {
+  let replanner: Replanner | null = null;
+  const sessions = new AstraSessions({
+    ...astra,
+    storePath: join(o.dir, "astra.json"),
+    emit: (item) => replanner?.observe(item),
+    log: o.log,
+    seed: timelineSeed,
+    readOnly: true,
+  });
+  replanner = new Replanner({ sessions, clock: astra.clock });
+  return replanner;
 }
 
 /** gh signed out (as opposed to failing): its login is then nobody's. */
@@ -579,6 +743,7 @@ export function hostTicketsService(o: HostTicketsOptions): TicketsService {
     summaryWriter: o.summaryWriter,
     now: () => Date.now(),
     log: o.log,
+    ...(o.astra === undefined ? {} : { replanner: timelineReplanner(o, o.astra) }),
   });
 }
 

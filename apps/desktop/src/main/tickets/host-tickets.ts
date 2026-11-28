@@ -11,6 +11,7 @@ import {
   TicketsServerFrames,
   TicketsStatus,
   type TicketBoardFacts,
+  type TicketPlanProposal,
   type TicketsOpKind,
 } from '@relay/protocol'
 import type { TicketsFallback, TicketsFallbackReason } from '@evaos/contract'
@@ -47,7 +48,11 @@ export interface HostTickets {
   snapshot(): TicketsView | null
   /** The board now: the held one, else asked for. */
   board(): Promise<({ ok: true } & TicketsView) | TicketsFallback>
-  /** One op; a host error (`ok:false` without `refused`) rejects with its line. */
+  /**
+   * One op; a host error (`ok:false` without `refused` or `outcome`) rejects with its line. A
+   * write the gate answered `ok:false` with its outcome (a failed or partly failed `applyPlan`)
+   * resolves, so the caller sees each row's own state.
+   */
   req(op: TicketsOp): Promise<TicketsAnswer>
   onChange(cb: TicketsListener): () => void
   stop(): void
@@ -59,6 +64,34 @@ type Frames = RelayFrames & RelayFeatures & Partial<Pick<RelaySource, 'onChange'
 
 export function fallback(reason: TicketsFallbackReason): TicketsFallback {
   return { source: 'fallback', reason, message: TICKETS_MESSAGES[reason] }
+}
+
+/** A plain host answer: `{source:'host', ...pick(result)}`, or the fallback as is. */
+export async function ask<T extends object>(
+  host: Pick<HostTickets, 'req'>,
+  op: TicketsOp,
+  pick: (res: TicketsResult) => T,
+): Promise<({ source: 'host' } & T) | TicketsFallback> {
+  const a = await host.req(op)
+  return 'ok' in a ? { source: 'host', ...pick(a.res) } : a
+}
+
+type Refusal = NonNullable<TicketsResult['refused']>
+
+/** `tickets.replan`: Astra's validated proposal, or the host's refusal (not a readable plan). */
+export function replan(
+  host: Pick<HostTickets, 'req'>,
+  scope: { projectId: string; milestoneId?: string | undefined },
+): Promise<
+  ({ source: 'host' } & ({ refused: Refusal } | { proposal: TicketPlanProposal })) | TicketsFallback
+> {
+  const { projectId, milestoneId } = scope
+  const op: TicketsOp = { kind: 'replan', projectId, ...(milestoneId ? { milestoneId } : {}) }
+  return ask<{ refused: Refusal } | { proposal: TicketPlanProposal }>(host, op, (res) => {
+    if (res.refused) return { refused: res.refused }
+    if (!res.proposal) throw new Error('The Mini’s Relay Host sent no plan.')
+    return { proposal: res.proposal }
+  })
 }
 
 export function createHostTickets(
@@ -100,7 +133,8 @@ export function createHostTickets(
       const res = ResFrame.safeParse(f)
       if (!res.success)
         reject(new Error('The Mini’s Relay Host sent an answer this app can’t read.'))
-      else if (res.data.ok || res.data.refused) resolve({ ok: true, res: res.data })
+      else if (res.data.ok || res.data.refused || res.data.outcome)
+        resolve({ ok: true, res: res.data })
       else reject(new Error(res.data.error ?? 'The Mini’s Relay Host refused that.'))
     })
     if (!frames.sendFrame({ t: 'tickets.req', rid, op })) {

@@ -792,6 +792,8 @@ export class FakeRelayHost {
   private refusal: string | null = null
   /** The next `tickets.req` gets no answer (a lost response). */
   private loseNext = false
+  /** Astra's re-plan answer (`e2e/fixtures/tickets/replan-proposal.json`); null: the answer isn't a plan. */
+  replanProposal: Json | null = ticketFixture('replan-proposal')
 
   refuseNext(code: string): void {
     this.refusal = code
@@ -836,7 +838,9 @@ export class FakeRelayHost {
     this.refusal = this.refusal && refused === this.refusal ? null : this.refusal
     const answer = refused
       ? { ok: false, refused: { code: refused, message: `Refused: ${refused}` } }
-      : this.ticketsAnswer(peer, op)
+      : op.kind === 'replan'
+        ? this.replanAnswer()
+        : this.ticketsAnswer(peer, op)
     peer.send({ t: 'tickets.res', rid, ...answer })
     if (op.kind === 'subscribe' && op.on === true)
       peer.send({ t: 'tickets.snapshot', ...this.tickets })
@@ -870,6 +874,13 @@ export class FakeRelayHost {
             summary: `Write ${String(m.kind)}`,
             ...(typeof m.body === 'string' && { text: m.body }),
             ...(typeof m.quotedText === 'string' && { quote: m.quotedText }),
+            // applyPlan: every row by its key (the real host names them by the live issue).
+            ...(Array.isArray(m.rows) && {
+              rows: z
+                .array(z.object({ key: z.string() }))
+                .parse(m.rows)
+                .map((r) => ({ key: r.key, title: r.key, change: 'Plan' })),
+            }),
           },
         }
       }
@@ -878,6 +889,15 @@ export class FakeRelayHost {
       default:
         // watch, sync, handled, plan: accepted.
         return { ok: true }
+    }
+  }
+
+  /** Astra's re-plan: the fixture proposal, or the host's refusal when it isn't a plan. */
+  private replanAnswer(): Json {
+    if (this.replanProposal) return { ok: true, proposal: this.replanProposal }
+    return {
+      ok: false,
+      refused: { code: 'invalid', message: "Couldn't read a plan from this answer" },
     }
   }
 

@@ -1,0 +1,16 @@
+{
+  "summary": "Land Beta by its target date",
+  "changes": [
+    {
+      "key": "ENG-9001",
+      "dueDate": "2027-01-08",
+      "reason": "Review takes longer than the sample estimate"
+    },
+    {
+      "key": "ENG-9002",
+      "priority": 1,
+      "prioritySortOrder": 5,
+      "reason": "Blocks the Beta release"
+    }
+  ]
+}

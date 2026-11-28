@@ -48,6 +48,7 @@
     "@relay/protocol": "link:../../packages/protocol",
     "@relay/slack-emoji": "link:../../packages/slack-emoji",
     "@relay/widget-runtime": "link:../../packages/widget-runtime",
+    "@svar-ui/react-gantt": "2.8.3",
     "@tabler/icons-react": "3.49.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

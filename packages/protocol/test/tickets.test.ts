@@ -212,7 +212,6 @@ const ops: TicketsOp[] = [
     mutation,
   })),
   { kind: "commit", viewerId: "u1", approvalId: "ap1", opId: OP, mutation: mutations[1]! },
-  { kind: "plan", rows: [{ key: "ENG-1", plannedStart: "2026-11-21" }] },
   { kind: "replan", projectId: "p1" },
   { kind: "replan", projectId: "p1", milestoneId: "m1" },
 ];
@@ -361,9 +360,13 @@ describe("tickets frames", () => {
     expect(req({ kind: "commit", opId: "not-a-uuid", mutation: mutations[0] })).toBe(false);
     expect(req({ kind: "commit", opId: OP, mutation: { kind: "merge" } })).toBe(false);
     expect(req({ kind: "prepare", mutation: { kind: "applyPlan", rows: [] } })).toBe(false);
+    const startRow = { key: "ENG-1", issueId: "i1", opId: OP, baseUpdatedAt: 1, basePlannedStart: null };
     expect(
-      req({ kind: "plan", rows: [{ key: "ENG-1", plannedStart: "2026-11-21T00:00:00Z" }] }),
+      req({ kind: "prepare", viewerId: "u1", mutation: { kind: "applyPlan", rows: [{ ...startRow, plannedStart: "2026-11-21T00:00:00Z" }] } }),
     ).toBe(false);
+    expect(req({ kind: "prepare", viewerId: "u1", mutation: { kind: "applyPlan", rows: [{ ...startRow, plannedStart: "2026-11-21" }] } })).toBe(true);
+    // Relay starts go only through the gate's applyPlan: there is no direct `plan` op.
+    expect(req({ kind: "plan", rows: [{ key: "ENG-1", plannedStart: "2026-11-21" }] })).toBe(false);
     expect(req({ kind: "nope" })).toBe(false);
     expect(
       parseClientMessage(

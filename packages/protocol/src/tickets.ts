@@ -364,8 +364,13 @@ export const TicketPlanRow = z.object({
   dueDate: TimelessDate.nullable().optional(),
   priority: TicketPriority.optional(),
   prioritySortOrder: z.number().finite().optional(),
-  /** Relay-only start, saved only when the row's write succeeded. */
+  /**
+   * Relay-only start (host `plan.json`, never Linear), saved under the same approved op once the
+   * row's Linear part (if any) is written.
+   */
   plannedStart: TimelessDate.nullable().optional(),
+  /** The Relay start the draft was made from: another device's change since refuses the plan. */
+  basePlannedStart: TimelessDate.nullable().optional(),
 });
 export type TicketPlanRow = z.infer<typeof TicketPlanRow>;
 
@@ -479,13 +484,6 @@ export const TicketsOp = z.discriminatedUnion("kind", [
     opId: TicketOpId,
     mutation: TicketMutation,
   }),
-  /** Relay-only Timeline starts (no Linear write); null clears one. */
-  z.object({
-    kind: z.literal("plan"),
-    rows: z
-      .array(z.object({ key: TicketKey, plannedStart: TimelessDate.nullable() }))
-      .max(MAX_TICKET_PLAN_ROWS),
-  }),
   /** Ask Astra (private item session) to re-plan a project or milestone; answers `proposal`. */
   z.object({ kind: z.literal("replan"), projectId: Id, milestoneId: Id.optional() }),
 ]);
@@ -567,6 +565,18 @@ export const TicketSummary = z.object({
 });
 export type TicketSummary = z.infer<typeof TicketSummary>;
 
+/** A ticket as the re-plan's baseline had it (the host's facts when Isaac asked). */
+export const TicketPlanBaseline = z.object({
+  key: TicketKey,
+  issueId: Id,
+  updatedAt: ms,
+  dueDate: TimelessDate.nullable(),
+  priority: TicketPriority,
+  prioritySortOrder: z.number().finite(),
+  plannedStart: TimelessDate.nullable(),
+});
+export type TicketPlanBaseline = z.infer<typeof TicketPlanBaseline>;
+
 /** Astra's re-plan, validated; rows outside the milestone at the baseline are dropped by the host. */
 export const TicketPlanProposal = z.object({
   summary: Short,
@@ -582,6 +592,12 @@ export const TicketPlanProposal = z.object({
       }),
     )
     .max(MAX_TICKET_PLAN_ROWS),
+  /** Keys whose ticket changed since Astra's baseline (a live read); the device compares again first. */
+  stale: z.array(TicketKey).max(MAX_TICKET_PLAN_ROWS).optional(),
+  /** The host's: the Linear account the baseline was read as. */
+  viewerId: Id.optional(),
+  /** The host's: each changed ticket as it was when Isaac asked (stable issue ids, Relay starts). */
+  baseline: z.array(TicketPlanBaseline).max(MAX_TICKET_PLAN_ROWS).optional(),
 });
 export type TicketPlanProposal = z.infer<typeof TicketPlanProposal>;
 
