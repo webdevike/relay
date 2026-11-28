@@ -114,6 +114,8 @@ interface Raw {
   url: string
   state: string
   isDraft: boolean
+  /** GitHub's review decision; gh says "" or null without one. */
+  reviewDecision?: string | null
   author: { login: string } | null
   createdAt: string
   updatedAt: string
@@ -148,7 +150,7 @@ interface Raw {
 }
 
 export const PR_JSON_FIELDS =
-  'number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
+  'number,title,url,state,isDraft,reviewDecision,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
 
 const CHECK_ORDER = ['fail', 'pending', 'pass', 'skipped']
 
@@ -191,6 +193,7 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
     url: raw.url,
     state: raw.state,
     draft: raw.isDraft,
+    reviewDecision: raw.reviewDecision || null,
     author: { login: login(raw.author), avatarUrl: null },
     createdAt: ms(raw.createdAt),
     updatedAt: ms(raw.updatedAt),

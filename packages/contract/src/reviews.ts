@@ -101,6 +101,8 @@ export const ReviewPrSchema = z.object({
   url: z.string(),
   state: z.string(),
   draft: z.boolean(),
+  /** GitHub's review decision (`REVIEW_REQUIRED`, `APPROVED`, `CHANGES_REQUESTED`), null without one; absent from older hosts. */
+  reviewDecision: z.string().nullable().optional(),
   author: Person,
   createdAt: z.number(),
   updatedAt: z.number(),

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LaunchOptions } from "../src/agents/herdr";
 import { ASK_MARK, AstraSessions, seedPrompt, toTurns } from "../src/reviews/astra";
 import type { ToolRun } from "../src/reviews/exec";
-import { GitHub, snapshotDiff, toItem, toPr, type RawPr } from "../src/reviews/github";
+import { GitHub, PR_JSON_FIELDS, snapshotDiff, toItem, toPr, type RawPr } from "../src/reviews/github";
 import { claudeWriter, guideCache, HEAD_CHANGED } from "../src/reviews/guide";
 import { folderSections, NO_TEXT_CHANGES } from "@relay/protocol/review-guide";
 import guideFixture from "@relay/protocol/fixtures/review-guide.json";
@@ -60,6 +60,7 @@ describe("github", () => {
       url: "https://github.com/o/r/pull/7",
       state: "OPEN",
       isDraft: false,
+      reviewDecision: "REVIEW_REQUIRED",
       author: { login: "todd" },
       createdAt: "2026-10-30T09:00:00Z",
       updatedAt: "2026-10-30T12:00:00Z",
@@ -105,6 +106,10 @@ describe("github", () => {
     expect(pr.diff).toHaveLength(MAX_REVIEW_DIFF);
     expect(pr.diffTruncated).toBe(true);
     expect(toPr("o/r", raw, "diff").diffTruncated).toBe(false);
+    // GitHub's review decision rides along (gh says "" without one).
+    expect(PR_JSON_FIELDS.split(",")).toContain("reviewDecision");
+    expect(pr.reviewDecision).toBe("REVIEW_REQUIRED");
+    expect(toPr("o/r", { ...raw, reviewDecision: "" }, "").reviewDecision).toBeNull();
   });
 });
 

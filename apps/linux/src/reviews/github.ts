@@ -56,6 +56,8 @@ export interface RawPr {
   url: string;
   state: string;
   isDraft: boolean;
+  /** GitHub's review decision (`REVIEW_REQUIRED`, `APPROVED`, `CHANGES_REQUESTED`); gh says "" or null without one. */
+  reviewDecision?: string | null;
   author: { login: string } | null;
   createdAt: string;
   updatedAt: string;
@@ -100,7 +102,7 @@ export interface RawPr {
 }
 
 export const PR_JSON_FIELDS =
-  "number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup";
+  "number,title,url,state,isDraft,reviewDecision,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup";
 
 const PASSED = ["SUCCESS", "NEUTRAL"];
 const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
@@ -146,6 +148,7 @@ export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
     url: raw.url,
     state: raw.state,
     draft: raw.isDraft,
+    reviewDecision: raw.reviewDecision || null,
     author: { login: login(raw.author) },
     createdAt: ms(raw.createdAt),
     updatedAt: ms(raw.updatedAt),

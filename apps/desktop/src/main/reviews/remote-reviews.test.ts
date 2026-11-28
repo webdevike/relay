@@ -181,8 +181,8 @@ describe('mappings', () => {
     )
   })
 
-  it('moves commits out of the PR timeline', () => {
-    const pr = toPr({
+  it('moves commits out of the PR timeline and keeps GitHub’s review decision', () => {
+    const read = {
       repo: 'o/r',
       number: 1,
       title: 't',
@@ -201,18 +201,22 @@ describe('mappings', () => {
       assignees: [],
       labels: [],
       timeline: [
-        { kind: 'commit', author: 'dana', body: 'first', state: 'abc1234', at: 1 },
-        { kind: 'comment', author: 'sam', body: 'hi', state: null, at: 2 },
+        { kind: 'commit' as const, author: 'dana', body: 'first', state: 'abc1234', at: 1 },
+        { kind: 'comment' as const, author: 'sam', body: 'hi', state: null, at: 2 },
       ],
       checks: [],
       files: [],
       diff: '',
-    })
+    }
+    const pr = toPr({ ...read, reviewDecision: 'REVIEW_REQUIRED' })
     expect(pr.commits).toEqual([{ oid: 'abc1234', headline: 'first', author: 'dana', at: 1 }])
     expect(pr.timeline).toEqual([
       { kind: 'comment', author: 'sam', body: 'hi', state: null, at: 2 },
     ])
     expect(pr).toMatchObject({ milestone: null, projects: [], participants: ['dana', 'sam'] })
+    expect(pr.reviewDecision).toBe('REVIEW_REQUIRED')
+    // An older host's read has none, so the page keeps today's wording.
+    expect('reviewDecision' in toPr(read)).toBe(false)
   })
 })
 

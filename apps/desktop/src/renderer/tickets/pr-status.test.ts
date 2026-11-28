@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { ReviewPr } from '@evaos/contract'
-import { mergeOfferOf, prSignalsOfReview, prStatusOf, type PrSignals } from './pr-status'
+import type { TicketPrFacts } from '@relay/protocol'
+import {
+  mergeOfferOf,
+  prSignalsOf,
+  prSignalsOfReview,
+  prStatusOf,
+  type PrSignals,
+} from './pr-status'
 
 const signals = (mergeState: string | null, over: Partial<PrSignals> = {}): PrSignals => ({
   state: 'open',
@@ -185,5 +192,35 @@ describe('prSignalsOfReview', () => {
       decision: 'CHANGES_REQUESTED',
       mergeState: null,
     })
+  })
+
+  it('says what the ticket’s facts say for the same PR, from GitHub’s review decision', () => {
+    // One PR waiting on a required review: GitHub's BLOCKED, checks green, nobody reviewed yet.
+    const facts: TicketPrFacts = {
+      repo: 'o/r',
+      number: 1,
+      title: 't',
+      url: 'https://github.com/o/r/pull/1',
+      author: 'isaac',
+      state: 'open',
+      draft: false,
+      checks: { state: 'pass', passed: 1, failed: 0, pending: 0 },
+      decision: 'REVIEW_REQUIRED',
+      mergeState: 'BLOCKED',
+      headSha: SHA,
+      updatedAt: 1,
+    }
+    const ref = { repo: 'o/r', number: 1, url: facts.url, title: null, state: 'open' as const }
+    const ticketLine = prStatusOf(prSignalsOf({ ...ref, via: 'linear' }, [facts], null)).line
+    const blocked = { mergeStateStatus: 'BLOCKED', reviews: [] }
+    const readLine = prStatusOf(
+      prSignalsOfReview(prOf(blocked, { reviewDecision: 'REVIEW_REQUIRED' })),
+    ).line
+    expect(ticketLine).toBe('Blocked: Waiting on review')
+    expect(readLine).toBe(ticketLine)
+    // An older host sends no decision: today's merge-state wording.
+    expect(prStatusOf(prSignalsOfReview(prOf(blocked))).line).toBe(
+      'Blocked: Required reviews or checks are missing',
+    )
   })
 })

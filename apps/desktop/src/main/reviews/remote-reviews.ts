@@ -104,6 +104,8 @@ const HostPr = z.object({
   url: z.string(),
   state: z.string(),
   draft: z.boolean(),
+  /** Absent from older hosts. */
+  reviewDecision: z.string().nullable().optional(),
   author: z.object({ login: z.string() }),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -334,6 +336,7 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
     title: pr.title,
     url: pr.url,
     state: pr.state,
+    ...(pr.reviewDecision === undefined ? {} : { reviewDecision: pr.reviewDecision }),
     draft: pr.draft,
     author: { login: pr.author.login, avatarUrl: null },
     createdAt: pr.createdAt,

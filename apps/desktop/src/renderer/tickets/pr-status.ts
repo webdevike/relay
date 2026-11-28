@@ -108,7 +108,10 @@ function decisionOf(reviews: readonly { state: string }[]): string | null {
   return reviews.some((r) => r.state === 'APPROVED') ? 'APPROVED' : null
 }
 
-/** The signals of a PR read (the PR page): its checks, latest reviews and, from the host, its merge state. */
+/**
+ * The signals of a PR read (the PR page): its checks, GitHub's review decision (else the latest
+ * reviews' verdict, from older hosts) and, from the host, its merge state.
+ */
 export function prSignalsOfReview(pr: ReviewPr): PrSignals {
   const checks = pr.actions?.checks ?? pr.checks
   const states = checks.map((c) => c.state).filter((s) => s !== 'skipped')
@@ -117,7 +120,7 @@ export function prSignalsOfReview(pr: ReviewPr): PrSignals {
     state: reviewStateOf(pr),
     checks: rollupOf(states),
     counts: { passed: count('pass'), failed: count('fail'), pending: count('pending') },
-    decision: decisionOf(pr.actions?.reviews ?? pr.reviewers),
+    decision: pr.reviewDecision ?? decisionOf(pr.actions?.reviews ?? pr.reviewers),
     mergeState: pr.actions?.mergeStateStatus ?? null,
   }
 }
