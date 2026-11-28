@@ -24,12 +24,20 @@ interface Sending {
   at: number
 }
 
+/** A registry assistant's display name from her id (`nova` -> `Nova`); Astra when absent. */
+export const assistantName = (agent: string | undefined): string =>
+  agent ? agent.charAt(0).toUpperCase() + agent.slice(1) : 'Astra'
+
 /**
  * An item's Astra session as Reviews holds it: loaded on open, kept current from main's updates,
  * and `ask` to start or continue it. `context` is read only when the ask starts the session.
  * `threads` already carries an ask still on its way, so it and her typing show right away.
+ * `agent` is another registry assistant's id (`nova`): her own session on the item.
  */
-export function useAstraItem(url: string): {
+export function useAstraItem(
+  url: string,
+  agent?: string,
+): {
   item: AstraItem | null
   threads: AstraThread[]
   asking: boolean
@@ -40,18 +48,20 @@ export function useAstraItem(url: string): {
   useEffect(() => {
     let live = true
     setItem(null)
-    void invoke('reviews.astraThread', { url }).then((r) => {
+    const who = agent ? { agent } : {}
+    void invoke('reviews.astraThread', { url, ...who }).then((r) => {
       if (live && r.ok) setItem(r.value)
     })
     const off = on('reviews.astraUpdate', (s) => {
-      // Main keeps a Linear ticket's session under its key, whichever link opened it.
-      if (s.url === astraItemUrl(url)) setItem(s)
+      // Main keeps a Linear ticket's session under its key, whichever link opened it; each
+      // assistant's session apart (an update without `agent` is Astra's).
+      if (s.url === astraItemUrl(url) && (s.agent ?? 'astra') === (agent ?? 'astra')) setItem(s)
     })
     return () => {
       live = false
       off()
     }
-  }, [url])
+  }, [url, agent])
   const ask = useCallback(
     async (text: string, label: string, context: () => string): Promise<boolean> => {
       setSending({ id: `sending-${Date.now()}`, text, at: Date.now() })
@@ -61,16 +71,17 @@ export function useAstraItem(url: string): {
         // Only the first ask seeds the session; a follow-up sends the question alone.
         context: item?.file ? '' : context(),
         text,
+        ...(agent ? { agent } : {}),
       })
       setSending(null)
       if (!r.ok) {
-        fail("Couldn't reach Astra", r.error.message)
+        fail(`Couldn't reach ${assistantName(agent)}`, r.error.message)
         return false
       }
       setItem(r.value)
       return true
     },
-    [url, item?.file],
+    [url, agent, item?.file],
   )
   const turns: AstraTurn[] = [
     ...(item?.turns ?? []),
@@ -191,6 +202,7 @@ function AstraReply({
   asking,
   look,
   when,
+  agent,
   onUseAsReply,
 }: {
   block: Extract<AstraBlock, { kind: 'reply' }>
@@ -202,19 +214,11 @@ function AstraReply({
   asking: boolean
   look: AstraCardLook
   when: ReactNode
-  onUseAsReply: (text: string) => void
+  /** The registry assistant answering (absent: Astra). */
+  agent: string | undefined
+  /** Absent: no "Use as reply" (a ticket's private threads never become comments). */
+  onUseAsReply?: (text: string) => void
 }) {
-  const open = async (): Promise<void> => {
-    if (!item?.file) return
-    // An idle process lets go first, so the chat view takes the session over cleanly.
-    await invoke('reviews.astraRelease', { url: item.url })
-    openPlace(placeOf('chat', { chat: item.file }))
-  }
-  const stop = async (): Promise<void> => {
-    if (!item) return
-    const r = await invoke('reviews.astraStop', { url: item.url })
-    if (!r.ok) fail("Couldn't stop Astra", r.error.message)
-  }
   const answer = block.turns.filter((t) => t.role === 'assistant').at(-1)
   const working = newest && item?.working === true
   const typing = newest && showsTyping(block, asking || working)
@@ -224,8 +228,8 @@ function AstraReply({
       look={look}
       role="reply"
       testid="review-astra"
-      face={<AgentPortrait id="astra" className="eva-rv-astra-face" />}
-      name="Astra"
+      face={<AgentPortrait id={agent ?? 'astra'} className="eva-rv-astra-face" />}
+      name={assistantName(agent)}
       subtitle="AI assistant"
       when={when}
       body={
@@ -252,41 +256,13 @@ function AstraReply({
             <div className="eva-rv-error eva-rv-small">{item.error}</div>
           ) : null}
           {done || working ? (
-            <div className="eva-rv-astra-actions">
-              {answer && !answer.streaming && done ? (
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  leftSection={<IconArrowBackUp size={12} />}
-                  onClick={() => onUseAsReply(answer.text)}
-                  data-testid="review-astra-use"
-                >
-                  Use as reply
-                </Button>
-              ) : null}
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                leftSection={<IconExternalLink size={12} />}
-                disabled={!item?.file}
-                onClick={() => void open()}
-                data-testid="review-astra-open"
-              >
-                Open session
-              </Button>
-              {working ? (
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  color="red"
-                  leftSection={<IconPlayerStopFilled size={11} />}
-                  onClick={() => void stop()}
-                  data-testid="review-astra-stop"
-                >
-                  Stop
-                </Button>
-              ) : null}
-            </div>
+            <ReplyActions
+              item={item}
+              agent={agent}
+              usable={answer && !answer.streaming && done ? answer.text : null}
+              working={working}
+              onUseAsReply={onUseAsReply}
+            />
           ) : null}
         </div>
       }
@@ -294,12 +270,80 @@ function AstraReply({
   )
 }
 
-/** The reply box under a private thread: whatever is typed goes to Astra in this thread, never posted. */
+/** Under her reply: Use as reply (when the surface offers it), Open session, Stop while she works. */
+function ReplyActions({
+  item,
+  agent,
+  usable,
+  working,
+  onUseAsReply,
+}: {
+  item: AstraItem | null
+  agent: string | undefined
+  /** Her finished answer, offered as a reply; null while she writes. */
+  usable: string | null
+  working: boolean
+  onUseAsReply?: (text: string) => void
+}) {
+  const who = agent ? { agent } : {}
+  const open = async (): Promise<void> => {
+    if (!item?.file) return
+    // An idle process lets go first, so the chat view takes the session over cleanly.
+    await invoke('reviews.astraRelease', { url: item.url, ...who })
+    openPlace(placeOf('chat', { chat: item.file }))
+  }
+  const stop = async (): Promise<void> => {
+    if (!item) return
+    const r = await invoke('reviews.astraStop', { url: item.url, ...who })
+    if (!r.ok) fail(`Couldn't stop ${assistantName(agent)}`, r.error.message)
+  }
+  return (
+    <div className="eva-rv-astra-actions">
+      {usable !== null && onUseAsReply ? (
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          leftSection={<IconArrowBackUp size={12} />}
+          onClick={() => onUseAsReply(usable)}
+          data-testid="review-astra-use"
+        >
+          Use as reply
+        </Button>
+      ) : null}
+      <Button
+        size="compact-xs"
+        variant="subtle"
+        leftSection={<IconExternalLink size={12} />}
+        disabled={!item?.file}
+        onClick={() => void open()}
+        data-testid="review-astra-open"
+      >
+        Open session
+      </Button>
+      {working ? (
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="red"
+          leftSection={<IconPlayerStopFilled size={11} />}
+          onClick={() => void stop()}
+          data-testid="review-astra-stop"
+        >
+          Stop
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+/** The reply box under a private thread: whatever is typed goes to her in this thread, never posted. */
 function ThreadReplyBox({
   busy,
+  name,
   onSend,
 }: {
   busy: boolean
+  name: string
   onSend: (text: string) => Promise<boolean>
 }) {
   const [text, setText] = useState('')
@@ -316,8 +360,8 @@ function ThreadReplyBox({
         maxRows={8}
         size="sm"
         value={text}
-        placeholder="Reply to Astra"
-        aria-label="Reply to Astra"
+        placeholder={`Reply to ${name}`}
+        aria-label={`Reply to ${name}`}
         onChange={(e) => setText(e.currentTarget.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -330,7 +374,7 @@ function ThreadReplyBox({
       {text.trim() ? (
         <div className="eva-rv-composer-foot">
           <span className="eva-rv-dim eva-rv-small">
-            <IconLock size={11} /> Private to Astra, never posted · Cmd+Enter
+            <IconLock size={11} /> Private to {name}, never posted · Cmd+Enter
           </span>
           <span className="eva-rv-spacer" />
           <Button size="xs" variant="subtle" disabled={busy} onClick={() => void send()}>
@@ -357,6 +401,7 @@ export function AstraThreadView({
   now,
   look,
   me = 'Isaac',
+  agent,
   onReply,
   onUseAsReply,
 }: {
@@ -370,10 +415,14 @@ export function AstraThreadView({
   now: number
   look: AstraCardLook
   me?: string
-  /** Sends a reply typed in this thread to Astra (the surface adds the thread's naming line). */
+  /** The registry assistant whose session this is (absent: the item's, else Astra). */
+  agent?: string
+  /** Sends a reply typed in this thread to her (the surface adds the thread's naming line). */
   onReply: (root: string, text: string) => Promise<boolean>
-  onUseAsReply: (text: string) => void
+  /** Absent: her answers offer no "Use as reply". */
+  onUseAsReply?: (text: string) => void
 }) {
+  const who = agent ?? item?.agent
   const end = useRef<HTMLDivElement>(null)
   const last = thread.replies.at(-1)
   const size =
@@ -412,11 +461,16 @@ export function AstraThreadView({
               asking={asking}
               look={look}
               when={when(b.at)}
+              agent={who}
               onUseAsReply={onUseAsReply}
             />
           ),
         )}
-        <ThreadReplyBox busy={asking} onSend={(text) => onReply(thread.root.text, text)} />
+        <ThreadReplyBox
+          busy={asking}
+          name={assistantName(who)}
+          onSend={(text) => onReply(thread.root.text, text)}
+        />
         <div ref={end} />
       </div>
     </div>

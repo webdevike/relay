@@ -17,6 +17,7 @@ import { PrGate, type GithubPin, type PrCommitRequest } from "../reviews/pr-gate
 import { linearGql, type Fetch, type LinearGql } from "../reviews/linear";
 import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
+import { AnchorStore } from "./anchors";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { providerBudgets, RateLimited, type Budgets } from "./budget";
 import { HostError, ProviderRejected, publicError, StaleCredential } from "./errors";
@@ -94,6 +95,7 @@ export class TicketsService implements TicketsRelaying {
   private readonly store: TicketsStore;
   private readonly handled: HandledStore;
   private readonly seen: SeenStore;
+  private readonly anchors: AnchorStore;
   private readonly linear: LinearSync;
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
@@ -123,6 +125,7 @@ export class TicketsService implements TicketsRelaying {
     this.handled = new HandledStore(deps.dir);
     this.summaries = deps.summaryWriter === undefined ? null : new SummaryCache(deps.dir, deps.summaryWriter, deps.now);
     this.seen = new SeenStore(deps.dir);
+    this.anchors = new AnchorStore(deps.dir, deps.now);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
     this.autoMerge = new RelayAutoMerge(deps.dir);
     const watch = deps.ghWrites === undefined ? null : relayAutoMergeWatch(async () => (await this.ghPin())?.github ?? null, this.autoMerge, deps.log);
@@ -268,7 +271,8 @@ export class TicketsService implements TicketsRelaying {
    */
   private detailFrame(entry: IssueEntry): TicketDetail {
     const description = clipBytes(entry.ticket.description, MAX_DETAIL_DESCRIPTION_BYTES);
-    const bounded = boundComments(entry.comments.slice(-MAX_TICKET_COMMENTS), MAX_DETAIL_COMMENT_BYTES, MAX_DETAIL_COMMENTS_BYTES).comments;
+    // Inline comments made in Relay carry where their quote sat (anchors.json), counted in the bounds.
+    const bounded = this.anchors.attach(boundComments(entry.comments.slice(-MAX_TICKET_COMMENTS), MAX_DETAIL_COMMENT_BYTES, MAX_DETAIL_COMMENTS_BYTES).comments);
     const facts = this.facts(entry);
     let waiting = facts.attention.waiting;
     while (waiting.length > 0 && jsonBytes(waiting) > MAX_DETAIL_FRAME_BYTES / 8) waiting = waiting.slice(0, Math.floor(waiting.length / 2));
@@ -307,6 +311,12 @@ export class TicketsService implements TicketsRelaying {
 
   private async commit(deviceId: string, op: Op<"commit">): Promise<Answer> {
     const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.viewerId);
+    // An inline comment made here keeps where its quote sat (Relay-only); a lost answer may still
+    // have landed under the opId, Linear's id for it.
+    const m = op.mutation;
+    if (m.kind === "comment" && m.anchor !== undefined && answer.outcome !== undefined && answer.outcome.state !== "failed") {
+      this.anchors.set(answer.outcome.result?.id ?? op.opId, m.anchor);
+    }
     // The board shows the write once Linear has it: one coalesced cycle.
     if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
     return answer;

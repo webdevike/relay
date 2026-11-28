@@ -248,3 +248,42 @@ export function detailContext(d: TicketDetail): string {
     comments.length === 0 ? '(no comments)' : comments.join('\n'),
   ].join('\n')
 }
+
+/** An inline comment on the description: a root about a quote of it. */
+export const isInline = (c: TicketComment): boolean =>
+  c.documentContentId !== null && Boolean(c.quotedText)
+
+/** An assistant's registry id (`Nova` -> `nova`): which of her sessions gets the ask. */
+export const agentOf = (p: Person): string => p.handle.toLowerCase()
+
+const oneLine = (text: string, max: number): string =>
+  text.replace(/\s+/g, ' ').replace(/"/g, "'").trim().slice(0, max)
+
+/** The line a private ask about a Linear thread starts with, then the thread it carries. */
+const IN_THREAD = /^\(In the thread ([\w-]+) on "[^"\n]*"\)\n(?:<thread>\n[\s\S]*?\n<\/thread>\n)?/
+
+/**
+ * A private ask in a Linear thread (or inline thread): the line naming the thread, so her reply
+ * shows in it, the thread itself (its quote and comments) for her to read, then the question.
+ */
+export function threadAsk(text: string, thread: Thread): string {
+  const root = thread.root
+  const quote = root.quotedText
+    ? [`On the description text: "${oneLine(root.quotedText, 500)}"`]
+    : []
+  const lines = [root, ...thread.replies].map(
+    (c) => `- ${c.author?.name ?? 'Someone'}: ${c.body.trim()}`,
+  )
+  const about = oneLine(root.quotedText ?? root.body, 80)
+  return `(In the thread ${root.id} on "${about}")\n<thread>\n${[...quote, ...lines].join('\n')}\n</thread>\n${text}`
+}
+
+/** A private ask about description text nobody has commented on yet. */
+export const quoteAsk = (text: string, quote: string): string =>
+  `(About the description text "${oneLine(quote, 500)}")\n${text}`
+
+/** The Linear thread a private ask was asked in (null: none), and the words Isaac typed. */
+export function askedIn(text: string): { rootId: string | null; text: string } {
+  const m = IN_THREAD.exec(text)
+  return m ? { rootId: m[1]!, text: text.slice(m[0].length) } : { rootId: null, text }
+}
