@@ -7,7 +7,9 @@ import type { LaunchOptions } from "../src/agents/herdr";
 import { ASK_MARK, AstraSessions, seedPrompt, toTurns } from "../src/reviews/astra";
 import type { ToolRun } from "../src/reviews/exec";
 import { toItem, toPr, type RawPr } from "../src/reviews/github";
-import { folderSections, guideCache, parseGuide, promptDiff } from "../src/reviews/guide";
+import { guideCache, HEAD_CHANGED } from "../src/reviews/guide";
+import { folderSections } from "@relay/protocol/review-guide";
+import guideFixture from "@relay/protocol/fixtures/review-guide.json";
 import { handleReviewsMedia } from "../src/reviews/http";
 import { linearItem, reasonOf, ReviewMedia, toActivity, toRows as linearRows } from "../src/reviews/linear";
 import { DRY_RUN_ERROR, ReviewsService, type ReviewsMessage, type ReviewsServiceDeps } from "../src/reviews/service";
@@ -227,54 +229,53 @@ describe("slack", () => {
 });
 
 describe("guide", () => {
-  const PATHS = ["src/a/policy.ts", "src/a/route.ts", "tests/a.test.ts", "README.md"];
+  const input = { ...guideFixture.input, headRefOid: guideFixture.headSha };
+  const PATHS = input.files.map((f) => f.path);
 
-  it("keeps the model sections over exactly the PR files", () => {
-    const text = `Here it is: {"sections":[
-      {"title":"Policy","why":"Edits lock at 30 minutes.","files":["src/a/policy.ts","nope.ts"]},
-      {"title":"Endpoint","files":["src/a/route.ts","src/a/policy.ts"]},
-      {"title":"Empty","why":"x","files":["ghost.ts"]},
-      {"why":"no title","files":["README.md"]}
-    ]}`;
-    expect(parseGuide(text, PATHS)).toEqual([
-      { title: "Policy", why: "Edits lock at 30 minutes.", files: ["src/a/policy.ts"] },
-      { title: "Endpoint", why: "", files: ["src/a/route.ts"] },
-      { title: "Other changes", why: "", files: ["tests/a.test.ts", "README.md"] },
-    ]);
-    expect(parseGuide("no json here", PATHS)).toBeNull();
-    expect(parseGuide('{"sections":[{"title":"x","files":["ghost.ts"]}]}', PATHS)).toBeNull();
-  });
-
-  it("falls back to folders, source first", () => {
-    expect(folderSections(PATHS).map((s) => [s.title, s.files])).toEqual([
-      ["src/a", ["src/a/policy.ts", "src/a/route.ts"]],
-      ["tests", ["tests/a.test.ts"]],
-      ["Top-level files", ["README.md"]],
-    ]);
-  });
-
-  it("cuts a long file diff", () => {
-    const big = `diff --git a/x b/x\n${"+y\n".repeat(10_000)}diff --git a/z b/z\n+z\n`;
-    const out = promptDiff(big);
-    expect(out).toContain("[... rest of this file's diff cut]");
-    expect(out).toContain("diff --git a/z b/z");
-  });
-
-  it("writes once per head, keeps only written guides, and falls back on failure", async () => {
+  it("writes the shared fixture's v2 Guide once per head and keeps it under the v2 key", async () => {
     const file = join(dir, "guides.json");
-    const input = { title: "t", body: "", diff: "", files: PATHS.map((p) => ({ path: p, additions: 1, deletions: 0 })) };
-    const write = vi.fn(() => Promise.resolve('{"sections":[{"title":"All","why":"w","files":["src/a/policy.ts"]}]}'));
+    const write = vi.fn<(prompt: string) => Promise<string>>(() => Promise.resolve(guideFixture.answer));
     const read = guideCache(file, write);
-    const [a, b] = await Promise.all([read("o/r#1", "sha1", input), read("o/r#1", "sha1", input)]);
-    expect(a).toEqual(b);
-    expect(a.source).toBe("model");
-    expect((await read("o/r#1", "sha1", input)).sections[0]?.title).toBe("All");
+    const [a, b] = await Promise.all([read(guideFixture.key, guideFixture.headSha, input), read(guideFixture.key, guideFixture.headSha, input)]);
+    expect(a).toEqual(guideFixture.expected);
+    expect(b).toEqual(a);
+    expect(await read(guideFixture.key, guideFixture.headSha, input)).toEqual(guideFixture.expected);
     expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0]?.[0]).toContain("HUNK src/policy.ts#3,3");
+    expect(Object.keys(JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>)).toEqual(["o/r#7@head1@v2"]);
+  });
 
+  it("serves a warm v2 entry and ignores a v1 entry kept under the old key", async () => {
+    const file = join(dir, "guides.json");
+    const v1 = { headSha: "head1", source: "model", error: null, sections: [{ title: "Old", why: "", files: ["src/policy.ts"] }], at: 1 };
+    writeFileSync(file, JSON.stringify({ "o/r#7@head1": v1, "o/r#8@head1@v2": { ...guideFixture.expected, at: 2 } }));
+    const write = vi.fn(() => Promise.resolve(guideFixture.answer));
+    const read = guideCache(file, write);
+    expect(await read("o/r#8", "head1", input)).toEqual(guideFixture.expected);
+    expect(write).not.toHaveBeenCalled();
+    expect((await read("o/r#7", "head1", input)).version).toBe(2);
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a snapshot read for another head without asking the model", async () => {
+    const write = vi.fn(() => Promise.resolve(guideFixture.answer));
+    const read = guideCache(join(dir, "guides.json"), write);
+    await expect(read(guideFixture.key, "head2", input)).rejects.toThrow(HEAD_CHANGED);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("falls back to folders, labeled with the reason, and keeps nothing", async () => {
+    const file = join(dir, "guides.json");
     const failing = guideCache(file, () => Promise.reject(new Error("Claude took too long")));
-    const fb = await failing("o/r#1", "sha2", input);
-    expect(fb).toMatchObject({ source: "folders", error: "Claude took too long" });
-    expect(Object.keys(JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>)).toEqual(["o/r#1@sha1"]);
+    expect(await failing(guideFixture.key, guideFixture.headSha, input)).toEqual({
+      headSha: "head1",
+      source: "folders",
+      error: "Claude took too long",
+      sections: folderSections(PATHS),
+    });
+    const wrong = guideCache(file, () => Promise.resolve('{"sections":[]}'));
+    expect(await wrong(guideFixture.key, guideFixture.headSha, input)).toMatchObject({ source: "folders", error: "Claude answered in the wrong shape" });
+    expect(() => readFileSync(file, "utf8")).toThrow();
   });
 });
 

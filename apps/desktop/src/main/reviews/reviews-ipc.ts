@@ -105,6 +105,7 @@ interface Raw {
   body: string
   baseRefName: string
   headRefName: string
+  headRefOid?: string
   additions: number
   deletions: number
   commits: Array<{
@@ -131,7 +132,7 @@ interface Raw {
 }
 
 export const PR_JSON_FIELDS =
-  'number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
+  'number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
 
 const CHECK_ORDER = ['fail', 'pending', 'pass', 'skipped']
 
@@ -180,6 +181,7 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
     body: raw.body,
     base: raw.baseRefName,
     head: raw.headRefName,
+    headSha: raw.headRefOid,
     additions: raw.additions,
     deletions: raw.deletions,
     reviewers: [...requested.map((l) => ({ login: l, state: 'PENDING' })), ...reviewed],
@@ -354,13 +356,13 @@ export function registerReviewsIpc(
   })
 
   const guide = guideCache(ctx.config, claudeWriter(ctx.env.claudeBin, ctx.env.live))
-  handle(ctx, 'reviews.guide', async ({ repo, number }) => {
+  handle(ctx, 'reviews.guide', async ({ repo, number, headSha }) => {
     const [view, diff] = await Promise.all([
       gh(['pr', 'view', String(number), '-R', repo, '--json', 'title,body,files,headRefOid']),
       gh(['pr', 'diff', String(number), '-R', repo, '--color=never']),
     ])
     const pr = GuidePr.parse(JSON.parse(view))
-    return guide(`${repo}#${number}`, pr.headRefOid, { ...pr, diff })
+    return guide(`${repo}#${number}`, headSha ?? pr.headRefOid, { ...pr, diff })
   })
 
   /** One line to Astra's main thread through eva-thread.ts (Slack send requests); a dry run in test instances. */

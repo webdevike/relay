@@ -10,6 +10,7 @@
     "./text-diff": "./src/text-diff.ts",
     "./unified-diff": "./src/unified-diff.ts",
     "./omp-files": "./src/omp-files.ts",
+    "./review-guide": "./src/review-guide.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "scripts": {
