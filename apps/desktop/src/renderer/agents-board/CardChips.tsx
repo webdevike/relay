@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import { Avatar, Tooltip, UnstyledButton } from '@mantine/core'
 import {
   IconAlertSquareFilled,
@@ -304,21 +304,27 @@ function TicketTail({ t }: { t: CardTicket }) {
   )
 }
 
-/** Everything under the title but the waiting chip: priority, project, PRs, sub-issues, labels, session. */
+/**
+ * Everything under the title but the waiting chip: `lead` (the agent's stage pill), priority,
+ * project, PRs, sub-issues, labels, session.
+ */
 export function CardChips({
   card,
   onOpenPr,
+  lead,
 }: {
   card: AgentCard
   onOpenPr: (pr: { repo: string; number: number }) => void
+  lead?: ReactNode
 }) {
   const t = card.ticket
   const Run = RUN_ICON[card.kind]
   const prs = prsOf(card)
   const session = card.key === null ? card.session : null
-  if (!t && prs.length === 0 && session === null) return null
+  if (!lead && !t && prs.length === 0 && session === null) return null
   return (
     <div className="eva-ab-chips">
+      {lead}
       {t ? <TicketHead t={t} /> : null}
       {prs.map((pr) => (
         <PrChip key={`${pr.repo}#${pr.number}`} pr={pr} onOpen={onOpenPr} />

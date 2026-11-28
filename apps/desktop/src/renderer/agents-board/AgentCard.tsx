@@ -1,11 +1,13 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Tooltip } from '@mantine/core'
+import { IconLoader2 } from '@tabler/icons-react'
 import { PointerSensor, useDraggable, useSensor, useSensors } from '@dnd-kit/core'
 import type { AgentCard } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { openPlace } from '../navigation/navigate'
+import { ListPill } from '../ui/list'
 import { cardPlace, waitingPlace } from '../tickets/ticket-place'
-import { CardChips, CardKeyRow, StatusCircle } from './CardChips'
+import { CardChips, CardKeyRow, PILL_TONE, StatusCircle } from './CardChips'
 import { WaitChip } from './WaitChip'
 import { useAgentsBoard } from './agents-store'
 import { footLabel, waitingOf } from './board-view'
@@ -22,8 +24,31 @@ export function useCardSensors() {
 }
 
 /**
+ * The agent's stage pill (`Asking you`, `Stuck`, `QA bounced`, `Pre-review`, `Waiting on Noah`),
+ * spinning while it runs, with why it sits in its column on hover; as the board always had it.
+ */
+function StagePill({ card }: { card: AgentCard }) {
+  const running = card.column === 'working'
+  return (
+    <Tooltip label={card.reason} openDelay={400} multiline maw={320} disabled={!card.reason}>
+      <span className="eva-ab-stage" data-testid="agents-card-pill">
+        <ListPill
+          tone={PILL_TONE[card.pill.tone]}
+          icon={
+            running ? <IconLoader2 size={12} className="eva-list-spin" aria-hidden /> : undefined
+          }
+        >
+          {card.pill.label}
+        </ListPill>
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
  * What a card looks like, also under the pointer while it is dragged. The waiting chip opens the
  * comment (or the PR it is on) and a PR chip that PR's page; a card without a page opens itself.
+ * Agent work keeps its stage pill; a synced Linear issue with none shows its state in the circle.
  */
 export function CardFace({
   card,
@@ -54,7 +79,11 @@ export function CardFace({
           />
         </div>
       ) : null}
-      <CardChips card={card} onOpenPr={(pr) => openAt(cardPlace(card, { pr }))} />
+      <CardChips
+        card={card}
+        lead={card.kind === 'ticket' ? null : <StagePill card={card} />}
+        onOpenPr={(pr) => openAt(cardPlace(card, { pr }))}
+      />
       {foot ? <div className="eva-ab-foot">{foot}</div> : null}
     </>
   )

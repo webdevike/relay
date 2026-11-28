@@ -806,13 +806,6 @@
 }
 
 /* Linear tickets */
-.eva-rv-ldot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  flex: none;
-  border-radius: 50%;
-}
 .eva-rv-raillink {
   display: flex;
   align-items: center;
@@ -1163,32 +1156,12 @@ button.eva-rv-sfile {
   overflow: visible;
 }
 
-/* A Linear ticket's properties: status picker and priority (tickets/LinearStatus.tsx). */
-.eva-rv-lprop {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  color: var(--eva-c-foreground);
-}
-.eva-rv-lstatus {
-  font-size: var(--eva-fz-label);
-  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.8);
-  border-radius: var(--eva-radius);
-  transition: background-color var(--eva-dur-fast) ease;
-}
-.eva-rv-lstatus:hover {
-  background: var(--eva-hover);
-}
+/* A Linear ticket's priority glyph (tickets/LinearStatus.tsx). */
 .eva-rv-lprio {
   color: var(--eva-c-muted-foreground);
 }
 .eva-rv-lprio[data-priority='Urgent'] {
   color: var(--eva-c-danger);
-}
-.eva-rv-lstates-loading {
-  display: grid;
-  place-items: center;
-  padding: var(--mantine-spacing-sm);
 }
 .eva-rv-detail[data-narrow] .eva-rv-body,
 .eva-rv-detail[data-narrow] .eva-rv-comment {

@@ -9,6 +9,7 @@ import type { AgentCard, LinearTicket, ReviewPrHit } from '@evaos/contract'
 import {
   TicketsStatus,
   TicketStateType,
+  type TicketActor,
   type TicketComment,
   type TicketDetail,
   type TicketPrFacts,
@@ -35,6 +36,11 @@ export interface TicketData {
   unavailable: string | null
   writeMode: WriteMode
   me: TicketMe
+  /**
+   * Reviews' own Linear read as it came, when it served the page (absent or null otherwise): what
+   * the legacy path keeps from it (status picker, links, linked commits).
+   */
+  legacy?: LinearTicket | null
   /** Reads it again (after a write; on `tickets.changed` for this key it happens by itself). */
   refresh(): void
 }
@@ -44,8 +50,19 @@ const NO_ME: TicketMe = { linearViewerId: null, name: null }
 const PRIORITY: Record<string, number> = { Urgent: 1, High: 2, Medium: 3, Low: 4 }
 const DONE_STATE = /^(done|completed|canceled|cancelled|duplicate)$/i
 
-const person = (name: string | null, id = name ?? '') =>
-  name ? { id, name, avatarUrl: null } : null
+type LinearPerson = LinearTicket['me']
+
+/** A person of the legacy read: their handle as id, their profile (how Linear mentions) when known. */
+function actorOfPerson(p: LinearPerson): TicketActor {
+  return { id: p.handle, name: p.name, avatarUrl: null, ...(p.url ? { url: p.url } : {}) }
+}
+
+/** Someone the legacy read names only by name, matched to the ticket's people for a profile. */
+function actorOfName(name: string | null, people: readonly LinearPerson[]): TicketActor | null {
+  if (!name) return null
+  const p = people.find((x) => x.name === name)
+  return p ? actorOfPerson(p) : { id: name, name, avatarUrl: null }
+}
 
 function commentOf(c: LinearTicket['comments'][number]): TicketComment {
   return {
@@ -53,7 +70,7 @@ function commentOf(c: LinearTicket['comments'][number]): TicketComment {
     parentId: c.parentId,
     documentContentId: null,
     quotedText: null,
-    author: { id: c.author.handle, name: c.author.name, avatarUrl: null },
+    author: actorOfPerson(c.author),
     body: c.body,
     at: c.at,
     editedAt: null,
@@ -71,10 +88,11 @@ function stateTypeOf(type: string): TicketDetail['state']['type'] {
 
 /**
  * The legacy Reviews read as the page's shape: what it knows (title, description, state by name,
- * people by name, labels, project, parent, sub-issues, linked PRs, comments); ids it never had are
- * empty and the rest (milestone, relations, PR facts, attention) is empty or null.
+ * people with their profiles, labels, project, parent, sub-issues, linked PRs, comments); ids it
+ * never had are empty and the rest (milestone, relations, PR facts, attention) is empty or null.
  */
 export function fromLinearTicket(t: LinearTicket): TicketDetail {
+  const people = [...t.people, t.me]
   return {
     key: t.key,
     id: t.id,
@@ -86,8 +104,8 @@ export function fromLinearTicket(t: LinearTicket): TicketDetail {
     team: { id: '', key: t.key.split('-')[0] ?? t.team },
     priority: PRIORITY[t.priority] ?? 0,
     prioritySortOrder: 0,
-    assignee: person(t.assignee),
-    creator: person(t.creator),
+    assignee: actorOfName(t.assignee, people),
+    creator: actorOfName(t.creator, people),
     labels: t.labels.map((l) => ({ id: l.name, name: l.name, color: l.color })),
     project: t.project ? { id: '', name: t.project, targetDate: null } : null,
     milestone: null,
@@ -114,11 +132,25 @@ export function fromLinearTicket(t: LinearTicket): TicketDetail {
   }
 }
 
+const PULL = /\/pull\/\d+/
+const COMMIT = /\/commit\/[0-9a-f]+/
+
+/** The legacy read's attachments besides its PRs: linked commits (counted) and every other link. */
+export function legacyLinksOf(t: LinearTicket): { commits: number; other: LinearTicket['links'] } {
+  const rest = t.links.filter((l) => !PULL.test(l.url))
+  const commits = rest.filter((l) => COMMIT.test(l.url)).length
+  return { commits, other: rest.filter((l) => !COMMIT.test(l.url)) }
+}
+
 export interface LoadedTicket {
   detail: TicketDetail | null
   source: 'host' | 'fallback'
   unavailable: string | null
   me: TicketMe
+  /** Reviews' own read, when it served the page. */
+  legacy: LinearTicket | null
+  /** A host that serves tickets answered with an error (not "can't sync"): no legacy writes. */
+  hostFailed: boolean
 }
 
 /** The Linear account the host acts as (its board's status), for "mine" on comments. */
@@ -138,30 +170,49 @@ export async function loadTicket(key: string): Promise<LoadedTicket> {
   const r = await invoke('tickets.ticket', { key })
   if (r.ok && r.value.source === 'host') {
     const detail = r.value.ticket as unknown as TicketDetail
-    return { detail, source: 'host', unavailable: null, me: await hostMe() }
+    const me = await hostMe()
+    return { detail, source: 'host', unavailable: null, me, legacy: null, hostFailed: false }
   }
   const hostWhy = r.ok ? null : r.error.message
+  const hostFailed = hostWhy !== null
   const f = await invoke('reviews.linearTicket', { key })
   if (f.ok) {
     const me = { linearViewerId: null, name: f.value.me.name }
-    return { detail: fromLinearTicket(f.value), source: 'fallback', unavailable: null, me }
+    const detail = fromLinearTicket(f.value)
+    return { detail, source: 'fallback', unavailable: null, me, legacy: f.value, hostFailed }
   }
-  const why = hostWhy ?? f.error.message
   return {
     detail: null,
-    source: hostWhy === null ? 'fallback' : 'host',
-    unavailable: `Linear details unavailable: ${why}`,
+    source: hostFailed ? 'host' : 'fallback',
+    unavailable: `Linear details unavailable: ${hostWhy ?? f.error.message}`,
     me: NO_ME,
+    legacy: null,
+    hostFailed,
   }
 }
 
-/** The page's write path: the gate only when the host served it and opens writes. */
-export function writeModeOf(source: 'host' | 'fallback', hostWrites: boolean): WriteMode {
-  if (source === 'fallback') return 'legacy'
+/**
+ * The page's write path: the gate only when the host served it and opens writes; Reviews' own
+ * writes only when the host can't serve tickets at all (old host, sync off, offline, local mode),
+ * never because a host that serves them failed.
+ */
+export function writeModeOf(
+  source: 'host' | 'fallback',
+  hostWrites: boolean,
+  hostFailed = false,
+): WriteMode {
+  if (source === 'fallback') return hostFailed ? 'none' : 'legacy'
   return hostWrites ? 'gate' : 'none'
 }
 
-const EMPTY: LoadedTicket = { detail: null, source: 'fallback', unavailable: null, me: NO_ME }
+const EMPTY: LoadedTicket = {
+  detail: null,
+  source: 'fallback',
+  unavailable: null,
+  me: NO_ME,
+  legacy: null,
+  hostFailed: false,
+}
 
 /** `key`'s page data, re-read on `tickets.changed` naming it (or the whole board). */
 export function useTicketData(key: string | null): TicketData {
@@ -185,8 +236,12 @@ export function useTicketData(key: string | null): TicketData {
   }, [key, refresh])
   return {
     key: key ?? '',
-    ...loaded,
-    writeMode: key === null ? 'none' : writeModeOf(loaded.source, hostWrites),
+    detail: loaded.detail,
+    source: loaded.source,
+    unavailable: loaded.unavailable,
+    me: loaded.me,
+    legacy: loaded.legacy,
+    writeMode: key === null ? 'none' : writeModeOf(loaded.source, hostWrites, loaded.hostFailed),
     refresh,
   }
 }

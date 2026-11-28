@@ -2,8 +2,10 @@
 // (Reviews over `reviews.req`, tickets over `tickets.req`): a Linear row in the For me queue opens
 // `ticket:<KEY>`; a reply goes prepare -> exact-text confirm -> one commit; Done in the page's header
 // is the row's own `done` op and goes back to Reviews with the row held back. A host without
-// `tickets` still shows the page, read through Reviews' `linear` read, and gets no `tickets.*`
-// frame. No network: Linear only exists as the fake host's fixtures. Shots go to
+// `tickets` still shows the page, read through Reviews' `linear` read, with today's actions
+// (status, links, commits, Refresh, mentions as profile links, reply, Done) and gets no
+// `tickets.*` frame. In local mode (no host at all) the same page writes through Reviews' own
+// Linear IPC, stubbed in main here. No network: Linear only exists as fixtures. Shots go to
 // test-results/reviews-linear/.
 //
 //   pnpm build && pnpm e2e:run e2e/reviews-linear.spec.ts --retries 0 --max-failures 1
@@ -11,7 +13,7 @@ import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { Page } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
 import { TICKETS_FEATURE, TICKETS_WRITES_FEATURE } from '@relay/protocol'
 import { test as base, expect } from './fixtures'
 import { FakeRelayHost } from './helpers/fake-relay-host'
@@ -63,7 +65,10 @@ const LINEAR_TICKET = {
   team: 'Engineering',
   parent: null,
   children: [],
-  links: [],
+  links: [
+    { title: 'Design doc', url: 'https://docs.example.test/design', kind: 'link' },
+    { title: 'abc123', url: 'https://github.com/example/sample/commit/abc123', kind: 'github' },
+  ],
   comments: [
     {
       id: 'c-fallback',
@@ -85,11 +90,36 @@ const LINEAR_TICKET = {
   me: { name: 'Test Owner', handle: 'owner', url: 'https://linear.app/x/profiles/owner' },
 }
 
+/** The Linear row Reviews lists in local mode (`reviews.linearQueue`). */
+const ROW = {
+  key: KEY,
+  title: 'Ticket activity sample',
+  url: URL,
+  reason: 'mentioned you',
+  actor: 'Sample Teammate',
+  updatedAt: 1764100000000,
+  unread: true,
+}
+
+/** The team's workflow states (`reviews.linearStates`), in Linear's order. */
+const STATES = [
+  { id: 's-todo', name: 'Todo', type: 'unstarted', color: '#e2e2e2', position: 0 },
+  { id: 's-prog', name: 'In Progress', type: 'started', color: '#f2c94c', position: 1 },
+  { id: 's-review', name: 'In Review', type: 'started', color: '#5e6ad2', position: 2 },
+  { id: 's-done', name: 'Done', type: 'completed', color: '#4cb782', position: 3 },
+]
+
+/** The comment body Linear gets for `@Sample Teammate ...`: the profile link it notifies. */
+const MENTION = 'https://linear.app/x/profiles/sample can you retest?'
+
 let host: FakeRelayHost
 
-const test = base.extend<{ hostTickets: boolean }>({
+const test = base.extend<{ hostTickets: boolean; local: boolean }>({
   hostTickets: [true, { option: true }],
-  launchEnv: async ({ configDir, hostTickets }, use) => {
+  local: [false, { option: true }],
+  launchEnv: async ({ configDir, hostTickets, local }, use) => {
+    // Local mode: no Relay host at all (no relay dir, no relay-remote.json).
+    if (local) return use({})
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-reviews-linear-')))
     const relayDir = path.join(root, 'relay')
     host = await FakeRelayHost.start(relayDir)
@@ -155,6 +185,47 @@ async function openFromReviews(shell: Page): Promise<void> {
   await expect(shell.locator(sel('reviews-page'))).toHaveCount(0)
 }
 
+/** The legacy page's composer: `text`, Send, the exact-text confirm (checked), then Post. */
+async function postComment(shell: Page, text: string, confirmText: string): Promise<void> {
+  await shell.locator(sel('ticket-composer')).fill(text)
+  await shell.locator(sel('ticket-composer-send')).click()
+  await expect(shell.locator(sel('review-confirm-text'))).toHaveText(confirmText)
+  await shell.locator(sel('review-confirm-post')).click()
+}
+
+/** A reply under the fallback's comment through the legacy page's reply box. */
+async function postReply(shell: Page, text: string): Promise<void> {
+  const root = shell.locator('[data-comment-id="c-fallback"]')
+  await root.hover()
+  await root.getByRole('button', { name: 'Reply' }).click()
+  await shell.locator(sel('ticket-reply-box')).fill(text)
+  await shell.locator(sel('ticket-reply-box-send')).click()
+  await expect(shell.locator(sel('review-confirm-text'))).toHaveText(text)
+  await shell.locator(sel('review-confirm-post')).click()
+}
+
+/** Picks `name` in the sidebar's status menu. */
+async function pickStatus(shell: Page, name: string): Promise<void> {
+  await shell.locator(sel('ticket-status')).click()
+  await shell.locator(sel(`ticket-state-${name}`)).click()
+}
+
+/** What the legacy page shows from Reviews' read besides the shell: links and commits. */
+async function expectLegacyRail(shell: Page): Promise<void> {
+  await expect(ticketPage(shell).locator('h1')).toHaveText('Read through Reviews')
+  await expect(shell.locator(sel('ticket-link'))).toHaveText('Design doc')
+  await expect(shell.locator(sel('ticket-commits'))).toHaveText('1 linked commit')
+  await expect(shell.locator(sel('ticket-status'))).toHaveAttribute('data-write', 'legacy')
+}
+
+/** Done in the page's header: back to Reviews with the row held back. */
+async function doneBackToReviews(shell: Page): Promise<void> {
+  await shell.locator(sel('review-done')).click()
+  await expect(shell.locator(sel('reviews-page'))).toBeVisible()
+  await expect(ticketPage(shell)).toHaveCount(0)
+  await expect(shell.locator(sel(`review-ticket-${KEY}`))).toHaveCount(0)
+}
+
 test('a Linear row opens the ticket page: read, gated reply, Done back to Reviews', async ({
   app,
   shell,
@@ -207,10 +278,13 @@ test('a Linear row opens the ticket page: read, gated reply, Done back to Review
 test.describe('a host without tickets', () => {
   test.use({ hostTickets: false })
 
-  test('the ticket page still reads the ticket through Reviews', async ({ app, shell }) => {
+  test("the ticket page reads through Reviews and keeps today's actions", async ({
+    app,
+    shell,
+  }) => {
     await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1440, 900))
     await openFromReviews(shell)
-    await expect(ticketPage(shell).locator('h1')).toHaveText('Read through Reviews')
+    await expectLegacyRail(shell)
     await expect(shell.locator(sel('ticket-description'))).toContainText(
       'Fallback description from the Reviews read.',
     )
@@ -221,8 +295,129 @@ test.describe('a host without tickets', () => {
     await expect(shell.locator(sel('ticket-composer'))).toBeVisible()
     await expect(shell.locator(sel('review-done'))).toBeVisible()
     expect(reviewOps('linear')).toEqual([expect.objectContaining({ kind: 'linear', key: KEY })])
-    // An old host never hears a `tickets.*` frame.
-    expect(host.ticketFrames).toEqual([])
     await shot(shell, 'fallback')
+
+    // Refresh reads it again through Reviews.
+    await shell.locator(sel('ticket-refresh')).click()
+    await expect.poll(() => reviewOps('linear').length).toBe(2)
+
+    // The status picker is today's: a thin client can't read the team's states, says so and
+    // keeps a label (as Reviews' panel did); nothing is written.
+    await shell.locator(sel('ticket-status')).click()
+    await expect(shell.getByText("Couldn't read the statuses")).toBeVisible()
+    await expect(shell.locator(sel('ticket-status'))).not.toHaveAttribute('data-write', 'legacy')
+
+    // A comment naming a person: the confirm shows the profile link Linear notifies with; the
+    // reply the same way. A test instance never posts (Reviews' own dry run, as on main).
+    await postComment(shell, '@Sample Teammate can you retest?', MENTION)
+    await expect(shell.getByText('Not posted').first()).toBeVisible()
+    await postReply(shell, 'Retested here')
+    expect(reviewOps('linearComment')).toEqual([])
+
+    await doneBackToReviews(shell)
+    expect(reviewOps('done')).toEqual([
+      expect.objectContaining({ kind: 'done', url: URL, done: true }),
+    ])
+    // An old host never hears a `tickets.*` frame, and no gate write happened.
+    expect(host.ticketFrames).toEqual([])
+    expect(host.mutations).toEqual([])
+  })
+})
+
+type LinearCall = [channel: string, input: Record<string, unknown>]
+
+/**
+ * Reviews' own Linear IPC in main, answering from the fixtures and recording each call (local
+ * mode reads Linear itself; tests never reach it), and an empty GitHub queue (GitHub is off in
+ * tests, which would hide the page). A status change sticks for the next read.
+ */
+async function stubLocalLinear(app: ElectronApplication): Promise<void> {
+  await app.evaluate(
+    ({ ipcMain }, fx) => {
+      const g = globalThis as unknown as { linearCalls: LinearCall[] }
+      g.linearCalls = []
+      let ticket = fx.ticket
+      const answers: Record<string, (input: Record<string, unknown>) => unknown> = {
+        'reviews.queue': () => ({
+          needs: [],
+          reviewing: [],
+          completed: [],
+          completedTotal: 0,
+          created: [],
+          done: {},
+          fetchedAt: 1,
+        }),
+        'reviews.linearQueue': () => [fx.row],
+        'reviews.linearTicket': () => ticket,
+        'reviews.linearStates': () => fx.states,
+        'reviews.linearSetState': (input) => {
+          const s = fx.states.find((x) => x.id === input.stateId)!
+          ticket = { ...ticket, state: { name: s.name, type: s.type, color: s.color } }
+          return ticket.state
+        },
+        'reviews.linearComment': () => ({ url: `${fx.ticket.url}#comment-new` }),
+      }
+      for (const [channel, answer] of Object.entries(answers)) {
+        ipcMain.removeHandler(channel)
+        ipcMain.handle(channel, (_e, input: Record<string, unknown>) => {
+          g.linearCalls.push([channel, input])
+          return { ok: true, value: answer(input) }
+        })
+      }
+    },
+    { ticket: LINEAR_TICKET, row: ROW, states: STATES },
+  )
+}
+
+const localCalls = (app: ElectronApplication, channel: string): Promise<unknown[]> =>
+  app.evaluate(
+    (_, ch) =>
+      (globalThis as unknown as { linearCalls: LinearCall[] }).linearCalls
+        .filter(([c]) => c === ch)
+        .map(([, input]) => input),
+    channel,
+  )
+
+test.describe('local mode, no host', () => {
+  test.use({ local: true })
+
+  test("the ticket page writes through Reviews' own Linear path", async ({ app, shell }) => {
+    await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1440, 900))
+    await stubLocalLinear(app)
+    await openFromReviews(shell)
+    await expectLegacyRail(shell)
+
+    // A status change goes straight through; Done asks first and writes only after Move.
+    await pickStatus(shell, 'In Review')
+    await expect(shell.locator(sel('ticket-status'))).toContainText('In Review')
+    await pickStatus(shell, 'Done')
+    await expect(shell.getByRole('dialog')).toContainText('Move ENG-9101 to Done?')
+    expect(await localCalls(app, 'reviews.linearSetState')).toHaveLength(1)
+    await shot(shell, 'local-status-confirm')
+    await shell.locator(sel('ticket-status-confirm-ok')).click()
+    await expect(shell.locator(sel('ticket-status'))).toContainText('Done')
+    expect(await localCalls(app, 'reviews.linearSetState')).toEqual([
+      { issueId: 'issue-9101', stateId: 's-review' },
+      { issueId: 'issue-9101', stateId: 's-done' },
+    ])
+
+    // A mention goes as the person's profile link; a reply under its comment.
+    await postComment(shell, '@Sample Teammate can you retest?', MENTION)
+    await expect.poll(async () => (await localCalls(app, 'reviews.linearComment')).length).toBe(1)
+    await postReply(shell, 'Retested here')
+    await expect.poll(async () => (await localCalls(app, 'reviews.linearComment')).length).toBe(2)
+    expect(await localCalls(app, 'reviews.linearComment')).toEqual([
+      { issueId: 'issue-9101', parentId: null, body: MENTION },
+      { issueId: 'issue-9101', parentId: 'c-fallback', body: 'Retested here' },
+    ])
+
+    // Refresh reads it again.
+    const reads = (await localCalls(app, 'reviews.linearTicket')).length
+    await shell.locator(sel('ticket-refresh')).click()
+    await expect
+      .poll(async () => (await localCalls(app, 'reviews.linearTicket')).length)
+      .toBeGreaterThan(reads)
+
+    await doneBackToReviews(shell)
   })
 })

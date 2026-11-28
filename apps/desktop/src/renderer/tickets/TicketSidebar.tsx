@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Group, Loader, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Text, UnstyledButton } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconBox, IconCheck, IconChevronDown, IconCircleDashed } from '@tabler/icons-react'
-import type { AgentCard } from '@evaos/contract'
+import { IconBox, IconCircleDashed, IconExternalLink } from '@tabler/icons-react'
+import type { AgentCard, LinearTicket } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import {
   TERMINAL_TICKET_STATE_TYPES,
@@ -11,13 +11,19 @@ import {
   type TicketTeam,
 } from '@relay/protocol'
 import { invoke } from '../ipc'
-import { EvaMenu, EvaModal } from '../overlay'
+import { openLink } from '../navigation/open-link'
 import { COLUMN_TITLE } from '../agents-board/board-view'
 import { PR_ICON, PersonAvatar } from '../agents-board/CardChips'
 import type { TicketPr } from '../agents-board/ticket-prs'
 import { ApprovalNote } from './ApprovalNote'
-import { PRIORITY_LABEL, PriorityIcon } from './LinearStatus'
-import type { TicketData } from './ticket-data'
+import {
+  LinearStatus,
+  PRIORITY_LABEL,
+  PriorityIcon,
+  StatusConfirm,
+  StatusMenu,
+} from './LinearStatus'
+import { legacyLinksOf, type TicketData } from './ticket-data'
 import { ticketPlace, type TicketRef } from './ticket-place'
 import { useTicketMutation, type MutationView } from './use-mutation'
 
@@ -154,60 +160,28 @@ function StatusPicker({
   const busy = m.view.kind === 'preparing' || m.view.kind === 'committing'
   return (
     <>
-      <EvaMenu opened={opened} onChange={open} position="bottom-start" width={220}>
-        <EvaMenu.Target>
-          <UnstyledButton
-            className="eva-tk-prow"
-            aria-label={`Status: ${detail.state.name}. Change status`}
-            data-testid="ticket-status"
-          >
-            <i className="eva-tk-dot" style={{ background: detail.state.color }} aria-hidden />
-            {busy && target ? target.name : detail.state.name}
-            {busy ? <Loader size={10} /> : <IconChevronDown size={12} className="eva-tk-dim" />}
-          </UnstyledButton>
-        </EvaMenu.Target>
-        <EvaMenu.Dropdown data-testid="ticket-status-menu">
-          {states === null ? (
-            <div className="eva-tk-menu-loading">
-              <Loader size={14} />
-            </div>
-          ) : (
-            states.map((s) => (
-              <EvaMenu.Item
-                key={s.id}
-                leftSection={<i className="eva-tk-dot" style={{ background: s.color }} />}
-                rightSection={s.id === detail.state.id ? <IconCheck size={14} /> : null}
-                onClick={() => pick(s)}
-                data-testid={`ticket-state-${s.name}`}
-              >
-                {s.name}
-              </EvaMenu.Item>
-            ))
-          )}
-        </EvaMenu.Dropdown>
-      </EvaMenu>
-      <EvaModal
+      <StatusMenu
+        state={detail.state}
+        moving={busy && target ? target.name : null}
+        states={states}
+        opened={opened}
+        onOpen={open}
+        onPick={pick}
+        isCurrent={(s) => s.id === detail.state.id}
+        write="gate"
+      />
+      <StatusConfirm
         opened={m.view.kind === 'confirming'}
-        onClose={m.cancel}
         title={`Move ${detail.key} to ${target?.name ?? ''}?`}
-        testid="ticket-status-confirm"
+        onCancel={m.cancel}
+        onConfirm={m.confirm}
       >
-        <Stack gap="md">
-          {m.view.kind === 'confirming' ? (
-            <ApprovalNote approval={m.view.approval} />
-          ) : (
-            <Text size="sm">This changes its status in Linear.</Text>
-          )}
-          <Group justify="flex-end" gap="xs">
-            <Button variant="default" onClick={m.cancel}>
-              Cancel
-            </Button>
-            <Button onClick={m.confirm} data-testid="ticket-status-confirm-ok">
-              Move
-            </Button>
-          </Group>
-        </Stack>
-      </EvaModal>
+        {m.view.kind === 'confirming' ? (
+          <ApprovalNote approval={m.view.approval} />
+        ) : (
+          <Text size="sm">This changes its status in Linear.</Text>
+        )}
+      </StatusConfirm>
     </>
   )
 }
@@ -221,10 +195,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function StatusRow({ data, card, f }: { data: TicketData; card: AgentCard | null; f: SideFacts }) {
-  const d = data.detail
-  if (d && data.writeMode === 'gate' && d.state.id !== '')
-    return <StatusPicker detail={d} viewerId={data.me.linearViewerId} onDone={data.refresh} />
+/** The status without a picker: Linear's state when known, else the card's column. */
+function StatusLabel({ card, f }: { card: AgentCard | null; f: SideFacts }) {
   const name = f.state?.name ?? (card ? COLUMN_TITLE[card.column] : null)
   if (name === null) return null
   return (
@@ -235,6 +207,19 @@ function StatusRow({ data, card, f }: { data: TicketData; card: AgentCard | null
       {name}
     </div>
   )
+}
+
+/**
+ * The status: a picker through the host's gate when it is open, today's Reviews picker when the
+ * host can't serve tickets (legacy), else a label.
+ */
+function StatusRow({ data, card, f }: { data: TicketData; card: AgentCard | null; f: SideFacts }) {
+  const d = data.detail
+  if (d && data.writeMode === 'gate')
+    return <StatusPicker detail={d} viewerId={data.me.linearViewerId} onDone={data.refresh} />
+  if (data.writeMode === 'legacy' && data.legacy)
+    return <LinearStatus ticket={data.legacy} onChanged={data.refresh} />
+  return <StatusLabel card={card} f={f} />
 }
 
 function Properties({ data, card, f }: { data: TicketData; card: AgentCard | null; f: SideFacts }) {
@@ -340,9 +325,37 @@ function Related({ f, go }: { f: SideFacts; go: (p: Place) => void }) {
   )
 }
 
+/** What Reviews' Linear read links besides its PRs, as its rail showed: other links, commits. */
+function Links({ ticket }: { ticket: LinearTicket }) {
+  const { commits, other } = legacyLinksOf(ticket)
+  if (commits === 0 && other.length === 0) return null
+  return (
+    <Section title="Links">
+      {other.map((l) => (
+        <UnstyledButton
+          key={l.url}
+          className="eva-tk-prow eva-tk-rel"
+          onClick={() => openLink(l.url)}
+          title={l.url}
+          data-testid="ticket-link"
+        >
+          <IconExternalLink size={14} stroke={1.5} className="eva-tk-dim" aria-hidden />
+          <span className="eva-tk-rel-t">{l.title || l.url}</span>
+        </UnstyledButton>
+      ))}
+      {commits > 0 ? (
+        <div className="eva-tk-prow eva-tk-dim" data-testid="ticket-commits">
+          {commits} linked {commits === 1 ? 'commit' : 'commits'}
+        </div>
+      ) : null}
+    </Section>
+  )
+}
+
 /**
  * The properties sidebar after Linear's: status (a picker through the host's gate when writes are
- * open), priority, assignee, labels, project and milestone, the pull requests (each opens its page)
+ * open, today's Reviews picker without host sync), priority, assignee, labels, project and
+ * milestone, the pull requests (each opens its page), the legacy read's other links and commits,
  * and related tickets. Without Linear details it shows the card's own facts.
  */
 export function TicketSidebar({
@@ -365,6 +378,7 @@ export function TicketSidebar({
       {at.kind === 'key' ? <Labels f={f} /> : null}
       {at.kind === 'key' ? <Project f={f} /> : null}
       <Prs at={at} prs={prs} go={go} />
+      {data.legacy ? <Links ticket={data.legacy} /> : null}
       {at.kind === 'key' ? <Related f={f} go={go} /> : null}
     </aside>
   )

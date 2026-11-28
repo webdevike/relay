@@ -94,6 +94,18 @@ describe('ticket places', () => {
     expect(boardOrder(cards, ['done']).map((x) => x.key)).toEqual(['A-3', 'A-2', 'A-4', 'A-1'])
   })
 
+  it('steps over a run that opens its own target, so i / n counts pages only', () => {
+    const page = (key: string, column: 'queued' | 'needs') => cardOf({ key, column })
+    const run = cardOf({
+      id: 'run:helper',
+      column: 'working',
+      openTarget: { kind: 'link', open: { kind: 'url', url: 'https://x.test' } } as never,
+    })
+    const order = boardOrder([page('A-1', 'queued'), run, page('A-2', 'needs')], [])
+    // Next from A-1 is A-2 (the run between them is not a page), and n is 2.
+    expect(order.map((x) => x.key)).toEqual(['A-1', 'A-2'])
+  })
+
   it('names the tab like a review tab', () => {
     expect(ticketTabTitle('ticket:ENG-77')).toBe('ENG-77')
     setReviewTitle('linear:ENG-77', 'ENG-77 Fix the thing')

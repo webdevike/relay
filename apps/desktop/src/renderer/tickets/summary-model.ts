@@ -1,6 +1,6 @@
 import type { AgentCard } from '@evaos/contract'
 import type { NeedsYou, TicketComment, TicketDetail, TicketPrRef } from '@relay/protocol'
-import { agoLabel } from '../agents-board/board-view'
+import { agoPhrase } from '../reviews/review-model'
 
 /** The "Waiting on your reply" line: the newest mention on this ticket that asks Isaac. */
 export interface WaitingLine {
@@ -110,8 +110,8 @@ export function footerText(input: {
 }): string[] {
   const parts: string[] = []
   if (input.updatedAt !== null) {
-    const ago = agoLabel(input.updatedAt, input.now)
-    parts.push(ago === 'now' ? 'Updated just now' : `Updated ${ago} ago`)
+    // The page's one time format (comments say `3d ago` too).
+    parts.push(`Updated ${agoPhrase(input.updatedAt, input.now)}`)
   }
   const fresh = commentsSince(input.comments, input.previousSeenAt, input.meId)
   const all = othersComments(input.comments, input.meId).length

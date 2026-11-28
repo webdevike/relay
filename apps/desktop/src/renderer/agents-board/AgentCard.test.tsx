@@ -111,4 +111,27 @@ describe('board card', () => {
     await userEvent.setup().keyboard('{Enter}')
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
+
+  it('agent work keeps its stage pill (fallback has no ticket facts); a pure ticket has none', () => {
+    const view = (c: typeof card) =>
+      render(
+        <MantineProvider>
+          <DndContext>
+            <AgentCardView card={c} now={NOW} active={false} onOpen={() => {}} />
+          </DndContext>
+        </MantineProvider>,
+      )
+    // The fallback board: a ledger item with no synced ticket.
+    const stuck = cardOf({
+      key: 'ENG-2',
+      pill: { label: 'QA bounced', tone: 'danger' },
+      reason: 'Bounced back from QA; needs a fix pass',
+    })
+    view(stuck)
+    const pill = screen.getByTestId('agents-card-pill')
+    expect(pill.textContent).toBe('QA bounced')
+    expect(pill.querySelector('[data-tone="bad"]')).not.toBeNull()
+    view({ ...stuck, id: 'ticket:ENG-3', key: 'ENG-3', kind: 'ticket', ticket: ticketOf() })
+    expect(screen.getAllByTestId('agents-card-pill')).toHaveLength(1)
+  })
 })

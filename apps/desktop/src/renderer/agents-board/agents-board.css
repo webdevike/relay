@@ -307,6 +307,12 @@
   gap: calc(var(--mantine-spacing-xs) * 1.5);
   min-width: 0;
 }
+/* The agent's stage pill (Asking you, Stuck, Waiting on Noah), first among the chips. */
+.eva-ab-stage {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
 .eva-ab-chip {
   display: inline-flex;
   align-items: center;

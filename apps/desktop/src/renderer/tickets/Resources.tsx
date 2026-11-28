@@ -18,8 +18,8 @@ import { invoke } from '../ipc'
 import { openTargetOf } from '../navigation/open-target'
 import { EvaModal } from '../overlay'
 import { ListPill } from '../ui/list'
+import { agoPhrase } from '../reviews/review-model'
 import { fail } from '../reviews/review-ui'
-import { clockLabel } from '../context/format'
 import { COLUMN_ICON, PILL_TONE, PR_ICON } from '../agents-board/CardChips'
 import { COLUMN_TITLE } from '../agents-board/board-view'
 import { openAgentLink } from '../agents-board/agent-link'
@@ -143,7 +143,7 @@ function SessionRow({ card, link, now }: { card: AgentCard; link: AgentLink; now
         <span className="eva-tk-dim"> {sub}</span>
       </span>
       <span className="eva-tk-dim">
-        {card.activityAt !== null ? clockLabel(card.activityAt, now) : 'Open session'}
+        {card.activityAt !== null ? agoPhrase(card.activityAt, now) : 'Open session'}
       </span>
     </UnstyledButton>
   )

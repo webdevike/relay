@@ -18,8 +18,9 @@ import {
   IconLayoutKanban,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
+  IconRefresh,
 } from '@tabler/icons-react'
-import type { AgentCard, ReviewPrHit } from '@evaos/contract'
+import type { AgentCard, ReviewPr, ReviewPrHit } from '@evaos/contract'
 import { placeKey, placeOf, type Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { setReviewTitle } from '../eva/names-store'
@@ -193,7 +194,10 @@ function IconButton({
   )
 }
 
-/** Prev/next over the board's order: `i / n`, down for the next card, up for the one before. */
+/**
+ * Prev/next over the board's order (cards with a page; a keyless run is stepped over): `i / n`,
+ * down for the next card, up for the one before.
+ */
 function Stepper({ card, go }: { card: AgentCard | null; go: (p: Place) => void }) {
   const order = useBoardOrder()
   const i = card ? order.findIndex((c) => c.id === card.id) : -1
@@ -203,27 +207,52 @@ function Stepper({ card, go }: { card: AgentCard | null; go: (p: Place) => void 
     const place = next ? cardPlace(next) : null
     if (place) go(place)
   }
-  // A run card opens its own target, not a page: stepping skips nothing, it stops there.
-  const can = (d: -1 | 1): boolean => {
-    const next = order[i + d]
-    return next !== undefined && cardPlace(next) !== null
-  }
   return (
     <>
       <span className="eva-tk-pos" data-testid="ticket-pos">
         {i + 1} / {order.length}
       </span>
-      <IconButton label="Next" onClick={() => step(1)} disabled={!can(1)} testid="ticket-next">
+      <IconButton
+        label="Next"
+        onClick={() => step(1)}
+        disabled={i >= order.length - 1}
+        testid="ticket-next"
+      >
         <IconChevronDown size={15} stroke={1.5} />
       </IconButton>
-      <IconButton
-        label="Previous"
-        onClick={() => step(-1)}
-        disabled={!can(-1)}
-        testid="ticket-prev"
-      >
+      <IconButton label="Previous" onClick={() => step(-1)} disabled={i === 0} testid="ticket-prev">
         <IconChevronUp size={15} stroke={1.5} />
       </IconButton>
+    </>
+  )
+}
+
+/** The ticket's Linear buttons: read it again (as Reviews' Refresh did), open it in Linear. */
+function LinearButtons({
+  at,
+  linearUrl,
+  onRefresh,
+}: {
+  at: TicketRef
+  linearUrl: string | null
+  onRefresh: () => void
+}) {
+  return (
+    <>
+      {at.kind === 'key' && !at.pr ? (
+        <IconButton label="Refresh" onClick={onRefresh} testid="ticket-refresh">
+          <IconRefresh size={15} stroke={1.5} />
+        </IconButton>
+      ) : null}
+      {linearUrl ? (
+        <IconButton
+          label="Open in Linear"
+          onClick={() => openLink(linearUrl, { reviews: false })}
+          testid="ticket-open-linear"
+        >
+          <IconExternalLink size={15} stroke={1.5} />
+        </IconButton>
+      ) : null}
     </>
   )
 }
@@ -235,6 +264,7 @@ function TopBar({
   linearUrl,
   go,
   leave,
+  onRefresh,
 }: {
   at: TicketRef
   card: AgentCard | null
@@ -242,6 +272,7 @@ function TopBar({
   linearUrl: string | null
   go: (p: Place) => void
   leave: () => void
+  onRefresh: () => void
 }) {
   const sidebar = useTicketsUi((s) => s.sidebar)
   return (
@@ -249,15 +280,7 @@ function TopBar({
       <Crumbs at={at} card={card} title={title} go={go} leave={leave} />
       <span className="eva-tk-spacer" />
       {at.kind === 'key' && !at.pr ? <InboxDone ticketKey={at.id} title={title} /> : null}
-      {linearUrl ? (
-        <IconButton
-          label="Open in Linear"
-          onClick={() => openLink(linearUrl, { reviews: false })}
-          testid="ticket-open-linear"
-        >
-          <IconExternalLink size={15} stroke={1.5} />
-        </IconButton>
-      ) : null}
+      <LinearButtons at={at} linearUrl={linearUrl} onRefresh={onRefresh} />
       {at.pr ? null : (
         <IconButton
           label={sidebar ? 'Hide properties' : 'Show properties'}
@@ -420,6 +443,8 @@ function TicketView({ at }: { at: TicketRef }) {
   const m = useTicketPage(at)
   const sidebar = useTicketsUi((s) => s.sidebar)
   const now = useNow()
+  // A PR page's latest read: its strip says what its sidebar says.
+  const [prRead, setPrRead] = useState<ReviewPr | null>(null)
   const leave = (): void => backTo(placeOf('board'), replace)
   // Esc: a PR's page goes back to its ticket, the ticket to Reviews when it came from there, else
   // to the board.
@@ -440,12 +465,18 @@ function TicketView({ at }: { at: TicketRef }) {
         linearUrl={m.linearUrl}
         go={replace}
         leave={leave}
+        onRefresh={m.data.refresh}
       />
       {at.pr !== null || !sidebar ? (
         <StatusStrip at={at} data={m.data} card={m.card} prs={m.prs} go={replace} />
       ) : null}
       {at.pr ? (
-        <TicketPrPage key={`${at.pr.repo}#${at.pr.number}`} pr={at.pr} now={now} />
+        <TicketPrPage
+          key={`${at.pr.repo}#${at.pr.number}`}
+          pr={at.pr}
+          now={now}
+          onLoaded={setPrRead}
+        />
       ) : (
         <TicketBody at={at} m={m} now={now} />
       )}

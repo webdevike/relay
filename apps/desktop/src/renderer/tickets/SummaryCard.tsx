@@ -8,7 +8,7 @@ import { invoke } from '../ipc'
 import { openPlace } from '../navigation/navigate'
 import { useReplacePlace } from '../pages/place-host'
 import { PersonAvatar } from '../agents-board/CardChips'
-import { agoLabel } from '../agents-board/board-view'
+import { agoPhrase } from '../reviews/review-model'
 import type { TicketData } from './ticket-data'
 import { ticketPlace } from './ticket-place'
 import {
@@ -172,7 +172,7 @@ function WaitingRow({
       <PersonAvatar person={waiting.author} size={18} />
       <UnstyledButton className="eva-tk-sum-rowtext" onClick={open}>
         <b>
-          {first} is waiting on your reply · {agoLabel(waiting.at, Date.now())}:
+          {first} is waiting on your reply · {agoPhrase(waiting.at, Date.now())}:
         </b>{' '}
         “{waiting.excerpt}”
       </UnstyledButton>

@@ -2,7 +2,7 @@ import { MantineProvider } from '@mantine/core'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentCard } from '@evaos/contract'
+import type { AgentCard, ReviewPr } from '@evaos/contract'
 import type { TicketDetail, TicketPrFacts } from '@relay/protocol'
 
 const invoke = vi.fn()
@@ -11,7 +11,7 @@ vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => 
 import { cardOf, ticketOf, waitingFrom } from '../agents-board/test-cards'
 import type { TicketPr } from '../agents-board/ticket-prs'
 import { applyUiPrefs, flushUiPrefs } from '../ui-prefs'
-import { prSignalsOf, prStatusOf } from './pr-status'
+import { prSignalsOf, prSignalsOfReview, prStatusOf } from './pr-status'
 import { StatusStrip } from './StatusStrip'
 import { fromLinearTicket, setSidebarOpen, ticketsUiStore, type TicketData } from './ticket-data'
 import { parseTicketPlace } from './ticket-place'
@@ -202,6 +202,44 @@ describe('StatusStrip', () => {
     expect(screen.getByTestId('ticket-strip-pos').textContent).toBe('2 of 2')
     await userEvent.click(screen.getByTestId('ticket-strip-prev'))
     expect(go).toHaveBeenCalledWith(expect.objectContaining({ page: 'ticket:ENG-1/pr/acme/app/5' }))
+  })
+
+  it("on a PR's page says what the PR's sidebar says, from the same read", () => {
+    const blocked = facts('acme/app', 5, { decision: 'REVIEW_REQUIRED', mergeState: 'BLOCKED' })
+    // The PR page's read of the same PR: GitHub's BLOCKED, no review yet.
+    const read = {
+      repo: 'acme/app',
+      number: 5,
+      state: 'OPEN',
+      draft: false,
+      reviewers: [],
+      checks: [{ name: 'ci', state: 'pass', url: null }],
+      actions: { mergeStateStatus: 'BLOCKED', reviews: [], checks: [] },
+    } as unknown as ReviewPr
+    const sidebar = prStatusOf(prSignalsOfReview(read)).line
+    const page = 'ticket:ENG-1/pr/acme/app/5'
+    const at = parseTicketPlace(page)!
+    const view = (r: ReviewPr | null) => (
+      <MantineProvider>
+        <StatusStrip
+          at={at}
+          data={dataOf(detailWith([blocked]))}
+          card={null}
+          prs={[pr('acme/app', 5)]}
+          go={vi.fn()}
+          read={r}
+        />
+      </MantineProvider>
+    )
+    const { rerender } = render(view(null))
+    // Before the page's read lands: the ticket's facts.
+    expect(screen.getByTestId('ticket-strip-line').textContent).toBe('Blocked: Waiting on review')
+    rerender(view(read))
+    expect(screen.getByTestId('ticket-strip-line').textContent).toBe(sidebar)
+    expect(sidebar).toBe('Blocked: Required reviews or checks are missing')
+    // Another PR's read is not this one's.
+    rerender(view({ ...read, repo: 'acme/web' }))
+    expect(screen.getByTestId('ticket-strip-line').textContent).toBe('Blocked: Waiting on review')
   })
 })
 

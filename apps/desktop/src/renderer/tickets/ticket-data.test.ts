@@ -96,12 +96,28 @@ describe('loadTicket', () => {
     expect(l.me).toEqual({ linearViewerId: null, name: 'Isaac Weber' })
   })
 
-  it('falls back when the host has no such ticket', async () => {
+  it('keeps the legacy read for the legacy path', async () => {
+    answers({
+      'tickets.ticket': {
+        ok: true,
+        value: { source: 'fallback', reason: 'off', message: 'Sync is off' },
+      },
+      'reviews.linearTicket': { ok: true, value: LEGACY },
+    })
+    const l = await loadTicket('ENG-1')
+    expect(l.legacy).toBe(LEGACY)
+    expect(l.hostFailed).toBe(false)
+  })
+
+  it("reads through Reviews when a host that syncs can't, but opens no legacy writes", async () => {
     answers({
       'tickets.ticket': { ok: false, error: { message: 'The host has no ENG-1.' } },
       'reviews.linearTicket': { ok: true, value: LEGACY },
     })
-    expect((await loadTicket('ENG-1')).source).toBe('fallback')
+    const l = await loadTicket('ENG-1')
+    expect(l.source).toBe('fallback')
+    expect(l.hostFailed).toBe(true)
+    expect(writeModeOf(l.source, true, l.hostFailed)).toBe('none')
   })
 
   it('says why when neither can read it', async () => {
@@ -137,6 +153,40 @@ describe('fromLinearTicket', () => {
     expect(d.comments[0]).toMatchObject({ id: 'c-1', author: { name: 'Chris Doe' }, body: 'Hi' })
     expect(d.attention).toEqual({ waiting: [], needsYou: null })
   })
+
+  it("keeps each person's profile, so a mention becomes the link Linear notifies", () => {
+    const sam = { name: 'Sam Lee', handle: 'sam', url: 'https://linear.app/acme/profiles/sam' }
+    const d = fromLinearTicket({
+      ...LEGACY,
+      creator: 'Sam Lee',
+      comments: [{ ...LEGACY.comments[0]!, author: sam }],
+      people: [sam],
+    })
+    expect(d.creator).toEqual({ id: 'sam', name: 'Sam Lee', avatarUrl: null, url: sam.url })
+    expect(d.comments[0]!.author).toMatchObject({ id: 'sam', url: sam.url })
+    // Isaac (the legacy read's `me`) is the assignee: his profile too.
+    expect(d.assignee).toMatchObject({ id: 'isaac', name: 'Isaac Weber' })
+    const people = peopleOf(d)
+    expect(people.find((p) => p.name === 'Sam Lee')).toMatchObject({ handle: 'sam', url: sam.url })
+    expect(linearBody('@Sam Lee can you look?', people)).toBe(`${sam.url} can you look?`)
+  })
+})
+
+describe('legacyLinksOf', () => {
+  it('splits the attachments as Reviews did: PRs apart, commits counted, the rest listed', () => {
+    const t = {
+      ...LEGACY,
+      links: [
+        ...LEGACY.links,
+        { title: 'c1', url: 'https://github.com/acme/app/commit/abc123', kind: 'github' },
+        { title: 'c2', url: 'https://github.com/acme/app/commit/def456', kind: 'github' },
+      ],
+    }
+    expect(legacyLinksOf(t)).toEqual({
+      commits: 2,
+      other: [{ title: 'Doc', url: 'https://example.test/doc', kind: 'link' }],
+    })
+  })
 })
 
 describe('writeModeOf', () => {
@@ -144,6 +194,7 @@ describe('writeModeOf', () => {
     expect(writeModeOf('host', true)).toBe('gate')
     expect(writeModeOf('host', false)).toBe('none')
     expect(writeModeOf('fallback', true)).toBe('legacy')
+    expect(writeModeOf('fallback', false, true)).toBe('none')
   })
 })
 

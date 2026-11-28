@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { ActionIcon, Tooltip, UnstyledButton } from '@mantine/core'
 import { IconAt, IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
-import type { AgentCard } from '@evaos/contract'
+import type { AgentCard, ReviewPr } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { PR_ICON } from '../agents-board/CardChips'
 import type { TicketPr } from '../agents-board/ticket-prs'
 import { COLUMN_TITLE } from '../agents-board/board-view'
-import { prSignalsOf, prStatusOf } from './pr-status'
+import { prSignalsFor, prStatusOf } from './pr-status'
 import { prId, type TicketData } from './ticket-data'
 import { ticketPlace, type TicketRef } from './ticket-place'
 
@@ -51,8 +51,18 @@ function StateChip({ data, card }: { data: TicketData; card: AgentCard | null })
   ) : null
 }
 
-function PrFacts({ pr, data, card }: { pr: TicketPr; data: TicketData; card: AgentCard | null }) {
-  const status = prStatusOf(prSignalsOf(pr, data.detail?.prFacts ?? [], card))
+function PrFacts({
+  pr,
+  data,
+  card,
+  read,
+}: {
+  pr: TicketPr
+  data: TicketData
+  card: AgentCard | null
+  read: ReviewPr | null
+}) {
+  const status = prStatusOf(prSignalsFor(pr, data.detail?.prFacts ?? [], card, read))
   const Glyph = PR_ICON[pr.state ?? 'open']
   return (
     <>
@@ -124,7 +134,8 @@ function Stepper({
  * What the folded sidebar would have said, in one line under the top bar: the ticket's state, the
  * shown PR's state, why it can't merge, its checks and conflicts, and who waits on Isaac. With
  * several PRs a stepper picks which (the first by default; on a PR's page, that PR, and stepping
- * opens the next one's page).
+ * opens the next one's page). On a PR's page `read` is that page's PR read, so the strip and the
+ * PR's sidebar say the same.
  */
 export function StatusStrip({
   at,
@@ -132,6 +143,7 @@ export function StatusStrip({
   card,
   prs,
   go,
+  read = null,
 }: {
   at: TicketRef
   data: TicketData
@@ -139,6 +151,8 @@ export function StatusStrip({
   prs: readonly TicketPr[]
   /** Shows another place in this tab (a PR's page, a comment). */
   go: (place: Place) => void
+  /** The PR page's latest read of its PR, if any. */
+  read?: ReviewPr | null
 }) {
   const [picked, setPicked] = useState<string | null>(null)
   const want = at.pr ? prId(at.pr) : picked
@@ -158,7 +172,7 @@ export function StatusStrip({
     <div className="eva-tk-strip" data-testid="ticket-strip">
       <StateChip data={data} card={card} />
       {pr ? (
-        <PrFacts pr={pr} data={data} card={card} />
+        <PrFacts pr={pr} data={data} card={card} read={read} />
       ) : (
         <span className="eva-tk-dim">No pull request</span>
       )}

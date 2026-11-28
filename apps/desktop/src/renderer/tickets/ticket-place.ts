@@ -105,6 +105,8 @@ export function waitingPlace(card: AgentCard, w: Waiting): Place | null {
 /**
  * The board's reading order for prev/next: the shown columns left to right, each top to bottom
  * (`shown`: the cards the board shows, already filtered); cards in hidden columns follow them.
+ * Only cards with a page count: a run that opens its own target (no key) is stepped over, so
+ * `i / n` and the arrows agree.
  */
 export function boardOrder(
   shown: readonly AgentCard[],
@@ -117,6 +119,7 @@ export function boardOrder(
   }
   return shown
     .map((c, i) => ({ c, i }))
+    .filter((x) => cardPlace(x.c) !== null)
     .sort((a, b) => rank(a.c.column) - rank(b.c.column) || a.i - b.i)
     .map((x) => x.c)
 }

@@ -3,7 +3,9 @@
 // agent cards on one board, Done hidden until shown, the Waiting on you filter, Mark as handled
 // (Relay-only: a `handled` frame, never a write), a drag that writes the state through the host's
 // gate and one the gate refuses (rolled back with a toast), and a run card that opens its own
-// target. No network: Linear and GitHub only exist as the fake host's fixtures.
+// target. A host without `tickets` (the fallback board) keeps each agent card's stage pill, and
+// the ticket page's prev/next counts and steps over pages only, past a run card. No network:
+// Linear and GitHub only exist as the fake host's fixtures.
 //
 //   pnpm build && pnpm e2e:run e2e/board-tickets.spec.ts --retries 0 --max-failures 1
 import * as fs from 'node:fs'
@@ -23,8 +25,9 @@ let host: FakeRelayHost
 const ledger = (key: string, title: string, extra = ''): string =>
   `---\nkey: ${key}\ntitle: ${title}\nworkspace: ecardsystems\nstage: 5 Build\nmove: agent\nnext: Agent: build\nupdated: ${new Date().toISOString().slice(0, 10)}\n${extra}---\n\n## Context\n`
 
-const test = base.extend({
-  launchEnv: async ({}, use) => {
+const test = base.extend<{ hostTickets: boolean }>({
+  hostTickets: [true, { option: true }],
+  launchEnv: async ({ hostTickets }, use) => {
     const fx = makeEvaFixture()
     const items = path.join(fx.root, 'work/items')
     fs.mkdirSync(items, { recursive: true })
@@ -37,10 +40,18 @@ const test = base.extend({
       ),
     )
     fs.writeFileSync(path.join(items, 'relay-demo.md'), ledger('relay-demo', 'Relay demo item'))
+    // The fallback board's third page, in Needs Isaac (after a run card in Working).
+    if (!hostTickets)
+      fs.writeFileSync(
+        path.join(items, 'ENG-9005.md'),
+        ledger('ENG-9005', 'Isaac to review', '').replace('move: agent', 'move: isaac'),
+      )
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-board-tickets-'))
     const relayDir = path.join(root, 'relay')
     host = await FakeRelayHost.start(relayDir)
-    host.features = ['render.report', TICKETS_FEATURE, TICKETS_WRITES_FEATURE]
+    host.features = hostTickets
+      ? ['render.report', TICKETS_FEATURE, TICKETS_WRITES_FEATURE]
+      : ['render.report']
     await use({ ...fx.env, EVAOS_RELAY_DIR: relayDir })
     await host.close()
     fs.rmSync(root, { recursive: true, force: true })
@@ -71,6 +82,20 @@ async function drag(shell: Page, card: Locator, target: Locator): Promise<void> 
 
 const col = (shell: Page, column: string): Locator =>
   shell.locator(`section.eva-ab-col[data-column="${column}"]`)
+
+/** A helper run of its own (no key): its card opens its target, never a ticket page. */
+const RUN = {
+  id: 'helper:board-proto',
+  kind: 'helper',
+  owner: 'assistant:nova',
+  title: 'BoardProto',
+  status: 'working',
+  intent: 'Reading the board',
+  startedAt: Date.now() - 60_000,
+  updatedAt: Date.now(),
+  model: 'claude-opus-5-5',
+  open: { to: 'chat', thread: 'assistant:nova' },
+}
 
 test('the board shows synced tickets beside agent work; hide, filter, handle, move', async ({
   app,
@@ -195,20 +220,7 @@ test('the board shows synced tickets beside agent work; hide, filter, handle, mo
   await expect(shell.locator(sel('ticket-page'))).toHaveCount(0)
 
   // A run of its own (no key) opens its target directly, not a ticket page.
-  host.setActivity([
-    {
-      id: 'helper:board-proto',
-      kind: 'helper',
-      owner: 'assistant:nova',
-      title: 'BoardProto',
-      status: 'working',
-      intent: 'Reading the board',
-      startedAt: Date.now() - 60_000,
-      updatedAt: Date.now(),
-      model: 'claude-opus-5-5',
-      open: { to: 'chat', thread: 'assistant:nova' },
-    },
-  ])
+  host.setActivity([RUN])
   const run = shell.locator('[data-testid^="agents-card-run:"]')
   await expect(run).toHaveCount(1)
   await expect(run).toContainText('BoardProto')

@@ -121,6 +121,19 @@ export function prSignalsOfReview(pr: ReviewPr): PrSignals {
   }
 }
 
+/**
+ * The signals the ticket's strip shows for `pr`: the PR page's own read when it is of `pr` (what
+ * its sidebar reads, so both say the same), else the ticket's facts.
+ */
+export function prSignalsFor(
+  pr: TicketPr,
+  facts: readonly TicketPrFacts[],
+  card: AgentCard | null,
+  read: ReviewPr | null,
+): PrSignals {
+  return read && samePr(read, pr) ? prSignalsOfReview(read) : prSignalsOf(pr, facts, card)
+}
+
 const STATE_WORD: Record<NonNullable<TicketPr['state']>, string> = {
   open: 'Open',
   draft: 'Draft',
