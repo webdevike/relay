@@ -9,6 +9,9 @@
     "<img> tag": "<img width=\"300\" alt=\"a\" src=\"https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\">",
     "linked image repeating its source": "[![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
     "<a href> around an <img>": "<a href=\"https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\" target=\"_blank\"><img alt=\"a\" src=\"https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\"></a>",
-    "reference definition": "![a][shot]\n\n[shot]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT"
+    "reference definition": "![a][shot]\n\n[shot]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT",
+    "reference image inside an inline link": "[![a][inlink]](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)\n\n[inlink]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT",
+    "entity-escaped colon destination": "![a](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
+    "linked image with an entity-escaped outer destination": "[![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)"
   }
 }

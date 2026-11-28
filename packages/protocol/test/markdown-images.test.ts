@@ -6,6 +6,9 @@ const SIGNED = "https://private-user-images.githubusercontent.com/1/x.png?jwt=SE
 const LOCAL = "/reviews/media/local.png";
 /** The private URL to its local copy; everything else kept. */
 const map = (url: string): string | undefined => (url === SIGNED ? LOCAL : undefined);
+const noSecret = (out: string): void => {
+  for (const secret of signedImages.secrets) expect(out).not.toContain(secret);
+};
 
 describe("markdown images", () => {
   it.each([
@@ -15,63 +18,83 @@ describe("markdown images", () => {
     ["a single-quoted title", `![a](${SIGNED} 'title')`, `![a](${LOCAL} "title")`],
     ["a parenthesized title", `![a](${SIGNED} (title))`, `![a](${LOCAL} "title")`],
     ["a title on the next line", `![a](${SIGNED}\n  'title')`, `![a](${LOCAL} "title")`],
+    ["an entity-escaped colon", `![a](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)`, `![a](${LOCAL})`],
+    ["a backslash-escaped destination", `![a](https\\://private-user-images.githubusercontent.com/1/x.png?jwt\\=SECRETJWT)`, `![a](${LOCAL})`],
     ["an `<img>` tag", `<img width="320" alt='a' src="${SIGNED}">`, `![a](${LOCAL} "w=320")`],
-    ["an unquoted `<img>` tag", `<IMG SRC=${SIGNED} alt=a title="t >">`, `![a](${LOCAL} "t >")`],
+    ["an `<img>` with an entity-escaped source", `<img alt="a" src="https&#x3a;//private-user-images.githubusercontent.com/1/x.png?jwt&#61;SECRETJWT">`, `![a](${LOCAL})`],
     ["a linked image repeating its source", `[![a](${SIGNED} "t")](${SIGNED})`, `![a](${LOCAL} "t")`],
     ["a linked image with an angle-bracket destination", `[![a](${SIGNED})](<${SIGNED}>)`, `![a](${LOCAL})`],
+    ["a linked image with an entity-escaped destination", `[![a](${SIGNED})](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)`, `![a](${LOCAL})`],
     ["a linked `<img>`", `[<img src="${SIGNED}" alt="a">](${SIGNED} 'go')`, `![a](${LOCAL})`],
     ["an `<a href>` around an `<img>`", `<a target="_blank" href="${SIGNED}"><img src="${SIGNED}" alt="a"></a>`, `![a](${LOCAL})`],
-    ["an `<a href>` around a markdown image", `<a href='${SIGNED}'>\n![a](${SIGNED})\n</a>`, `![a](${LOCAL})`],
-    ["a reference definition", `![a][shot]\n\n[shot]: <${SIGNED}> "t"`, `![a][shot]\n\n[shot]: ${LOCAL} "t"`],
-  ])("rewrites %s and leaves no signature", (_, md, expected) => {
+    ["an `<a href>` block around a markdown image", `<a href='${SIGNED}'>\n![a](${SIGNED})\n</a>`, `\n![a](${LOCAL})\n</a>`],
+    ["a reference image", `![a][shot]\n\n[shot]: <${SIGNED}> "t"`, `![a](${LOCAL} "t")\n\n`],
+    ["a reference image inside an inline link", `[![a][shot]](${SIGNED})\n\n[shot]: ${SIGNED}`, `![a](${LOCAL})\n\n`],
+    ["a reference image inside a reference link", `[![a][shot]][go]\n\n[shot]: ${SIGNED}\n[go]: ${SIGNED}`, `![a](${LOCAL})\n\n\n`],
+  ])("rewrites %s inline and leaves no signature", (_, md, expected) => {
     const out = rewriteImages(md, map);
     expect(out).toBe(expected);
-    expect(out).not.toContain("SECRETJWT");
+    noSecret(out);
     expect(imageSources(md)).toEqual([SIGNED]);
   });
 
   it.each(Object.entries(signedImages.forms))("lists and rewrites the shared fixture's %s", (_, md) => {
     expect(imageSources(md)).toEqual([signedImages.signed]);
     const out = rewriteImages(md, (url) => (url === signedImages.signed ? LOCAL : undefined));
-    expect(out).toContain(LOCAL);
-    for (const secret of signedImages.secrets) expect(out).not.toContain(secret);
+    expect(out).toContain(`](${LOCAL}`);
+    expect(out).not.toMatch(/^\[[^\]]*\]:/m);
+    noSecret(out);
   });
 
-  it("keeps a public link around a private image, and an `<a href>` becomes a markdown link", () => {
+  it("keeps a public link around a private image, and an `<a href>` around an `<img>` becomes a markdown link", () => {
     const md = [
       `[![a](${SIGNED})](https://example.com/pr "PR")`,
       `<a href="https://example.com/x"><img src="${SIGNED}" width=40></a>`,
+      `x <a href="https://example.com/y"><img src="${SIGNED}"></a> y`,
       `<a><img src="${SIGNED}"></a>`,
     ].join("\n\n");
     expect(rewriteImages(md, map).split("\n\n")).toEqual([
       `[![a](${LOCAL})](https://example.com/pr "PR")`,
       `[![](${LOCAL} "w=40")](https://example.com/x)`,
+      `x [![](${LOCAL})](https://example.com/y) y`,
       `![](${LOCAL})`,
     ]);
   });
 
-  it("drops a private link around a public image, and a private link around an `<img>` without a source", () => {
+  it("drops a private link around a public image and replaces a signed private autolink", () => {
     expect(rewriteImages(`[![a](https://example.com/a.png)](${SIGNED})`, map)).toBe("![a](https://example.com/a.png)");
-    expect(rewriteImages(`<a href="${SIGNED}"><img alt="x"></a>`, map)).toBe("");
+    expect(rewriteImages(`see ${SIGNED} and <${SIGNED}>`, map)).toBe("see (private link) and (private link)");
+    expect(rewriteImages(`[the shot](${SIGNED})`, map)).toBe("the shot");
     expect(imageSources(`[![a](https://example.com/a.png)](${SIGNED})`)).toEqual(["https://example.com/a.png"]);
   });
 
-  it("leaves public images' URLs, other links and definitions alone, and `<img>` tags without a source", () => {
+  it("replaces a signed private URL left anywhere in raw HTML", () => {
+    const out = rewriteImages(`<details>\n<video src="${SIGNED}"></video>\n</details>`, map);
+    expect(out).toBe(`<details>\n<video src="${LOCAL}"></video>\n</details>`);
+  });
+
+  it("leaves everything else exactly as written: public images' references, links, definitions and code", () => {
     const md = [
+      "Intro *with* `code ![a](" + SIGNED + ")` and __bold__.",
       "![wide](https://example.com/a_(b).png)",
       "![sp](<https://example.com/a b.png>)",
       "[a link](https://example.com/page)",
-      "[ref]: https://example.com/r.png",
+      "![pub][r]",
+      "[r]: https://example.com/r.png",
       '<img alt="none">',
       "![esc \\[1\\]](https://example.com/e.png)",
+      "```\n![a](" + SIGNED + ")\n```",
     ].join("\n\n");
     expect(rewriteImages(md, map).split("\n\n")).toEqual([
+      "Intro *with* `code ![a](" + SIGNED + ")` and __bold__.",
       "![wide](<https://example.com/a_(b).png>)",
       "![sp](<https://example.com/a b.png>)",
       "[a link](https://example.com/page)",
-      "[ref]: https://example.com/r.png",
+      "![pub][r]",
+      "[r]: https://example.com/r.png",
       '<img alt="none">',
       "![esc 1](https://example.com/e.png)",
+      "```\n![a](" + SIGNED + ")\n```",
     ]);
     expect(imageSources(md)).toEqual([
       "https://example.com/a_(b).png",
@@ -83,7 +106,7 @@ describe("markdown images", () => {
 
   it("encodes an `<img>` width as `w=N`, `w=N Title` with a title, from its style too", () => {
     const md = [
-      '<img width=400 src=https://example.com/a.png alt=wide>',
+      '<img width=400 src="https://example.com/a.png" alt=wide>',
       '<img style="max-width: 90%; width: 320px" src="https://example.com/b.png">',
       '<img width="50%" src="https://example.com/f.png">',
       '<img width="320" title="Login" src="https://example.com/g.png">',

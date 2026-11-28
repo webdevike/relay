@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseServerMessage, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewPr, type SlackMessage } from "@relay/protocol";
 import guideV2 from "@relay/protocol/fixtures/review-guide.json";
+import signedImages from "@relay/protocol/fixtures/signed-images.json";
+import { rewriteImages } from "@relay/protocol/markdown-images";
 import { z } from "zod";
 import {
   astraAnswer,
@@ -133,6 +135,16 @@ describe("withHostMedia", () => {
     expect(withHostMedia("![shot](/reviews/media/x.png) and <img src=\"/reviews/media/y.png\">", "http://mac:8"))
       .toBe("![shot](http://mac:8/reviews/media/x.png) and <img src=\"http://mac:8/reviews/media/y.png\">");
     expect(withHostMedia("![a](/reviews/media/x.png)", null)).toBe("![a](/reviews/media/x.png)");
+  });
+
+  it("points every host-rewritten private image at the host, reference and entity forms included (the host writes them inline)", () => {
+    const served = "/reviews/media/abc.png/tok";
+    for (const md of Object.values(signedImages.forms)) {
+      const shown = withHostMedia(rewriteImages(md, (u) => (u === signedImages.signed ? served : undefined)), "http://mac:8");
+      expect(shown).toContain(`](http://mac:8${served}`);
+      expect(shown).not.toMatch(/\]\(\/reviews\/media\/|^\[[^\]]*\]:/m);
+      for (const secret of signedImages.secrets) expect(shown).not.toContain(secret);
+    }
   });
 });
 

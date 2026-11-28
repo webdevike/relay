@@ -1,59 +1,27 @@
-// Images in Reviews markdown (PR descriptions and comments, Linear tickets and comments), parsed
-// once for the Relay Host and Relay Desktop's main process. Private uploads (GitHub's signed
-// `private-user-images` URLs, Linear's) must never reach a client, so every image form the clients'
-// markdown renders is recognized here: `![alt](src)` and `![alt](<src>)` with a `"`, `'` or `( )`
-// title or none, HTML `<img>` (any attribute quoting), a link around one (`[![alt](src)](dest)`,
-// `[<img src=...>](dest)`, `<a href="dest"><img src=...></a>`) and reference definitions
-// (`[ref]: src`, behind `![alt][ref]`). Each image becomes canonical markdown with its source passed
-// through the caller's map; an `<img>`'s width travels as the title `w=N` (`w=N Title` with a title).
-// Pure, no imports.
+// Images in Reviews markdown (PR descriptions and comments, Linear tickets and comments), for the
+// Relay Host and Relay Desktop's main process. Private uploads (GitHub's signed `private-user-images`
+// URLs, Linear's signed uploads) must never reach a client, so the markdown is parsed once with the
+// grammar the clients render it with (micromark + GFM, as remark-gfm), every URL node is checked,
+// and only the nodes that change are written back over their own source range (the rest of the text
+// stays byte for byte):
+// - an image (`![alt](src "title")`, any title quoting, entity- or backslash-escaped destinations)
+//   becomes canonical `![alt](map(src) "title")`;
+// - an image reference (`![alt][ref]`) whose definition `map` maps becomes that canonical inline
+//   image, and the definition goes, so no client needs reference resolution for a host media path;
+// - a link or link reference whose destination `map` maps is unwrapped (its content stays) when it
+//   holds an image or its URL carries a query (a signature), and such a bare autolink is replaced;
+// - raw HTML: an `<img>` becomes a markdown image (its width as the title `w=N`, `w=N Title` with a
+//   title), an `<a href>` around one becomes a markdown link or is dropped like a link, and any other
+//   signed URL `map` maps inside raw HTML is replaced by `map`'s answer.
 
-/** An image's text: escapes and one level of balanced brackets. */
-const ALT = String.raw`(?:[^\[\]\\]|\\[\s\S]|\[[^\[\]]*\])*`;
-/** A link destination: `<...>` (spaces allowed), or bare (no spaces, balanced parentheses). */
-const DEST = String.raw`<(?:[^<>\n\\]|\\.)*>|(?:[^\s()<>\\]|\\.|\((?:[^\s()\\]|\\.)*\))+`;
-const TITLE = String.raw`"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|\((?:[^()\\]|\\[\s\S])*\)`;
-const LABEL = String.raw`(?:[^\[\]\\]|\\.)+`;
+import { decodeNamedCharacterReference } from "decode-named-character-reference";
+import type { Definition, Html, Image, ImageReference, Link, LinkReference, Nodes, Parent, Root } from "mdast";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 
-const group = (re: string, capture: boolean): string => (capture ? `(${re})` : `(?:${re})`);
-/** An HTML start tag, quoted attribute values may hold `>`. */
-const tag = (name: string): string => String.raw`<${name}\b(?:[^>"']|"[^"]*"|'[^']*')*>`;
-const IMG = tag("img");
-/** `(dest "title")` after an image's or link's text. */
-const target = (c: boolean): string => String.raw`\(\s*${group(DEST, c)}(?:\s+${group(TITLE, c)})?\s*\)`;
-const mdImage = (c: boolean): string => String.raw`!\[${group(ALT, c)}\]${target(c)}`;
-const INNER = `(?:${mdImage(false)}|${IMG})`;
-const linked = (c: boolean): string => String.raw`\[\s*${group(INNER, c)}\s*\]${target(c)}`;
-const anchor = (c: boolean): string => String.raw`${group(tag("a"), c)}\s*${group(INNER, c)}\s*</a\s*>`;
-const definition = (c: boolean): string =>
-  String.raw`^ {0,3}\[${group(LABEL, c)}\]:[ \t]*\n?[ \t]*${group(DEST, c)}(?:\s+${group(TITLE, c)})?[ \t]*$`;
-
-/** Every form, links before the images they hold. */
-const ANY = new RegExp([linked, anchor, mdImage, () => IMG, definition].map((f) => f(false)).join("|"), "gim");
-const LINKED = new RegExp(`^${linked(true)}$`, "i");
-const ANCHOR = new RegExp(`^${anchor(true)}$`, "i");
-const MD_IMAGE = new RegExp(`^${mdImage(true)}$`);
-const DEFINITION = new RegExp(`^${definition(true)}$`);
-
-/** An HTML attribute's value, quoted or not. */
-function attr(html: string, name: string): string | undefined {
-  const m = new RegExp(`[\\s"'/]${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(html);
-  return m?.[1] ?? m?.[2] ?? m?.[3];
-}
-
-/** Markdown text without its backslash escapes. */
-const unescape = (s: string): string => s.replace(/\\([!-/:-@[-`{-~])/g, "$1");
-const destUrl = (dest: string): string => unescape(dest.startsWith("<") ? dest.slice(1, -1) : dest);
-const titleText = (title: string | undefined): string | undefined =>
-  title === undefined ? undefined : unescape(title.slice(1, -1));
-
-/** An `<img>`'s pixel width: its `width` attribute, else a `width: Npx` in its style. */
-function htmlWidth(html: string): number | undefined {
-  const w =
-    /^(\d+)(?:px)?\/?$/i.exec(attr(html, "width") ?? "")?.[1] ??
-    /(?:^|;)\s*width\s*:\s*(\d+)(?:\.\d+)?px/i.exec(attr(html, "style") ?? "")?.[1];
-  return w === undefined || Number(w) === 0 ? undefined : Number(w);
-}
+/** Maps a URL to where markdown should point instead; undefined keeps it (a public URL). */
+export type MapUrl = (url: string) => string | undefined;
 
 export interface MarkdownImage {
   alt: string;
@@ -62,54 +30,29 @@ export interface MarkdownImage {
   title: string | undefined;
 }
 
-/** An `<img>`'s markdown title: `w=N`, `w=N <title>` when it has both, else its title. */
-function widthTitle(width: number | undefined, title: string | undefined): string | undefined {
-  if (width === undefined) return title;
-  return title === undefined || title.trim() === "" ? `w=${String(width)}` : `w=${String(width)} ${title}`;
+interface Edit {
+  start: number;
+  end: number;
+  text: string;
 }
 
-/** One image, markdown or `<img>`; undefined for an `<img>` without a `src`. */
-function image(text: string): MarkdownImage | undefined {
-  const md = MD_IMAGE.exec(text);
-  if (md !== null) return { alt: unescape(md[1] ?? ""), url: destUrl(md[2] ?? ""), title: titleText(md[3]) };
-  const src = attr(text, "src");
-  if (src === undefined) return undefined;
-  return { alt: attr(text, "alt") ?? "", url: src, title: widthTitle(htmlWidth(text), attr(text, "title")) };
+const parse = (md: string): Root => fromMarkdown(md, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+
+const startOf = (n: Nodes): number => n.position?.start.offset ?? 0;
+const endOf = (n: Nodes): number => n.position?.end.offset ?? 0;
+
+/** A URL with a query string: signed (GitHub's `jwt=`, Linear's `signature=`). */
+function signed(url: string): boolean {
+  return URL.canParse(url) && new URL(url).search !== "";
 }
 
-interface Link {
-  url: string;
-  title: string | undefined;
-}
-
-/** One match: an image (with the link around it), or a reference definition. */
-type Piece =
-  | { kind: "image"; image: MarkdownImage | undefined; link: Link | undefined }
-  | { kind: "definition"; label: string; link: Link };
-
-/** An `<a>` start tag's link; none without an `href`. */
-function anchorLink(open: string): Link | undefined {
-  const href = attr(open, "href");
-  return href === undefined ? undefined : { url: href, title: attr(open, "title") };
-}
-
-function piece(whole: string): Piece {
-  const md = LINKED.exec(whole);
-  if (md !== null)
-    return { kind: "image", image: image(md[1] ?? ""), link: { url: destUrl(md[2] ?? ""), title: titleText(md[3]) } };
-  const a = ANCHOR.exec(whole);
-  if (a !== null) return { kind: "image", image: image(a[2] ?? ""), link: anchorLink(a[1] ?? "") };
-  const def = DEFINITION.exec(whole);
-  if (def !== null)
-    return { kind: "definition", label: def[1] ?? "", link: { url: destUrl(def[2] ?? ""), title: titleText(def[3]) } };
-  return { kind: "image", image: image(whole), link: undefined };
-}
+// ---- Canonical markdown ----
 
 /** A destination as markdown: in `<>` when it holds spaces or parentheses. */
 const dest = (url: string): string =>
   /[\s()<>]/.test(url) ? `<${url.replace(/</g, "%3C").replace(/>/g, "%3E")}>` : url;
 
-const title = (t: string | undefined): string => {
+const titlePart = (t: string | null | undefined): string => {
   const text = (t ?? "").replace(/"/g, "'").replace(/\s+/g, " ").trim();
   return text === "" ? "" : ` "${text}"`;
 };
@@ -117,41 +60,252 @@ const title = (t: string | undefined): string => {
 /** An image as markdown pointing at `url`; its text loses brackets and line breaks. */
 function markdownImage(i: MarkdownImage, url: string): string {
   const alt = i.alt.replace(/[[\]\n\r]/g, " ").replace(/\s+/g, " ").trim();
-  return `![${alt}](${dest(url)}${title(i.title)})`;
+  return `![${alt}](${dest(url)}${titlePart(i.title)})`;
 }
 
-/** Maps a URL to where markdown should point instead; undefined keeps it. */
-export type MapUrl = (url: string) => string | undefined;
+// ---- Raw HTML: a small attribute parse ----
 
-function rewrite(whole: string, p: Piece, map: MapUrl): string {
-  if (p.kind === "definition") {
-    const to = map(p.link.url);
-    return to === undefined ? whole : `[${p.label}]: ${dest(to)}${title(p.link.title)}`;
+/** HTML character references (`&#58;`, `&#x3a;`, `&colon;`, `&amp;`) decoded. */
+function decodeEntities(s: string): string {
+  return s.replace(/&(#\d+|#x[\da-f]+|[a-z][a-z\d]*);/gi, (whole, ref: string) => {
+    if (ref.startsWith("#")) {
+      const code = ref[1] === "x" || ref[1] === "X" ? parseInt(ref.slice(2), 16) : Number(ref.slice(1));
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    }
+    return decodeNamedCharacterReference(ref) || whole;
+  });
+}
+
+/** An HTML attribute's value, quoted or not, decoded. */
+function attr(tag: string, name: string): string | undefined {
+  const m = new RegExp(`[\\s"'/]${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(tag);
+  const value = m?.[1] ?? m?.[2] ?? m?.[3];
+  return value === undefined ? undefined : decodeEntities(value);
+}
+
+/** An `<img>`'s pixel width: its `width` attribute, else a `width: Npx` in its style. */
+function htmlWidth(tag: string): number | undefined {
+  const w =
+    /^(\d+)(?:px)?\/?$/i.exec(attr(tag, "width") ?? "")?.[1] ??
+    /(?:^|;)\s*width\s*:\s*(\d+)(?:\.\d+)?px/i.exec(attr(tag, "style") ?? "")?.[1];
+  return w === undefined || Number(w) === 0 ? undefined : Number(w);
+}
+
+/** An `<img>` tag as an image; undefined without a `src`. */
+function htmlImage(tag: string): MarkdownImage | undefined {
+  const url = attr(tag, "src");
+  if (url === undefined) return undefined;
+  const width = htmlWidth(tag);
+  const title = attr(tag, "title");
+  const t = width === undefined ? title : title === undefined || title.trim() === "" ? `w=${String(width)}` : `w=${String(width)} ${title}`;
+  return { alt: attr(tag, "alt") ?? "", url, title: t };
+}
+
+/** A start tag, quoted attribute values may hold `>`. */
+const tag = (name: string): string => String.raw`<${name}\b(?:[^>"']|"[^"]*"|'[^']*')*>`;
+const IMG = new RegExp(tag("img"), "gi");
+const A_OPEN = new RegExp(tag("a"), "gi");
+const A_AROUND_IMG = new RegExp(String.raw`(${tag("a")})\s*(${tag("img")})\s*</a\s*>`, "gi");
+const A_OPEN_ONLY = new RegExp(`^${tag("a")}$`, "i");
+const A_CLOSE_ONLY = /^<\/a\s*>$/i;
+/** URL-like runs in raw HTML (plain or entity-escaped), for the last check of what stays. */
+const URL_RUN = /(?:https?|&#\d+;|&#x[\da-f]+;|&[a-z]+;|[a-z])[^\s"'<>()[\]`]*(?::|&#0*58;|&#x0*3a;|&colon;)\/\/[^\s"'<>()[\]`]+/gi;
+
+class Rewriter {
+  readonly edits: Edit[] = [];
+  private readonly defs = new Map<string, Definition>();
+  private readonly imageRefs = new Set<string>();
+
+  constructor(
+    private readonly md: string,
+    private readonly map: MapUrl,
+    root: Root,
+  ) {
+    this.index(root);
   }
-  const hidden = p.link !== undefined && map(p.link.url) !== undefined;
-  if (p.image === undefined) return hidden ? "" : whole;
-  const img = markdownImage(p.image, map(p.image.url) ?? p.image.url);
-  return p.link === undefined || hidden ? img : `[${img}](${dest(p.link.url)}${title(p.link.title)})`;
+
+  private index(node: Nodes): void {
+    if (node.type === "definition" && !this.defs.has(node.identifier)) this.defs.set(node.identifier, node);
+    if (node.type === "imageReference") this.imageRefs.add(node.identifier);
+    if ("children" in node) for (const c of node.children) this.index(c);
+  }
+
+  private edit(start: number, end: number, text: string): void {
+    this.edits.push({ start, end, text });
+  }
+
+  private image(i: MarkdownImage): string {
+    return markdownImage(i, this.map(i.url) ?? i.url);
+  }
+
+  /** Whether a link to `url` must go: `map` maps it and it holds an image or a signature. */
+  private hidesLink(url: string, holdsImage: boolean): boolean {
+    return this.map(url) !== undefined && (holdsImage || signed(url));
+  }
+
+  /** Raw HTML with its `<img>` tags as markdown images and private links and signed URLs gone. */
+  html(value: string): string {
+    const around = value.replace(A_AROUND_IMG, (whole, open: string, img: string) => {
+      const i = htmlImage(img);
+      const href = attr(open, "href");
+      const hidden = href === undefined || this.map(href) !== undefined;
+      if (i === undefined) return hidden ? "" : whole;
+      return hidden ? this.image(i) : `[${this.image(i)}](${dest(href)}${titlePart(attr(open, "title"))})`;
+    });
+    const images = around.replace(IMG, (t) => {
+      const i = htmlImage(t);
+      return i === undefined ? t : this.image(i);
+    });
+    const links = images.replace(A_OPEN, (t) => {
+      const href = attr(t, "href");
+      return href !== undefined && this.hidesLink(href, false) ? "" : t;
+    });
+    return links.replace(URL_RUN, (run) => {
+      const url = decodeEntities(run);
+      return signed(url) ? (this.map(url) ?? run) : run;
+    });
+  }
+
+  /** `<a href>` … `</a>` as sibling inline HTML around content: a markdown link, or unwrapped. */
+  private anchor(open: Html, close: Html, inner: Nodes[]): void {
+    const href = attr(open.value, "href");
+    const hasImage = inner.some(holdsImage);
+    if (href === undefined || this.hidesLink(href, hasImage)) {
+      this.edit(startOf(open), endOf(open), "");
+      this.edit(startOf(close), endOf(close), "");
+    } else if (hasImage) {
+      this.edit(startOf(open), endOf(open), "[");
+      this.edit(startOf(close), endOf(close), `](${dest(href)}${titlePart(attr(open.value, "title"))})`);
+    }
+  }
+
+  /** The children of `parent`, pairing inline `<a>` and `</a>` around their content. */
+  private children(parent: Parent): void {
+    const kids = parent.children as Nodes[];
+    let skipTo = 0;
+    for (const [at, kid] of kids.entries()) {
+      if (at < skipTo) continue;
+      const close = kid.type === "html" && A_OPEN_ONLY.test(kid.value) ? kids.findIndex((k, j) => j > at && k.type === "html" && A_CLOSE_ONLY.test(k.value)) : -1;
+      if (close < 0) {
+        this.node(kid);
+        continue;
+      }
+      this.anchor(kid as Html, kids[close] as Html, kids.slice(at + 1, close));
+      for (const inner of kids.slice(at + 1, close)) this.node(inner);
+      skipTo = close + 1;
+    }
+  }
+
+  /** A link (or a link reference to `url`): unwrapped when private, its content kept. */
+  private link(node: Link | LinkReference, url: string): void {
+    if (!this.hidesLink(url, holdsImage(node))) {
+      this.children(node);
+      return;
+    }
+    const first = node.children[0];
+    const last = node.children.at(-1);
+    // A bare autolink's text is its signed URL.
+    if (first === undefined || last === undefined || startOf(first) === startOf(node) || this.md[startOf(node)] === "<") {
+      this.edit(startOf(node), endOf(node), first === undefined ? "" : "(private link)");
+      return;
+    }
+    this.edit(startOf(node), startOf(first), "");
+    this.edit(endOf(last), endOf(node), "");
+    this.children(node);
+  }
+
+  private imageNode(node: Image): void {
+    this.edit(startOf(node), endOf(node), this.image({ alt: node.alt ?? "", url: node.url, title: node.title ?? undefined }));
+  }
+
+  private imageReference(node: ImageReference): void {
+    const def = this.defs.get(node.identifier);
+    if (def === undefined || this.map(def.url) === undefined) return;
+    this.edit(startOf(node), endOf(node), this.image({ alt: node.alt ?? "", url: def.url, title: def.title ?? undefined }));
+  }
+
+  private definition(node: Definition): void {
+    if (this.defs.get(node.identifier) !== node) return;
+    const goes = this.map(node.url) !== undefined && (signed(node.url) || this.imageRefs.has(node.identifier));
+    if (goes) this.edit(startOf(node), endOf(node), "");
+  }
+
+  private htmlNode(node: Html): void {
+    const text = this.html(node.value);
+    if (text !== node.value) this.edit(startOf(node), endOf(node), text);
+  }
+
+  node(node: Nodes): void {
+    if (node.type === "image") this.imageNode(node);
+    else if (node.type === "imageReference") this.imageReference(node);
+    else if (node.type === "definition") this.definition(node);
+    else if (node.type === "link") this.link(node, node.url);
+    else if (node.type === "linkReference") this.link(node, this.defs.get(node.identifier)?.url ?? "");
+    else if (node.type === "html") this.htmlNode(node);
+    else if ("children" in node) this.children(node);
+  }
+}
+
+function holdsImage(node: Nodes): boolean {
+  if (node.type === "image" || node.type === "imageReference") return true;
+  if (node.type === "html") return /<img\b/i.test(node.value);
+  return "children" in node && (node.children as Nodes[]).some(holdsImage);
+}
+
+/** `md` with `edits` applied (each over its own source range, inner ranges never overlapping). */
+function apply(md: string, edits: readonly Edit[]): string {
+  let out = "";
+  let at = 0;
+  for (const e of [...edits].sort((a, b) => a.start - b.start)) {
+    if (e.start < at) continue;
+    out += md.slice(at, e.start) + e.text;
+    at = e.end;
+  }
+  return out + md.slice(at);
 }
 
 /**
  * `md` with every image as canonical markdown `![alt](src "title")` pointing at `map(src)` (its own
- * `src` when `map` keeps it). A link around an image stays as a markdown link (an `<a href>` becomes
- * one) unless `map` maps its destination: that destination is private (often the same signed URL as
- * the image), so the link is dropped and the image alone stays. A reference definition's destination
- * is replaced by `map`'s answer when it has one.
+ * `src` when `map` keeps it), image references `map` maps made inline (their definitions dropped),
+ * private links around images and signed private links unwrapped, and raw HTML `<img>`/`<a>` handled
+ * the same way. Text no rule touches stays exactly as written.
  */
 export function rewriteImages(md: string, map: MapUrl): string {
-  return md.replace(ANY, (whole) => rewrite(whole, piece(whole), map));
+  const root = parse(md);
+  const rewriter = new Rewriter(md, map, root);
+  rewriter.node(root);
+  return apply(md, rewriter.edits);
 }
 
-/** Every image source in `md` and every reference definition's destination, once each, in order. */
-export function imageSources(md: string): string[] {
-  const urls = new Set<string>();
-  for (const [whole] of md.matchAll(ANY)) {
-    const p = piece(whole);
-    const url = p.kind === "definition" ? p.link.url : p.image?.url;
-    if (url !== undefined) urls.add(url);
+/** An HTML node's `<img>` sources, and the markdown images an HTML block holds as raw text (markdown once the tags around it go). */
+function collectHtml(value: string, defs: Map<string, string>, out: Set<string>): void {
+  for (const [t] of value.matchAll(IMG)) {
+    const url = htmlImage(t)?.url;
+    if (url !== undefined) out.add(url);
   }
-  return [...urls];
+  const inner = value.replace(/<[^>]*>/g, "");
+  if (inner !== value) collect(parse(inner), defs, out);
+}
+
+function collect(node: Nodes, defs: Map<string, string>, out: Set<string>): void {
+  const ref = node.type === "imageReference" ? defs.get(node.identifier) : undefined;
+  if (node.type === "image") out.add(node.url);
+  else if (ref !== undefined) out.add(ref);
+  else if (node.type === "html") collectHtml(node.value, defs, out);
+  if ("children" in node) for (const c of node.children) collect(c, defs, out);
+}
+
+function definitions(node: Nodes, defs: Map<string, string>): void {
+  if (node.type === "definition" && !defs.has(node.identifier)) defs.set(node.identifier, node.url);
+  if ("children" in node) for (const c of node.children) definitions(c, defs);
+}
+
+/** Every image source in `md` (markdown images, image references' definitions, `<img>` tags), once each, in order. */
+export function imageSources(md: string): string[] {
+  const root = parse(md);
+  const defs = new Map<string, string>();
+  definitions(root, defs);
+  const out = new Set<string>();
+  collect(root, defs, out);
+  return [...out];
 }

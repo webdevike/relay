@@ -92,7 +92,8 @@ describe('review media', () => {
 
   it('keeps titles, turns an <img> width into w=N (w=N <title> with a title too), both syntaxes', async () => {
     const md = [
-      '<img width=400 src=https://example.com/a.png alt=wide>',
+      // Quoted: under the renderer's grammar (micromark + GFM) an unquoted URL value is text with an autolink.
+      '<img width=400 src="https://example.com/a.png" alt=wide>',
       '<img style="max-width: 90%; width: 320px" src="https://example.com/b.png">',
       `<img title='A "quoted" one' src='https://example.com/c.png'>`,
       '![sized](https://example.com/d.png "w=250")',

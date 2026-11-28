@@ -17,6 +17,7 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../window', () => ({ isAppUrl: () => true }))
 
+import { rewriteImages } from '@relay/protocol/markdown-images'
 import { createConfigStore } from '../config-store'
 import type { MainContext } from '../context'
 import type { RelayFrames } from '../relay/client'
@@ -322,6 +323,64 @@ describe('the page through the host', () => {
     expect(r.value).toMatchObject({
       body: expect.stringMatching(/^see !\[shot\]\(\/reviews\/media\/[0-9a-f]{40}\.png\)$/),
     })
+  })
+
+  it('loads images the host rewrote from reference and entity-escaped forms: inline host paths, fetched and served locally', async () => {
+    // What the host's localizer answers (`@relay/protocol/markdown-images` with its served `<file>/<token>` paths).
+    const signed = 'https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT'
+    const served = (n: string) => `/reviews/media/${n.repeat(40)}.png/tok${n}`
+    const hosted = new Map([[signed, served('a')]])
+    const body = rewriteImages(
+      [
+        `![ref][shot]`,
+        `[![linked][shot]](${signed})`,
+        `![escaped](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)`,
+        `[shot]: ${signed}`,
+      ].join('\n\n'),
+      (u) => hosted.get(u),
+    )
+    expect(body).not.toMatch(/^\[shot\]:/m)
+    const fetched: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      fetched.push(url)
+      return new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } })
+    })
+    host.answers.pr = () => ({
+      pr: {
+        repo: 'o/r',
+        number: 2,
+        title: 't',
+        url: 'u',
+        state: 'OPEN',
+        draft: false,
+        author: { login: 'd' },
+        createdAt: 1,
+        updatedAt: 2,
+        body,
+        base: 'main',
+        head: 'h',
+        headSha: 'x',
+        additions: 0,
+        deletions: 0,
+        reviewers: [],
+        assignees: [],
+        labels: [],
+        timeline: [],
+        checks: [],
+        files: [],
+        diff: '',
+        diffTruncated: false,
+      },
+    })
+    const r = await call('reviews.pr', { repo: 'o/r', number: 2 })
+    const local = /\/reviews\/media\/[0-9a-f]{40}\.png/.source
+    expect((r.value as { body: string }).body.split('\n\n').filter(Boolean)).toEqual([
+      expect.stringMatching(new RegExp(`^!\\[ref\\]\\(${local}\\)$`)),
+      expect.stringMatching(new RegExp(`^!\\[linked\\]\\(${local}\\)$`)),
+      expect.stringMatching(new RegExp(`^!\\[escaped\\]\\(${local}\\)$`)),
+    ])
+    expect(fetched).toEqual([`http://100.85.157.127:7817${served('a')}`])
+    expect(JSON.stringify(r.value)).not.toMatch(/SECRETJWT|jwt=|private-user-images|tok/)
   })
 
   it('row pills come from the host’s prView', async () => {

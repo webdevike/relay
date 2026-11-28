@@ -78,7 +78,8 @@ describe("review media", () => {
 
   it("keeps titles, turns an `<img>` width into `w=N` (`w=N <title>` with a title too), and leaves other images as they are", async () => {
     const md = [
-      "<img width=400 src=https://example.com/a.png alt=wide>",
+      // Quoted: under the renderer's grammar (micromark + GFM) an unquoted URL value is text with an autolink.
+      '<img width=400 src="https://example.com/a.png" alt=wide>',
       '<img style="max-width: 90%; width: 320px" src="https://example.com/b.png">',
       "<img title='A \"quoted\" one' src='https://example.com/c.png'>",
       '![sized](https://example.com/d.png "w=250")',
@@ -314,7 +315,9 @@ describe("signed GitHub images in every form the clients render", () => {
 
   it.each(Object.entries(signedImages.forms))("serves %s from the host and keeps no signature", async (_, md) => {
     const out = await localizeImages(md, fresh(), github, served);
-    expect(out).toMatch(/\/reviews\/media\/[0-9a-f]{40}\.png\/[0-9a-f]{32}/);
+    expect(out).toMatch(/\]\(\/reviews\/media\/[0-9a-f]{40}\.png\/[0-9a-f]{32}[ )]/);
+    // Inline only: no reference definition carries a host path the phone or remote desktop can't resolve.
+    expect(out).not.toMatch(/^ {0,3}\[[^\]]*\]:/m);
     for (const secret of signedImages.secrets) expect(JSON.stringify(out)).not.toContain(secret);
   });
 
