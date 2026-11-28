@@ -15,7 +15,7 @@
 //   signed URL `map` maps inside raw HTML is replaced by `map`'s answer.
 
 import { decodeNamedCharacterReference } from "decode-named-character-reference";
-import type { Definition, Html, Image, ImageReference, Link, LinkReference, Nodes, Parent, Root } from "mdast";
+import type { Definition, Html, Image, ImageReference, Link, LinkReference, Nodes, Parent, Root, Text } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
@@ -134,8 +134,18 @@ class Rewriter {
     this.edits.push({ start, end, text });
   }
 
+  /** An image as canonical markdown; a signed private URL in its alt text goes too. */
   private image(i: MarkdownImage): string {
-    return markdownImage(i, this.map(i.url) ?? i.url);
+    return markdownImage({ ...i, alt: this.scrub(i.alt) }, this.map(i.url) ?? i.url);
+  }
+
+  /** `text` with every signed URL `map` maps (plain, entity- or backslash-escaped) replaced by "(private link)". */
+  private scrub(text: string): string {
+    return text.replace(URL_RUN, (run) => {
+      if (!run.includes("/") && !run.includes("&")) return run;
+      const url = decodeEntities(run).replace(/\\([!-/:-@[-`{-~])/g, "$1");
+      return url.includes("://") && signed(url) && this.map(url) !== undefined ? "(private link)" : run;
+    });
   }
 
   /** Whether a link to `url` must go: `map` maps it and it holds an image or a signature. */
@@ -230,8 +240,8 @@ class Rewriter {
     this.edit(startOf(node), endOf(node), this.image({ alt: node.alt ?? "", url: def.url, title: def.title ?? undefined }));
   }
 
+  /** Every definition `map` maps that is signed or behind an image goes, the duplicates that never win resolution included. */
   private definition(node: Definition): void {
-    if (this.defs.get(node.identifier) !== node) return;
     const goes = this.map(node.url) !== undefined && (signed(node.url) || this.imageRefs.has(node.identifier));
     if (goes) this.edit(startOf(node), endOf(node), "");
   }
@@ -241,13 +251,28 @@ class Rewriter {
     if (text !== node.value) this.edit(startOf(node), endOf(node), text);
   }
 
-  node(node: Nodes): void {
+  /** Visible text (an unwrapped link's label, say) without signed private URLs. */
+  private text(node: Text): void {
+    const source = this.md.slice(startOf(node), endOf(node));
+    const out = this.scrub(source);
+    if (out !== source) this.edit(startOf(node), endOf(node), out);
+  }
+
+  /** The image-side nodes; false for any other. */
+  private imageSide(node: Nodes): boolean {
     if (node.type === "image") this.imageNode(node);
     else if (node.type === "imageReference") this.imageReference(node);
     else if (node.type === "definition") this.definition(node);
-    else if (node.type === "link") this.link(node, node.url);
+    else return false;
+    return true;
+  }
+
+  node(node: Nodes): void {
+    if (this.imageSide(node)) return;
+    if (node.type === "link") this.link(node, node.url);
     else if (node.type === "linkReference") this.link(node, this.defs.get(node.identifier)?.url ?? "");
     else if (node.type === "html") this.htmlNode(node);
+    else if (node.type === "text") this.text(node);
     else if ("children" in node) this.children(node);
   }
 }

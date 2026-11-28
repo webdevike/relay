@@ -12,6 +12,14 @@
     "reference definition": "![a][shot]\n\n[shot]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT",
     "reference image inside an inline link": "[![a][inlink]](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)\n\n[inlink]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT",
     "entity-escaped colon destination": "![a](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
-    "linked image with an entity-escaped outer destination": "[![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)"
+    "linked image with an entity-escaped outer destination": "[![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)](https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
+    "duplicate reference definition": "![a][dup]\n\n[dup]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\n[dup]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT",
+    "duplicate reference definition with an entity-encoded destination": "![a][dupe]\n\n[dupe]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\n[dupe]: https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt&#61;SECRETJWT"
+  },
+  "links": {
+    "signed URL as its own link text": "[https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
+    "entity-escaped signed URL as link text": "[see https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
+    "signed URL as the text of a public link": "[https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT](https://example.com/pr)",
+    "unused duplicate definition behind a link": "[the run][run]\n\n[run]: https://example.com/run\n[run]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT"
   }
 }

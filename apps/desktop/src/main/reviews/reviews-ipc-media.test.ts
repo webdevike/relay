@@ -21,6 +21,8 @@ vi.mock('./astra-sessions', () => ({ registerAstraSessions: () => {} }))
 const HEAD = 'a'.repeat(40)
 const BASE = 'c'.repeat(40)
 const forms = Object.values(signedImages.forms)
+/** Signed URLs as link text and in duplicate definitions (no image to serve): only their absence is checked. */
+const leaks = Object.values(signedImages.links)
 const raw = {
   number: 7,
   title: 'Lock',
@@ -30,7 +32,7 @@ const raw = {
   author: { login: 'sam' },
   createdAt: '2026-11-01T00:00:00Z',
   updatedAt: '2026-11-01T00:00:00Z',
-  body: forms.join('\n\n'),
+  body: [...forms, ...leaks].join('\n\n'),
   baseRefName: 'main',
   headRefName: 'lock',
   headRefOid: HEAD,
@@ -47,7 +49,7 @@ const raw = {
     body,
     submittedAt: '2026-11-01T00:00:00Z',
   })),
-  comments: forms.map((body) => ({
+  comments: [...forms, ...leaks].map((body) => ({
     author: { login: 'sam' },
     body,
     createdAt: '2026-11-01T00:00:00Z',
@@ -95,7 +97,7 @@ describe('reviews.pr answers no signed image URL', () => {
       /\/reviews\/media\/unavailable/,
     ],
   ] as const)(
-    'in a body, comments and reviews holding every signed image form (%s)',
+    'in a body, comments and reviews holding every signed image form, signed link text and duplicate definition (%s)',
     async (_, fetchFn, local) => {
       vi.stubGlobal('fetch', fetchFn)
       const pr = (await handlers.get('reviews.pr')!({ repo: 'o/r', number: 7 })) as ReviewPr

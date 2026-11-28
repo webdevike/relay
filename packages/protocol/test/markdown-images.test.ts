@@ -61,6 +61,28 @@ describe("markdown images", () => {
     ]);
   });
 
+  it.each([
+    ["signed URL as its own link text", "(private link)"],
+    ["entity-escaped signed URL as link text", "see (private link)"],
+    ["signed URL as the text of a public link", "[(private link)](https://example.com/pr)"],
+    ["unused duplicate definition behind a link", "[the run][run]\n\n[run]: https://example.com/run\n"],
+  ] as const)("keeps no signature in the shared fixture's %s", (name, expected) => {
+    const out = rewriteImages(signedImages.links[name], map);
+    expect(out).toBe(expected);
+    noSecret(out);
+  });
+
+  it("redacts every private definition of a label, not just the one that wins, entity-encoded ones too", () => {
+    const md = `![a][s]\n\n[s]: ${SIGNED}\n[s]: https&#58;//private-user-images.githubusercontent.com/1/x.png?jwt&#61;SECRETJWT\n[S]: <${SIGNED}> "again"`;
+    const out = rewriteImages(md, map);
+    expect(out).toBe(`![a](${LOCAL})\n\n\n\n`);
+    noSecret(out);
+  });
+
+  it("keeps no signed URL in an image's alt text", () => {
+    expect(rewriteImages(`![from ${SIGNED}](https://example.com/a.png)`, map)).toBe("![from (private link)](https://example.com/a.png)");
+  });
+
   it("drops a private link around a public image and replaces a signed private autolink", () => {
     expect(rewriteImages(`[![a](https://example.com/a.png)](${SIGNED})`, map)).toBe("![a](https://example.com/a.png)");
     expect(rewriteImages(`see ${SIGNED} and <${SIGNED}>`, map)).toBe("see (private link) and (private link)");

@@ -364,9 +364,11 @@ describe("guide snapshot", () => {
 
 describe("PR images at the answer boundary", () => {
   const forms = Object.values(signedImages.forms);
+  /** Signed URLs as link text and in duplicate definitions (no image to serve): only their absence is checked. */
+  const leaks = Object.values(signedImages.links);
   const BASE = "c".repeat(40);
   const HEAD = "a".repeat(40);
-  const raw = { number: 7, title: "Lock", url: "u", state: "OPEN", isDraft: false, author: null, createdAt: "", updatedAt: "", body: forms.join("\n\n"), baseRefName: "main", headRefName: "f", headRefOid: HEAD, baseRefOid: BASE, additions: 0, deletions: 0, commits: [], files: [], reviewRequests: [], latestReviews: [], reviews: forms.map((body) => ({ author: { login: "sam" }, state: "COMMENTED", body, submittedAt: "" })), comments: forms.map((body) => ({ author: { login: "sam" }, body, createdAt: "" })), assignees: [], labels: [], statusCheckRollup: [] };
+  const raw = { number: 7, title: "Lock", url: "u", state: "OPEN", isDraft: false, author: null, createdAt: "", updatedAt: "", body: [...forms, ...leaks].join("\n\n"), baseRefName: "main", headRefName: "f", headRefOid: HEAD, baseRefOid: BASE, additions: 0, deletions: 0, commits: [], files: [], reviewRequests: [], latestReviews: [], reviews: forms.map((body) => ({ author: { login: "sam" }, state: "COMMENTED", body, submittedAt: "" })), comments: [...forms, ...leaks].map((body) => ({ author: { login: "sam" }, body, createdAt: "" })), assignees: [], labels: [], statusCheckRollup: [] };
   const run: ToolRun = (argv) => {
     const ok = (stdout: string) => Promise.resolve({ code: 0, stdout, stderr: "", timedOut: false });
     if (argv[2] === "view") return ok(JSON.stringify(raw));
@@ -377,7 +379,7 @@ describe("PR images at the answer boundary", () => {
   it.each([
     ["served", () => Promise.resolve(new Response(new Uint8Array([0x89, 0x50]), { headers: { "content-type": "image/png" } })), /\/reviews\/media\/[0-9a-f]{40}\.png\//],
     ["unavailable", () => Promise.resolve(new Response("no", { status: 404 })), /\/reviews\/media\/unavailable/],
-  ] as const)("answers a PR whose body, comments and reviews hold every signed image form without a signature (%s)", async (_, fetchFn, path) => {
+  ] as const)("answers a PR whose body, comments and reviews hold every signed image form, signed link text and duplicate definition without a signature (%s)", async (_, fetchFn, path) => {
     const media = new ReviewMedia(join(dir, "media"));
     const pr = await new GitHub(run, "gh", { media, fetchFn, linearKey: () => null }).pr("o/r", 7);
     expect(pr.body).toMatch(path);
