@@ -4,11 +4,15 @@ import type { DraftRow } from './plan-rules'
 /**
  * The Timeline's plan draft (docs/state-machines/timeline-plan.md, PLAN T7.3). Nothing is written
  * until Isaac confirms Apply. Manual edits (drag, resize, reorder) and Astra's re-plan both build
- * draft rows; each row carries its own opId (minted once, reused by every retry) and the ticket's
- * `updatedAt` it was made from. Apply writes the Linear rows through the gate (prepare, then
- * commit with the approval) and saves start-only rows as Relay-only starts. Rows whose ticket
- * changed meanwhile make the draft `stale`: Isaac reviews the re-based draft and confirms again.
- * Failed rows stay in the draft with their errors; a retry sends them again with the same opIds.
+ * draft rows; each row carries its own opId and the ticket's `updatedAt` and Relay start it was made
+ * from. Apply writes every row (Linear fields and Relay-only starts alike) as one gate `applyPlan`
+ * batch (prepare, then commit with the approval) under a batch opId. Rows whose ticket changed
+ * meanwhile, or an Astra proposal the host found stale, make the draft `stale`: nothing applies
+ * until Isaac has seen the re-based comparison and confirmed again. Definite failures stay in the
+ * draft with their errors; a retry is a fresh confirm under a new batch opId (the host never sends a
+ * row it already wrote again). When any row's outcome is unknown (or the answer was lost) the batch
+ * is kept as it was sent: the only way on is Check (the same commit, same opIds, which the host
+ * reconciles and never sends twice) or Discard; a batch the host never got goes back to the confirm.
  * The runtime (plan-actor.ts) provides the actors.
  */
 
@@ -34,11 +38,19 @@ export type ApplyOutput =
   | { kind: 'stale'; keys: string[] }
   /** The gate said no (writes off, identity): nothing was written. */
   | { kind: 'refused'; message: string }
+  /** Check: the host has no record of this batch, so nothing was written; it needs a confirm. */
+  | { kind: 'unsent' }
 
 export interface ApplyInput {
   rows: DraftRow[]
-  /** The commit's own opId: kept while the same rows are retried after a lost answer. */
+  /** The batch's commit opId: kept while any of its rows' outcome is unknown. */
   opId: string
+}
+
+/** The batch as it was sent: Check resends exactly this, so the host answers its stored outcome. */
+export interface PlanBatch {
+  opId: string
+  rows: DraftRow[]
 }
 
 export type PlanEvent =
@@ -54,8 +66,10 @@ export type PlanEvent =
   | { type: 'plan.back' }
   /** Isaac confirmed: write. */
   | { type: 'plan.confirm' }
-  /** Send the failed rows again (same opIds). */
+  /** Confirm the definitely failed rows again (a new batch; the rows keep their opIds). */
   | { type: 'plan.retry' }
+  /** Ask the host how the kept batch ended (the same commit; nothing is sent twice). */
+  | { type: 'plan.check' }
   /** The draft re-based on the tickets as they are now (plan-rules rebaseRows). */
   | { type: 'plan.reconfirm'; rows: DraftRow[] }
   /** Throw the draft away. */
@@ -71,12 +85,15 @@ export interface PlanContext {
   /** One line for the UI (an unreadable answer, a refusal, a lost answer). */
   message: string | null
   scope: ReplanScope | null
-  /** The commit opId of the rows in flight; null: mint one on the next apply. */
-  batchOpId: string | null
+  /** The batch in flight or with an unknown outcome; null: the next apply mints one. */
+  batch: PlanBatch | null
 }
 
 export const UNREADABLE_PLAN = "Couldn't read a plan from this answer"
 export const STALE_ROW = 'Changed since this draft'
+export const LOST_ANSWER = 'No answer came back, so it may have been written. Check again.'
+export const STILL_UNKNOWN =
+  'Linear doesn’t show these changes yet. Check again later, or Discard and look in Linear.'
 
 const EMPTY: PlanContext = {
   rows: [],
@@ -84,17 +101,21 @@ const EMPTY: PlanContext = {
   summary: null,
   message: null,
   scope: null,
-  batchOpId: null,
+  batch: null,
 }
 
 /** Back from a re-plan or a refusal: the draft if there is one, else viewing. */
 const BACK = [{ target: 'drafting', guard: 'hasRows' }, { target: 'viewing' }] as const
+
+type Out = { output: ApplyOutput }
+const out = ({ event }: { event: { output: ApplyOutput } }): Out => ({ output: event.output })
 
 export const timelinePlanMachine = setup({
   types: { context: {} as PlanContext, events: {} as PlanEvent },
   actors: {
     replan: fromPromise<ReplanOutput, ReplanScope>(async () => null),
     apply: fromPromise<ApplyOutput, ApplyInput>(async () => ({ kind: 'done', results: [] })),
+    check: fromPromise<ApplyOutput, ApplyInput>(async () => ({ kind: 'unsent' })),
   },
   guards: {
     hasRows: ({ context }) => context.rows.length > 0,
@@ -105,29 +126,61 @@ export const timelinePlanMachine = setup({
     unreadable: (_, p: { output: ReplanOutput }) => p.output === null,
     /** Astra's plan changes nothing in scope. */
     noChanges: (_, p: { output: ReplanOutput }) => p.output?.rows.length === 0,
+    /** Some of Astra's rows changed since her baseline: compare again before anything applies. */
+    staleProposal: (_, p: { output: ReplanOutput }) =>
+      p.output?.rows.some((r) => r.stale === true) === true,
     /** A ticket changed since the draft: nothing was written. */
-    isStale: (_, p: { output: ApplyOutput }) => p.output.kind === 'stale',
+    isStale: (_, p: Out) => p.output.kind === 'stale',
     /** The gate said no: nothing was written. */
-    isRefused: (_, p: { output: ApplyOutput }) => p.output.kind === 'refused',
-    allApplied: ({ context }, p: { output: ApplyOutput }) =>
-      failedRows(context.rows, p.output).length === 0,
+    isRefused: (_, p: Out) => p.output.kind === 'refused',
+    /** The host never got the batch: nothing was written. */
+    isUnsent: (_, p: Out) => p.output.kind === 'unsent',
+    allApplied: ({ context }, p: Out) => openRows(sent(context), p.output).length === 0,
+    anyUnknown: (_, p: Out) =>
+      p.output.kind === 'done' && p.output.results.some((r) => r.state === 'unknown'),
   },
   actions: {
     clear: assign(() => EMPTY),
     takeEdit: assign(({ event }) =>
       event.type === 'plan.edit'
-        ? { rows: event.rows, source: 'manual' as const, message: null, batchOpId: null }
+        ? { rows: event.rows, source: 'manual' as const, message: null, batch: null }
         : {},
     ),
     startReplan: assign(({ event }) =>
       event.type === 'plan.replan' ? { scope: event.scope, message: null } : {},
     ),
     takeReconfirm: assign(({ event }) =>
-      event.type === 'plan.reconfirm' ? { rows: event.rows, message: null, batchOpId: null } : {},
+      event.type === 'plan.reconfirm' ? { rows: event.rows, message: null, batch: null } : {},
     ),
+    takeProposal: assign((_, p: { output: ReplanOutput }) => ({
+      rows: (p.output?.rows ?? []).map((r) => (r.stale ? { ...r, error: STALE_ROW } : r)),
+      summary: p.output?.summary ?? null,
+      source: 'astra' as const,
+      batch: null,
+    })),
     mintBatch: assign(({ context }) => ({
-      batchOpId: context.batchOpId ?? crypto.randomUUID(),
+      batch: context.batch ?? { opId: crypto.randomUUID(), rows: context.rows },
       message: null,
+    })),
+    markStale: assign(({ context }, p: Out) => ({
+      rows: markStale(context.rows, p.output),
+      batch: null,
+    })),
+    sayRefused: assign((_, p: Out) => ({
+      message: p.output.kind === 'refused' ? p.output.message : null,
+    })),
+    dropBatch: assign({ batch: null }),
+    /** The host never got it: the batch's rows go back to the confirm (same batch opId). */
+    resendBatch: assign(({ context }) => ({ rows: sent(context), message: null })),
+    /** Definite failures stay with their errors; the next try is a fresh confirm. */
+    keepFailed: assign(({ context }, p: Out) => ({
+      rows: openRows(sent(context), p.output),
+      batch: null,
+    })),
+    /** Some outcome is unknown: the open rows show it; the batch stays exactly as sent. */
+    keepOpen: assign(({ context }, p: Out) => ({ rows: openRows(sent(context), p.output) })),
+    sayLost: assign((_, p: { error: unknown }) => ({
+      message: `${errorText(p.error)} ${LOST_ANSWER}`,
     })),
   },
 }).createMachine({
@@ -170,13 +223,13 @@ export const timelinePlanMachine = setup({
             }),
           },
           {
+            guard: { type: 'staleProposal', params: ({ event }) => ({ output: event.output }) },
+            target: 'stale',
+            actions: { type: 'takeProposal', params: ({ event }) => ({ output: event.output }) },
+          },
+          {
             target: 'reviewingProposal',
-            actions: assign(({ event }) => ({
-              rows: event.output!.rows,
-              summary: event.output!.summary,
-              source: 'astra' as const,
-              batchOpId: null,
-            })),
+            actions: { type: 'takeProposal', params: ({ event }) => ({ output: event.output }) },
           },
         ],
         onError: {
@@ -209,39 +262,34 @@ export const timelinePlanMachine = setup({
       entry: 'mintBatch',
       invoke: {
         src: 'apply',
-        input: ({ context }) => ({ rows: context.rows, opId: context.batchOpId! }),
+        input: ({ context }) => context.batch!,
         onDone: [
           {
-            guard: { type: 'isStale', params: ({ event }) => ({ output: event.output }) },
+            guard: { type: 'isStale', params: out },
             target: 'stale',
-            actions: assign({
-              rows: ({ context, event }) => markStale(context.rows, event.output),
-            }),
+            actions: { type: 'markStale', params: out },
           },
           {
-            guard: { type: 'isRefused', params: ({ event }) => ({ output: event.output }) },
+            guard: { type: 'isRefused', params: out },
             target: 'back',
-            actions: assign({
-              message: ({ event }) =>
-                event.output.kind === 'refused' ? event.output.message : null,
-            }),
+            actions: [{ type: 'sayRefused', params: out }, 'dropBatch'],
           },
           {
-            guard: { type: 'allApplied', params: ({ event }) => ({ output: event.output }) },
-            target: 'applied',
-            actions: 'clear',
+            guard: { type: 'isUnsent', params: out },
+            target: 'confirming',
+            actions: 'resendBatch',
           },
+          { guard: { type: 'allApplied', params: out }, target: 'applied', actions: 'clear' },
           {
-            target: 'partiallyFailed',
-            actions: assign(({ context, event }) => ({
-              rows: failedRows(context.rows, event.output),
-              batchOpId: null,
-            })),
+            guard: { type: 'anyUnknown', params: out },
+            target: 'unknown',
+            actions: { type: 'keepOpen', params: out },
           },
+          { target: 'partiallyFailed', actions: { type: 'keepFailed', params: out } },
         ],
         onError: {
-          target: 'partiallyFailed',
-          actions: assign({ message: ({ event }) => errorText(event.error) }),
+          target: 'unknown',
+          actions: { type: 'sayLost', params: ({ event }) => ({ error: event.error }) },
         },
       },
     },
@@ -262,6 +310,42 @@ export const timelinePlanMachine = setup({
         'plan.discard': { target: 'viewing', actions: 'clear' },
       },
     },
+    /** Some row may or may not be written: only Check (or Discard) until the host says. */
+    unknown: {
+      on: {
+        'plan.check': 'checking',
+        'plan.discard': { target: 'viewing', actions: 'clear' },
+      },
+    },
+    checking: {
+      invoke: {
+        src: 'check',
+        input: ({ context }) => context.batch!,
+        onDone: [
+          {
+            guard: { type: 'isRefused', params: out },
+            target: 'unknown',
+            actions: { type: 'sayRefused', params: out },
+          },
+          {
+            guard: { type: 'isUnsent', params: out },
+            target: 'confirming',
+            actions: 'resendBatch',
+          },
+          { guard: { type: 'allApplied', params: out }, target: 'applied', actions: 'clear' },
+          {
+            guard: { type: 'anyUnknown', params: out },
+            target: 'unknown',
+            actions: [{ type: 'keepOpen', params: out }, assign({ message: STILL_UNKNOWN })],
+          },
+          { target: 'partiallyFailed', actions: { type: 'keepFailed', params: out } },
+        ],
+        onError: {
+          target: 'unknown',
+          actions: { type: 'sayLost', params: ({ event }) => ({ error: event.error }) },
+        },
+      },
+    },
     stale: {
       on: {
         'plan.reconfirm': [
@@ -278,14 +362,19 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function markStale(rows: readonly DraftRow[], out: ApplyOutput): DraftRow[] {
-  const keys = new Set(out.kind === 'stale' ? out.keys : [])
+/** The rows the last write or check was about: the batch as sent, else the draft. */
+function sent(context: PlanContext): DraftRow[] {
+  return context.batch?.rows ?? context.rows
+}
+
+function markStale(rows: readonly DraftRow[], output: ApplyOutput): DraftRow[] {
+  const keys = new Set(output.kind === 'stale' ? output.keys : [])
   return rows.map((r) => (keys.has(r.key) ? { ...r, stale: true, error: STALE_ROW } : r))
 }
 
-/** The rows whose write did not succeed, with their errors (done rows leave the draft). */
-function failedRows(rows: readonly DraftRow[], out: ApplyOutput): DraftRow[] {
-  const results = new Map(out.kind === 'done' ? out.results.map((r) => [r.key, r]) : [])
+/** The rows not written (failed or unknown), with their errors (done rows leave the draft). */
+function openRows(rows: readonly DraftRow[], output: ApplyOutput): DraftRow[] {
+  const results = new Map(output.kind === 'done' ? output.results.map((r) => [r.key, r]) : [])
   return rows
     .filter((r) => results.get(r.key)?.state !== 'done')
     .map((r) => ({ ...r, error: results.get(r.key)?.error ?? 'Not written' }))

@@ -100,7 +100,12 @@
 }
 
 /* Milestone targets and today, portaled into SVAR's .wx-area by DateLines; their labels go on
-   the sticky .wx-scale (the time scale), centered on the line in the day row, over the dates. */
+   the sticky .wx-scale (the time scale), centered on the line in its last row: an empty band
+   (TimelineView's LABEL_BAND) below the dates, so a label never covers a tick or a date. */
+.rb-timeline-chart .wx-scale > .wx-row:last-of-type .wx-cell {
+  border-right-color: transparent;
+}
+
 .rb-line {
   position: absolute;
   top: 0;

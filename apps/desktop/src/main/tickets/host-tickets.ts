@@ -48,7 +48,11 @@ export interface HostTickets {
   snapshot(): TicketsView | null
   /** The board now: the held one, else asked for. */
   board(): Promise<({ ok: true } & TicketsView) | TicketsFallback>
-  /** One op; a host error (`ok:false` without `refused`) rejects with its line. */
+  /**
+   * One op; a host error (`ok:false` without `refused` or `outcome`) rejects with its line. A
+   * write the gate answered `ok:false` with its outcome (a failed or partly failed `applyPlan`)
+   * resolves, so the caller sees each row's own state.
+   */
   req(op: TicketsOp): Promise<TicketsAnswer>
   onChange(cb: TicketsListener): () => void
   stop(): void
@@ -70,14 +74,6 @@ export async function ask<T extends object>(
 ): Promise<({ source: 'host' } & T) | TicketsFallback> {
   const a = await host.req(op)
   return 'ok' in a ? { source: 'host', ...pick(a.res) } : a
-}
-
-/** `tickets.plan`: Relay-only Timeline starts, kept by the host (no Linear write). */
-export function savePlan(
-  host: Pick<HostTickets, 'req'>,
-  rows: { key: string; plannedStart: string | null }[],
-): Promise<{ source: 'host' } | TicketsFallback> {
-  return ask(host, { kind: 'plan', rows }, () => ({}))
 }
 
 type Refusal = NonNullable<TicketsResult['refused']>
@@ -137,7 +133,8 @@ export function createHostTickets(
       const res = ResFrame.safeParse(f)
       if (!res.success)
         reject(new Error('The Mini’s Relay Host sent an answer this app can’t read.'))
-      else if (res.data.ok || res.data.refused) resolve({ ok: true, res: res.data })
+      else if (res.data.ok || res.data.refused || res.data.outcome)
+        resolve({ ok: true, res: res.data })
       else reject(new Error(res.data.error ?? 'The Mini’s Relay Host refused that.'))
     })
     if (!frames.sendFrame({ t: 'tickets.req', rid, op })) {

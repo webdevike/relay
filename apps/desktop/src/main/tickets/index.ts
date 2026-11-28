@@ -17,7 +17,6 @@ import {
   createHostTickets,
   fallback,
   replan,
-  savePlan,
   type HostTickets,
   type TicketsView,
 } from './host-tickets'
@@ -120,7 +119,6 @@ export function registerTicketsIpc(
       return { summary: res.summary }
     }),
   )
-  handle(ctx, 'tickets.plan', ({ rows }) => savePlan(host, rows))
   handle(ctx, 'tickets.replan', (scope) => replan(host, scope))
 
   return () => {

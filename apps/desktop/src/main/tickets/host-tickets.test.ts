@@ -8,7 +8,7 @@ import {
   type TicketBoardFacts,
 } from '@relay/protocol'
 import type { RelayFeatures, RelayFrames } from '../relay/client'
-import { createHostTickets, replan, savePlan, type HostTickets } from './host-tickets'
+import { ask, createHostTickets, replan, type HostTickets } from './host-tickets'
 
 const fixture = JSON.parse(
   fs.readFileSync(path.join(__dirname, '../../../e2e/fixtures/tickets/board.json'), 'utf8'),
@@ -189,34 +189,58 @@ describe('Timeline plan routes', () => {
   const sentOps = (host: FakeHost): unknown[] =>
     host.sent.filter((f) => f.t === 'tickets.req').map((f) => f.op)
 
-  it('sends plan and replan to a host with tickets and passes its answers through', async () => {
+  it('sends replan to a host with tickets and passes its answers through', async () => {
     const host = new FakeHost()
     const b = bridge(host)
     await settle()
     host.silent = true
-    const saved = savePlan(b, [{ key: 'ENG-9001', plannedStart: '2026-12-01' }])
     const asked = replan(b, { projectId: 'project-board', milestoneId: 'ms-1' })
     const unreadable = replan(b, { projectId: 'project-board' })
-    const [r1, r2, r3] = host.sent.slice(-3).map((f) => f.rid)
-    host.push({ t: 'tickets.res', rid: r1, ok: true })
-    host.push({ t: 'tickets.res', rid: r2, ok: true, proposal })
+    const [r1, r2] = host.sent.slice(-2).map((f) => f.rid)
+    host.push({ t: 'tickets.res', rid: r1, ok: true, proposal })
     host.push({
       t: 'tickets.res',
-      rid: r3,
+      rid: r2,
       ok: false,
       refused: { code: 'invalid', message: 'Couldn’t read a plan from this answer' },
     })
-    expect(await saved).toEqual({ source: 'host' })
     expect(await asked).toEqual({ source: 'host', proposal })
     expect(await unreadable).toEqual({
       source: 'host',
       refused: { code: 'invalid', message: 'Couldn’t read a plan from this answer' },
     })
     expect(sentOps(host).slice(1)).toEqual([
-      { kind: 'plan', rows: [{ key: 'ENG-9001', plannedStart: '2026-12-01' }] },
       { kind: 'replan', projectId: 'project-board', milestoneId: 'ms-1' },
       { kind: 'replan', projectId: 'project-board' },
     ])
+  })
+
+  it('passes a failed applyPlan commit’s per-row outcome through instead of rejecting it', async () => {
+    const host = new FakeHost()
+    const b = bridge(host)
+    await settle()
+    host.silent = true
+    const opId = '00000000-0000-4000-8000-000000000050'
+    const row = {
+      key: 'ENG-9001',
+      issueId: 'issue-9001',
+      opId: '00000000-0000-4000-8000-000000000001',
+    }
+    const mutation = {
+      kind: 'applyPlan' as const,
+      rows: [{ ...row, baseUpdatedAt: 1, dueDate: '2026-12-09' }],
+    }
+    const committed = ask(b, { kind: 'commit', viewerId: 'user-isaac', opId, mutation }, (res) => ({
+      outcome: res.outcome,
+    }))
+    const outcome = {
+      opId,
+      state: 'failed',
+      result: { rows: [{ key: 'ENG-9001', opId: row.opId, state: 'failed', error: 'Nope' }] },
+    }
+    const rid = host.sent.at(-1)!.rid
+    host.push({ t: 'tickets.res', rid, ok: false, error: 'Not every change was written', outcome })
+    expect(await committed).toEqual({ source: 'host', outcome })
   })
 
   it('rejects a host error on replan', async () => {
@@ -233,10 +257,6 @@ describe('Timeline plan routes', () => {
     const host = new FakeHost()
     host.features = []
     const b = bridge(host)
-    expect(await savePlan(b, [{ key: 'ENG-9001', plannedStart: null }])).toMatchObject({
-      source: 'fallback',
-      reason: 'oldHost',
-    })
     expect(await replan(b, { projectId: 'project-board' })).toMatchObject({
       source: 'fallback',
       reason: 'oldHost',

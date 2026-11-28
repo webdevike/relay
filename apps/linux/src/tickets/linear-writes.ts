@@ -7,7 +7,10 @@
 // row. Creates pass `id: opId`, so a lost response is reconciled by reading that id. Reactions,
 // subscriptions and resolve are desired state: run() reads first and no-ops when already so.
 // applyPlan writes one issueUpdate per row; a row whose issue changed since the plan was drafted is
-// refused on its own, and a row already at its values (an earlier try) is done without a write.
+// refused on its own, and a row already at its values (an earlier try) is done without a write. A
+// row's Relay-only start is never sent to Linear (the service saves it once the row is done); check()
+// refuses a row whose start would land after its due date (a field it doesn't change keeps Linear's
+// due date or the start the draft was made from).
 
 import { createHash } from "node:crypto";
 import { TicketStateType, type TicketMutation, type TicketPlanRow } from "@relay/protocol";
@@ -15,6 +18,7 @@ import { z } from "zod";
 import { HostError, ProviderRejected, publicError } from "./errors";
 import type { CheckResult, MutationExecutor } from "./gate";
 import type { OpResult } from "./ops-store";
+import { validPair } from "./plan";
 
 export type LinearGql = (query: string, variables: Record<string, unknown>) => Promise<unknown>;
 type Of<K extends TicketMutation["kind"]> = Extract<TicketMutation, { kind: K }>;
@@ -160,6 +164,7 @@ function rowChange(row: TicketPlanRow): string {
   if (row.dueDate !== undefined) parts.push(`due ${row.dueDate ?? "none"}`);
   if (row.priority !== undefined) parts.push(`priority ${PRIORITY[row.priority] ?? String(row.priority)}`);
   if (row.prioritySortOrder !== undefined) parts.push(`order ${String(row.prioritySortOrder)}`);
+  if (row.plannedStart !== undefined) parts.push(`start ${row.plannedStart ?? "none"} (Relay only)`);
   return parts.join(", ") || "no change";
 }
 
@@ -501,14 +506,33 @@ function createOps(gql: LinearGql): KindOps<Of<"createIssue">> {
   };
 }
 
-/** A plan row whose id isn't the issue its key names (or is gone): drafted from something else. */
+/** Why one row can't be written: its id isn't the issue its key names (or is gone), or its dates clash. */
+function rowProblem(row: TicketPlanRow, issue: PlanIssue | undefined): string | null {
+  if (issue === undefined) return `${row.key}: ${GONE}`;
+  if (issue.identifier !== row.key) return `${row.key} isn't that issue in Linear (it is ${issue.identifier}). Make the plan again.`;
+  const start = row.plannedStart === undefined ? (row.basePlannedStart ?? null) : row.plannedStart;
+  const due = row.dueDate === undefined ? issue.dueDate : row.dueDate;
+  return validPair(start, due) ? null : `${row.key}: its start (${start ?? "none"}) would be after its due date (${due ?? "none"})`;
+}
+
+/** The first row that can't be written as drafted. */
 function planProblem(rows: readonly TicketPlanRow[], live: ReadonlyMap<string, PlanIssue>): string | null {
   for (const row of rows) {
-    const issue = live.get(row.issueId);
-    if (issue === undefined) return `${row.key}: ${GONE}`;
-    if (issue.identifier !== row.key) return `${row.key} isn't that issue in Linear (it is ${issue.identifier}). Make the plan again.`;
+    const problem = rowProblem(row, live.get(row.issueId));
+    if (problem !== null) return problem;
   }
   return null;
+}
+
+/** The opIds of the rows Linear shows at their values now (one read). */
+async function landedPlanRows(gql: LinearGql, rows: readonly TicketPlanRow[]): Promise<ReadonlySet<string>> {
+  const live = await planIssues(gql, rows);
+  return new Set(
+    rows.filter((r) => {
+      const issue = live.get(r.issueId);
+      return issue !== undefined && Object.keys(rowChanges(r, issue)).length === 0;
+    }).map((r) => r.opId),
+  );
 }
 
 function planOps(gql: LinearGql): KindOps<Of<"applyPlan">> {
@@ -529,12 +553,7 @@ function planOps(gql: LinearGql): KindOps<Of<"applyPlan">> {
       return { rows };
     },
     async reconcile(m) {
-      const live = await planIssues(gql, m.rows);
-      const pending = m.rows.some((r) => {
-        const issue = live.get(r.issueId);
-        return issue === undefined || Object.keys(rowChanges(r, issue)).length > 0;
-      });
-      return pending ? "notDone" : "done";
+      return (await landedPlanRows(gql, m.rows)).size === m.rows.length ? "done" : "notDone";
     },
   };
 }
@@ -565,5 +584,6 @@ export function linearExecutor(raw: LinearGql, viewerId: () => string | null, gu
     check: (m) => ops(m).check(m),
     run: (m, opId) => ops(m).run(m, opId),
     reconcile: (m, opId) => ops(m).reconcile(m, opId),
+    reconcileRows: (rows) => landedPlanRows(gql, rows),
   };
 }

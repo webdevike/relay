@@ -14,10 +14,8 @@ import { boardViewerId } from '../card-move-actor'
 import {
   editRows,
   proposalRows,
-  splitRows,
   staleKeys,
   toPlanRow,
-  type Day,
   type DraftRow,
   type PlanFields,
   type PlanTicket,
@@ -32,25 +30,29 @@ import {
   type RowResult,
 } from './plan.machine'
 
-/** The host can't do it yet (no `tickets.plan` / `tickets.replan` route). */
+/** The host can't do it yet (no `tickets.replan` route). */
 export const NEEDS_NEWER_HOST = 'Needs a newer Relay host'
-const LOST_ANSWER = 'Linear didn’t answer. Retry is safe: nothing is written twice.'
+const LOST_ROW = 'Linear didn’t answer for this row. Check again: it is never sent twice.'
+/** Astra's proposal was read as another Linear account than the Board shows. */
+export const OTHER_ACCOUNT =
+  'This plan was made for another Linear account than the Board shows. Ask Astra again.'
 
 type Refused = { refused: { code: string; message: string } }
 
 /** The runtime's effects; tests and the integrator provide them. */
 export interface PlanDeps {
-  /** The tickets as the host has them now (the stale check before writing, Astra's baseline). */
+  /** The tickets as the host has them now (the stale check before writing). */
   current(): Promise<readonly PlanTicket[]>
+  /** The Linear account the Board shows (writes carry it; a proposal must be for it). */
+  viewerId(): string
   /** The gate's approval: its id and the rows it writes, by the issues' live keys (host-resolved). */
   prepare(mutation: TicketMutation): Promise<{ approvalId: string; keys: string[] } | Refused>
+  /** The write; without `approvalId` it only answers a batch the host already has (Check). */
   commit(input: {
-    approvalId: string
+    approvalId?: string
     opId: string
     mutation: TicketMutation
   }): Promise<{ outcome: TicketOutcome } | Refused>
-  /** Relay-only starts (host `plan.json`); rejects with the reason. Absent: the host can't. */
-  savePlannedStarts?: (rows: { key: string; plannedStart: Day | null }[]) => Promise<void>
   /** Astra's re-plan answer (a TicketPlanProposal, unchecked). Absent: the host can't. */
   replan?: (scope: { projectId: string; milestoneId?: string }) => Promise<unknown>
 }
@@ -68,6 +70,7 @@ async function host<T extends { source: string }>(
 
 export const LIVE_PLAN_DEPS: PlanDeps = {
   current: async () => TicketsBoard.parse((await host(invoke('tickets.board', {}))).board).tickets,
+  viewerId: boardViewerId,
   prepare: async (mutation) => {
     const r = await host(invoke('tickets.prepare', { viewerId: boardViewerId(), mutation }))
     if (r.refused) return { refused: r.refused }
@@ -77,9 +80,6 @@ export const LIVE_PLAN_DEPS: PlanDeps = {
   commit: async (input) => {
     const r = await host(invoke('tickets.commit', { viewerId: boardViewerId(), ...input }))
     return r.refused ? { refused: r.refused } : { outcome: TicketOutcome.parse(r.outcome) }
-  },
-  savePlannedStarts: async (rows) => {
-    await host(invoke('tickets.plan', { rows }))
   },
   // `invalid`: Astra's answer wasn't a readable plan (the machine says so); other refusals throw.
   replan: async (scope) => {
@@ -95,12 +95,12 @@ function refusal(r: Refused['refused'], rows: readonly DraftRow[]): ApplyOutput 
 }
 
 function rowResults(rows: readonly DraftRow[], outcome: TicketOutcome): RowResult[] {
-  const per = new Map((outcome.result?.rows ?? []).map((r) => [r.key, r]))
+  const per = new Map((outcome.result?.rows ?? []).map((r) => [r.opId, r]))
   return rows.map((row) => {
-    const one = per.get(row.key)
+    const one = per.get(row.opId)
     const state = one?.state ?? outcome.state
     if (state === 'done') return { key: row.key, state }
-    const lost = state === 'unknown' ? LOST_ANSWER : 'Linear didn’t take it.'
+    const lost = state === 'unknown' ? LOST_ROW : 'Linear didn’t take it.'
     return { key: row.key, state, error: one?.error ?? outcome.result?.error ?? lost }
   })
 }
@@ -115,65 +115,59 @@ function sameRows(rows: readonly DraftRow[], keys: readonly string[]): boolean {
   return keys.length === want.size && keys.every((k) => want.has(k))
 }
 
-/** The Linear rows as one `applyPlan` write: prepare, check the host's rows, then commit with the approval. */
-async function writeLinear(rows: DraftRow[], opId: string, deps: PlanDeps): Promise<ApplyOutput> {
-  const mutation: TicketMutation = { kind: 'applyPlan', rows: rows.map(toPlanRow) }
-  const approval = await deps.prepare(mutation)
-  if ('refused' in approval) return refusal(approval.refused, rows)
-  if (!sameRows(rows, approval.keys)) return { kind: 'refused', message: OTHER_ROWS }
-  const done = await deps.commit({ approvalId: approval.approvalId, opId, mutation })
-  if ('refused' in done) return refusal(done.refused, rows)
-  return { kind: 'done', results: rowResults(rows, done.outcome) }
-}
+const planOf = (rows: readonly DraftRow[]): TicketMutation => ({
+  kind: 'applyPlan',
+  rows: rows.map(toPlanRow),
+})
 
-/** Start-only rows: Relay-only, no Linear write. */
-async function saveStarts(rows: DraftRow[], deps: PlanDeps): Promise<RowResult[]> {
-  const fail = (error: string): RowResult[] =>
-    rows.map((r) => ({ key: r.key, state: 'failed', error }))
-  if (!deps.savePlannedStarts) return fail(NEEDS_NEWER_HOST)
-  try {
-    await deps.savePlannedStarts(
-      rows.map((r) => ({ key: r.key, plannedStart: r.plannedStart ?? null })),
-    )
-    return rows.map((r) => ({ key: r.key, state: 'done' }))
-  } catch (e) {
-    return fail(e instanceof Error ? e.message : String(e))
-  }
-}
-
-/** Apply: nothing is written when a ticket changed since the draft. */
+/**
+ * Apply: every row (Linear fields and Relay-only starts) as one `applyPlan` batch: nothing is
+ * written when a ticket changed since the draft; else prepare, check the host's rows, commit with
+ * the approval. The host saves each row's start only once its Linear part is done.
+ */
 export async function applyRows(input: ApplyInput, deps: PlanDeps): Promise<ApplyOutput> {
   const stale = staleKeys(input.rows, await deps.current())
   if (stale.length > 0) return { kind: 'stale', keys: stale }
-  const { linear, relayOnly } = splitRows(input.rows)
-  const results: RowResult[] = []
-  if (linear.length > 0) {
-    const out = await writeLinear(linear, input.opId, deps)
-    if (out.kind !== 'done') return out
-    results.push(...out.results)
-  }
-  if (relayOnly.length > 0) results.push(...(await saveStarts(relayOnly, deps)))
-  return { kind: 'done', results }
+  const mutation = planOf(input.rows)
+  const approval = await deps.prepare(mutation)
+  if ('refused' in approval) return refusal(approval.refused, input.rows)
+  if (!sameRows(input.rows, approval.keys)) return { kind: 'refused', message: OTHER_ROWS }
+  const done = await deps.commit({ approvalId: approval.approvalId, opId: input.opId, mutation })
+  if ('refused' in done) return refusal(done.refused, input.rows)
+  return { kind: 'done', results: rowResults(input.rows, done.outcome) }
+}
+
+/**
+ * Check a batch whose outcome is unknown: the same commit (same batch and row opIds), no approval.
+ * The host answers its stored outcome or reconciles unknown rows with Linear; it never sends them
+ * again. A host with no record of it refuses for a confirm: nothing was written (`unsent`).
+ */
+export async function checkRows(input: ApplyInput, deps: PlanDeps): Promise<ApplyOutput> {
+  const done = await deps.commit({ opId: input.opId, mutation: planOf(input.rows) })
+  if (!('refused' in done)) return { kind: 'done', results: rowResults(input.rows, done.outcome) }
+  if (done.refused.code === 'approval') return { kind: 'unsent' }
+  return { kind: 'refused', message: done.refused.message }
 }
 
 const mint = (): string => crypto.randomUUID()
 
-/** Astra's answer as draft rows against the tickets at the time of asking; null: unreadable. */
+/**
+ * Astra's answer as draft rows against the host's baseline; null: unreadable. A proposal read as
+ * another account than the Board shows is refused.
+ */
 export async function replanRows(
   scope: ReplanScope,
   deps: PlanDeps,
   newId: () => string = mint,
 ): Promise<ReplanOutput> {
   if (!deps.replan) throw new Error(NEEDS_NEWER_HOST)
-  const tickets = await deps.current()
   const { projectId, milestoneId } = scope
   const raw = await deps.replan(milestoneId ? { projectId, milestoneId } : { projectId })
   const parsed = TicketPlanProposal.safeParse(raw)
-  if (!parsed.success) return null
-  const inScope = tickets.filter(
-    (t) => t.project?.id === projectId && (!milestoneId || t.milestone?.id === milestoneId),
-  )
-  return { rows: proposalRows(parsed.data, inScope, newId), summary: parsed.data.summary }
+  if (!parsed.success || !parsed.data.baseline) return null
+  if (parsed.data.viewerId !== deps.viewerId()) throw new Error(OTHER_ACCOUNT)
+  const rows = proposalRows(parsed.data, await deps.current(), newId)
+  return { rows, summary: parsed.data.summary }
 }
 
 export type PlanSnapshot = SnapshotFrom<typeof timelinePlanMachine>
@@ -197,6 +191,7 @@ export function usePlan(deps?: Partial<PlanDeps>): PlanHandle {
       actors: {
         replan: fromPromise(({ input }) => replanRows(input, live.current)),
         apply: fromPromise(({ input }) => applyRows(input, live.current)),
+        check: fromPromise(({ input }) => checkRows(input, live.current)),
       },
     }),
   )

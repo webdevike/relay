@@ -107,6 +107,25 @@ describe('buildTimeline', () => {
     expect(m.end).toEqual(dateOfDay('2027-02-09'))
   })
 
+  it('widens the range to every date line and every date the draft proposes', () => {
+    const far = { ...LATER, id: 'm3', targetDate: '2027-04-30', sortOrder: 3 }
+    const withMarker = buildTimeline(
+      [...TICKETS, t('ENG-8', { milestone: far, dueDate: null })],
+      TODAY,
+    )
+    expect(withMarker.end).toEqual(dateOfDay('2027-05-16'))
+    const mint = (): string => '00000000-0000-4000-8000-000000000001'
+    const rows = editRows(
+      [],
+      TICKETS[1]!,
+      { dueDate: '2027-06-01', plannedStart: '2026-10-01' },
+      mint,
+    )
+    const d = buildTimeline(TICKETS, TODAY, rows)
+    expect(d.start).toEqual(dateOfDay('2026-09-24'))
+    expect(d.end).toEqual(dateOfDay('2027-06-16'))
+  })
+
   it('marks draft rows, order moves and ghost bars', () => {
     const mint = (): string => '00000000-0000-4000-8000-000000000001'
     const eng3 = TICKETS[0]!

@@ -1,9 +1,11 @@
 // The Board's Timeline view against a stand-in Relay host with `tickets` and `tickets.writes`
 // (fixtures in e2e/fixtures/tickets: timeline-board.json, replan-proposal.json): the Board |
-// Timeline switch survives a reload, zoom buttons, a bar opens its ticket page, and Ask Astra to
-// re-plan brings the host's proposal into the draft; Apply lists every change and writes it as
-// exactly one `applyPlan` prepare + commit through the gate, Discard writes nothing. No network:
-// Linear and Astra only exist as the fake host's fixtures.
+// Timeline switch survives a reload, zoom buttons (the Today and milestone labels sit in the
+// scale's own band, clear of every tick and date), a bar opens its ticket page, and Ask Astra to
+// re-plan brings the host's proposal (with its baseline and account) into the draft; Apply lists
+// every change and writes it, Relay start included, as exactly one `applyPlan` prepare + commit
+// through the gate, Discard writes nothing. No network: Linear and Astra only exist as the fake
+// host's fixtures.
 //
 //   pnpm build && pnpm e2e:run e2e/timeline.spec.ts --retries 0 --max-failures 1
 import * as fs from 'node:fs'
@@ -48,6 +50,33 @@ function timelineTickets(): Record<string, unknown>[] {
   })
 }
 
+/**
+ * Astra's fixture answer as the host sends it: with its baseline (the tickets as the host has them)
+ * and the account it read them as; ENG-9001 also gets a Relay start (a mixed row).
+ */
+function hostProposal(
+  tickets: Record<string, unknown>[],
+  viewerId: string,
+): Record<string, unknown> {
+  const file = path.join(__dirname, 'fixtures', 'tickets', 'replan-proposal.json')
+  const answer = JSON.parse(fs.readFileSync(file, 'utf8')) as { changes: { key: string }[] }
+  const changes = answer.changes.map((c) =>
+    c.key === 'ENG-9001' ? { ...c, start: dayFromNow(1) } : c,
+  )
+  const baseline = tickets
+    .filter((t) => changes.some((c) => c.key === t.key))
+    .map((t) => ({
+      key: t.key,
+      issueId: t.id,
+      updatedAt: t.updatedAt,
+      dueDate: t.dueDate,
+      priority: t.priority,
+      prioritySortOrder: t.prioritySortOrder,
+      plannedStart: t.plannedStart ?? null,
+    }))
+  return { ...answer, changes, viewerId, baseline }
+}
+
 const test = base.extend({
   launchEnv: async ({}, use) => {
     const fx = makeEvaFixture()
@@ -56,6 +85,8 @@ const test = base.extend({
     host = await FakeRelayHost.start(relayDir)
     host.features = ['render.report', TICKETS_FEATURE, TICKETS_WRITES_FEATURE]
     host.tickets.board.tickets = timelineTickets()
+    const status = host.tickets.status as { identity: { linear: { viewerId: string } } }
+    host.replanProposal = hostProposal(host.tickets.board.tickets, status.identity.linear.viewerId)
     await use({ ...fx.env, EVAOS_RELAY_DIR: relayDir })
     await host.close()
     fs.rmSync(root, { recursive: true, force: true })
@@ -67,10 +98,43 @@ test.use({ startOnChat: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
 type Shell = { __evaosShell: { openPlace(page: string): void } }
-type Mutation = { kind: string; mutation?: { kind: string; rows?: { key: string }[] } }
+type Mutation = {
+  kind: string
+  mutation?: { kind: string; rows?: { key: string; plannedStart?: string | null }[] }
+}
 const mutations = (): Mutation[] => host.mutations.map((m) => m.cmd as Mutation)
 const ops = (kind: string): unknown[] =>
   host.ticketFrames.map((f) => f.op as { kind: string }).filter((o) => o.kind === kind)
+
+/**
+ * Every date-line label sits in the scale's last row (the empty band, which draws no ticks), below
+ * every tick and date.
+ */
+async function labelsClearOfScale(shell: Page): Promise<void> {
+  const at = await shell.evaluate(() => {
+    const scale = document.querySelector('[data-testid="timeline"] .wx-chart .wx-scale')
+    const rows = [...(scale?.querySelectorAll(':scope > .wx-row') ?? [])]
+    const box = (e: Element) => e.getBoundingClientRect()
+    const bandCells = [...(rows.at(-1)?.querySelectorAll('.wx-cell') ?? [])]
+    return {
+      dates: Math.max(...rows.slice(0, -1).map((r) => box(r).bottom)),
+      band: rows.length > 0 ? box(rows.at(-1)!).bottom : 0,
+      bandTicks: bandCells.filter(
+        (c) => getComputedStyle(c).borderRightColor !== 'rgba(0, 0, 0, 0)',
+      ).length,
+      labels: [...(scale?.querySelectorAll('[data-line-label]') ?? [])].map((l) => ({
+        top: box(l).top,
+        bottom: box(l).bottom,
+      })),
+    }
+  })
+  expect(at.labels.length).toBeGreaterThan(0)
+  expect(at.bandTicks).toBe(0)
+  for (const l of at.labels) {
+    expect(l.top).toBeGreaterThanOrEqual(at.dates)
+    expect(l.bottom).toBeLessThanOrEqual(at.band)
+  }
+}
 
 async function openBoard(shell: Page): Promise<void> {
   await shell.waitForFunction(() => '__evaosShell' in window)
@@ -100,13 +164,16 @@ test('the Timeline: switch, zoom, open a ticket, re-plan with Astra, apply and d
   await expect(timeline).toBeVisible({ timeout: 30_000 })
   await expect(bar).toBeVisible({ timeout: 30_000 })
 
-  // Zoom buttons.
+  // Zoom buttons; at every zoom the date-line labels stay clear of the scale's ticks and dates.
   await expect(timeline).toHaveAttribute('data-zoom', 'week')
+  await labelsClearOfScale(shell)
   const zoomBar = shell.locator('.rb-timeline-bar')
   await zoomBar.getByText('Month', { exact: true }).click()
   await expect(timeline).toHaveAttribute('data-zoom', 'month')
+  await labelsClearOfScale(shell)
   await zoomBar.getByText('Quarter', { exact: true }).click()
   await expect(timeline).toHaveAttribute('data-zoom', 'quarter')
+  await labelsClearOfScale(shell)
   await zoomBar.getByText('Week', { exact: true }).click()
   await expect(timeline).toHaveAttribute('data-zoom', 'week')
   fs.mkdirSync(SHOTS, { recursive: true })
@@ -157,7 +224,11 @@ test('the Timeline: switch, zoom, open a ticket, re-plan with Astra, apply and d
       ?.mutation?.rows?.map((r) => r.key)
       .sort(),
   ).toEqual(['ENG-9001', 'ENG-9002'])
-  // Relay-only starts weren't in the proposal: nothing for plan.json.
+  // ENG-9001's Relay start rides in the same approved applyPlan, with the start it was made from.
+  expect(mutations()[1]?.mutation?.rows?.find((r) => r.key === 'ENG-9001')).toMatchObject({
+    plannedStart: dayFromNow(1),
+    basePlannedStart: null,
+  })
   expect(ops('plan')).toEqual([])
   await panel.getByRole('button', { name: 'OK' }).click()
   await expect(panel).toHaveCount(0)

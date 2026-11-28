@@ -1,4 +1,9 @@
-import type { TicketBoardFacts, TicketPlanProposal, TicketPlanRow } from '@relay/protocol'
+import type {
+  TicketBoardFacts,
+  TicketPlanBaseline,
+  TicketPlanProposal,
+  TicketPlanRow,
+} from '@relay/protocol'
 
 /**
  * Timeline semantics (PLAN T7.1), pure. Priority 1 Urgent ... 4 Low, 0 None sorts last; within a
@@ -154,7 +159,6 @@ export const PLAN_FIELDS: readonly PlanField[] = [
   'prioritySortOrder',
   'plannedStart',
 ]
-const LINEAR_FIELDS: readonly PlanField[] = ['dueDate', 'priority', 'prioritySortOrder']
 
 /** A drag's change: a move shifts start and due, a start-only resize is Relay-only. */
 export function dragEdit(before: Bar, after: Bar): Partial<PlanFields> {
@@ -259,30 +263,73 @@ export function editRows(
   return current ? rows.map((r) => (r.key === t.key ? row : r)) : [...rows, row]
 }
 
-/** Draft rows from Astra's proposal; keys outside `tickets` (the scope at the baseline) are dropped. */
+/** The dates a row leaves (a field it doesn't change keeps its base) are real days, start <= due. */
+export function rowDatesValid(row: DraftRow): boolean {
+  const start = row.plannedStart === undefined ? row.base.plannedStart : row.plannedStart
+  return validDates(start, row.dueDate === undefined ? row.base.dueDate : row.dueDate)
+}
+
+type Change = TicketPlanProposal['changes'][number]
+
+/** One proposal change as a draft row against the host's baseline; null: no change or bad dates. */
+function proposalRow(
+  c: Change,
+  b: TicketPlanBaseline,
+  prev: DraftRow | undefined,
+  mint: () => string,
+): DraftRow | null {
+  const { key, issueId, updatedAt, dueDate, priority, prioritySortOrder, plannedStart } = b
+  const base: PlanFields = { dueDate, priority, prioritySortOrder, plannedStart }
+  const row: DraftRow = prev ?? { key, issueId, opId: mint(), baseUpdatedAt: updatedAt, base }
+  const patch: Partial<PlanFields> & { reason: string } = { reason: c.reason }
+  if (c.dueDate !== undefined) patch.dueDate = c.dueDate
+  if (c.start !== undefined) patch.plannedStart = c.start
+  if (c.priority !== undefined) patch.priority = c.priority
+  if (c.prioritySortOrder !== undefined) patch.prioritySortOrder = c.prioritySortOrder
+  const out = prune({ ...row, ...patch })
+  return hasChanges(out) && rowDatesValid(out) ? out : null
+}
+
+/**
+ * Draft rows from the host's proposal, made against its baseline (the host's facts when Isaac
+ * asked, not this device's copy): a change without a baseline, a key that names another issue now,
+ * or one leaving invalid dates is dropped; a row the host (live read) or this board says changed
+ * since is marked stale, to be compared again before it can be applied.
+ */
 export function proposalRows(
   proposal: TicketPlanProposal,
   tickets: readonly PlanTicket[],
   mint: () => string,
 ): DraftRow[] {
+  const baseline = new Map((proposal.baseline ?? []).map((b) => [b.key, b]))
+  const stale = new Set(proposal.stale ?? [])
   let rows: DraftRow[] = []
   for (const c of proposal.changes) {
-    const t = tickets.find((x) => x.key === c.key)
-    if (!t || !validDates(c.start ?? null, c.dueDate ?? null)) continue
-    const patch: Partial<PlanFields> & { reason: string } = { reason: c.reason }
-    if (c.dueDate !== undefined) patch.dueDate = c.dueDate
-    if (c.start !== undefined) patch.plannedStart = c.start
-    if (c.priority !== undefined) patch.priority = c.priority
-    if (c.prioritySortOrder !== undefined) patch.prioritySortOrder = c.prioritySortOrder
-    rows = editRows(rows, t, patch, mint)
+    const b = baseline.get(c.key)
+    if (!b || tickets.find((x) => x.key === c.key)?.id !== b.issueId) continue
+    const row = proposalRow(
+      c,
+      b,
+      rows.find((r) => r.key === c.key),
+      mint,
+    )
+    if (!row) continue
+    const changed = stale.has(c.key) || staleKeys([row], tickets).length > 0
+    rows = [...rows.filter((r) => r.key !== c.key), changed ? { ...row, stale: true } : row]
   }
   return rows
 }
 
-/** Keys whose ticket changed (or left the board) since the draft was made. */
+/** Keys whose ticket changed, became another issue or left the board since the draft was made. */
 export function staleKeys(rows: readonly DraftRow[], tickets: readonly PlanTicket[]): string[] {
-  const now = new Map(tickets.map((t) => [t.key, t.updatedAt]))
-  return rows.filter((r) => now.get(r.key) !== r.baseUpdatedAt).map((r) => r.key)
+  const now = new Map(tickets.map((t) => [t.key, t]))
+  return rows
+    .filter((r) => {
+      const t = now.get(r.key)
+      if (!t || t.id !== r.issueId || t.updatedAt !== r.baseUpdatedAt) return true
+      return (t.plannedStart ?? null) !== r.base.plannedStart
+    })
+    .map((r) => r.key)
 }
 
 /** Both real days (or absent), and the start not after the due date. */
@@ -297,34 +344,26 @@ export function rebaseRows(rows: readonly DraftRow[], tickets: readonly PlanTick
   const out: DraftRow[] = []
   for (const r of rows) {
     const t = tickets.find((x) => x.key === r.key)
-    if (!t) continue
+    if (!t || t.id !== r.issueId) continue
     const row = prune({ ...r, baseUpdatedAt: t.updatedAt, base: baseOf(t) })
     delete row.stale
     delete row.error
-    if (hasChanges(row)) out.push(row)
+    if (hasChanges(row) && rowDatesValid(row)) out.push(row)
   }
   return out
 }
 
-/** A row with only a start change is Relay-only: saved on Apply, nothing written to Linear. */
-export function isRelayOnly(row: DraftRow): boolean {
-  return !LINEAR_FIELDS.some((f) => row[f] !== undefined)
-}
-
-export function splitRows(rows: readonly DraftRow[]): {
-  linear: DraftRow[]
-  relayOnly: DraftRow[]
-} {
-  return { linear: rows.filter((r) => !isRelayOnly(r)), relayOnly: rows.filter(isRelayOnly) }
-}
-
-/** The row as an `applyPlan` write. */
+/**
+ * The row as an `applyPlan` write; it always names the Relay start it was made from, so another
+ * device's newer start refuses it (and Linear-only rows are checked against that start).
+ */
 export function toPlanRow(row: DraftRow): TicketPlanRow {
   const out: TicketPlanRow = {
     key: row.key,
     issueId: row.issueId,
     opId: row.opId,
     baseUpdatedAt: row.baseUpdatedAt,
+    basePlannedStart: row.base.plannedStart,
   }
   for (const f of PLAN_FIELDS) if (row[f] !== undefined) Object.assign(out, { [f]: row[f] })
   return out

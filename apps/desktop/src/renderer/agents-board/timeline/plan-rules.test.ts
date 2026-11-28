@@ -11,13 +11,12 @@ import {
   editRows,
   ganttDates,
   isDay,
-  isRelayOnly,
   milestoneOf,
   NO_MILESTONE,
   placeAt,
   proposalRows,
   rebaseRows,
-  splitRows,
+  rowDatesValid,
   staleKeys,
   startOf,
   toPlanRow,
@@ -146,12 +145,15 @@ describe('drag edits', () => {
     })
   })
 
-  it('a start-only resize is Relay-only (no Linear field)', () => {
+  it('a start-only resize is Relay-only (no Linear field) and still names its base start', () => {
     const patch = dragEdit(before, { start: '2026-11-28', end: '2026-12-05' })
     expect(patch).toEqual({ plannedStart: '2026-11-28' })
     const rows = editRows([], planTicket('ENG-1', { dueDate: '2026-12-05' }), patch, mint)
-    expect(isRelayOnly(rows[0]!)).toBe(true)
-    expect(splitRows(rows)).toEqual({ linear: [], relayOnly: rows })
+    expect(toPlanRow(rows[0]!)).toMatchObject({
+      plannedStart: '2026-11-28',
+      basePlannedStart: null,
+    })
+    expect(toPlanRow(rows[0]!)).not.toHaveProperty('dueDate')
   })
 
   it('an end resize changes the due date, never before the start', () => {
@@ -187,6 +189,7 @@ describe('draft rows', () => {
       issueId: 'issue-ENG-1',
       opId: row!.opId,
       baseUpdatedAt: T0,
+      basePlannedStart: null,
       prioritySortOrder: 2.5,
       plannedStart: '2026-12-01',
     })
@@ -210,25 +213,80 @@ describe('draft rows', () => {
     expect(rebaseRows(rows, [{ ...t, dueDate: '2026-12-08', updatedAt: T0 + 1 }])).toEqual([])
   })
 
-  it('reads a proposal: keys outside the scope and impossible dates are dropped', () => {
-    const rows = proposalRows(
-      {
-        summary: 's',
-        changes: [
-          { key: 'ENG-1', start: '2026-12-01', dueDate: '2026-12-09', reason: 'Shorter' },
-          { key: 'ENG-2', dueDate: '2026-12-09', reason: 'Not in scope' },
-          { key: 'ENG-1', dueDate: '2026-02-30', reason: 'No such day' },
-        ],
-      },
-      [t],
-      mint,
-    )
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      key: 'ENG-1',
-      plannedStart: '2026-12-01',
-      dueDate: '2026-12-09',
-      reason: 'Shorter',
+  it('is stale when its Relay start moved (another device) or its key names another issue now', () => {
+    const rows = editRows([], t, { dueDate: '2026-12-08' }, mint)
+    expect(staleKeys(rows, [{ ...t, plannedStart: '2026-11-30' }])).toEqual(['ENG-1'])
+    const replaced = { ...t, id: 'issue-other' }
+    expect(staleKeys(rows, [replaced])).toEqual(['ENG-1'])
+    expect(rebaseRows(rows, [replaced])).toEqual([])
+  })
+
+  it('checks the dates a row leaves: a start after the unchanged due date is invalid', () => {
+    const [start] = editRows([], t, { plannedStart: '2026-12-06' }, mint)
+    expect(rowDatesValid(start!)).toBe(false)
+    const [both] = editRows([], t, { plannedStart: '2026-12-06', dueDate: '2026-12-09' }, mint)
+    expect(rowDatesValid(both!)).toBe(true)
+  })
+
+  describe('a proposal against the host’s baseline', () => {
+    const base = (key: string, over: Record<string, unknown> = {}) => ({
+      key,
+      issueId: `issue-${key}`,
+      updatedAt: T0,
+      dueDate: '2026-12-05',
+      priority: 2,
+      prioritySortOrder: 3,
+      plannedStart: null,
+      ...over,
+    })
+    const u = planTicket('ENG-2', { dueDate: '2026-12-05', priority: 2, prioritySortOrder: 3 })
+
+    it('makes rows from the baseline, not this device’s copy; unknown, replaced and bad-date rows drop', () => {
+      const rows = proposalRows(
+        {
+          summary: 's',
+          changes: [
+            { key: 'ENG-1', start: '2026-12-01', dueDate: '2026-12-09', reason: 'Shorter' },
+            { key: 'ENG-3', dueDate: '2026-12-09', reason: 'No baseline' },
+            { key: 'ENG-2', dueDate: '2026-12-09', reason: 'Replaced issue' },
+            { key: 'ENG-1', dueDate: '2026-02-30', reason: 'No such day' },
+            { key: 'ENG-1', start: '2026-12-12', reason: 'After the unchanged due' },
+          ],
+          baseline: [base('ENG-1'), base('ENG-2', { issueId: 'issue-old' })],
+        },
+        [t, u],
+        mint,
+      )
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        key: 'ENG-1',
+        issueId: 'issue-ENG-1',
+        baseUpdatedAt: T0,
+        base: { dueDate: '2026-12-05', plannedStart: null },
+        plannedStart: '2026-12-01',
+        dueDate: '2026-12-09',
+        reason: 'Shorter',
+      })
+      expect(rows[0]!.stale).toBeUndefined()
+    })
+
+    it('marks a row stale when the host says so or this board has a newer ticket or start', () => {
+      const change = (key: string) => ({ key, dueDate: '2026-12-09', reason: 'r' })
+      const rows = proposalRows(
+        {
+          summary: 's',
+          changes: [change('ENG-1'), change('ENG-2'), change('ENG-4')],
+          stale: ['ENG-1'],
+          baseline: [base('ENG-1'), base('ENG-2'), base('ENG-4')],
+        },
+        [t, { ...u, plannedStart: '2026-12-01' }, planTicket('ENG-4', { dueDate: '2026-12-05' })],
+        mint,
+      )
+      expect(rows.map((r) => [r.key, r.stale === true])).toEqual([
+        ['ENG-1', true],
+        ['ENG-2', true],
+        ['ENG-4', false],
+      ])
     })
   })
 })

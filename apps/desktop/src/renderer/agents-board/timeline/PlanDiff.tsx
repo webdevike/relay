@@ -3,7 +3,7 @@ import { IconArrowDown, IconArrowUp, IconSparkles } from '@tabler/icons-react'
 import { EvaModal } from '../../overlay'
 import { NEEDS_NEWER_HOST, type PlanHandle } from './plan-actor'
 import { addDays, changesOf, type DraftRow } from './plan-rules'
-import type { PlanContext, ReplanScope } from './plan.machine'
+import type { PlanContext, PlanEvent, ReplanScope } from './plan.machine'
 import type { ChartArea } from './DateLines'
 import type { GhostBar } from './timeline-model'
 
@@ -85,7 +85,9 @@ const HEADS: Partial<Record<string, (c: PlanContext, changes: string) => Head>> 
   applying: (_, changes) => ({ title: `Applying ${changes}`, busy: true }),
   applied: () => ({ title: 'Plan applied' }),
   partiallyFailed: (_, changes) => ({ title: `${changes} not applied` }),
-  stale: () => ({ title: 'Changed in Linear since this draft' }),
+  unknown: (_, changes) => ({ title: `${changes}: not known yet whether Linear has them` }),
+  checking: () => ({ title: 'Asking the host how the write ended', busy: true }),
+  stale: () => ({ title: 'Changed since this draft: compare again before applying' }),
 }
 
 function headOf(plan: PlanHandle): Head | null {
@@ -138,52 +140,48 @@ function PlanRows({
   )
 }
 
+/** The one button of a state without a draft to apply. */
+const LONE: Partial<Record<string, { label: string; event: PlanEvent }>> = {
+  replanning: { label: 'Cancel', event: { type: 'plan.cancel' } },
+  applied: { label: 'OK', event: { type: 'plan.dismiss' } },
+}
+
+/** Beside Discard: how a stale, partly failed or unknown draft goes on (else Apply). */
+const NEXT: Partial<Record<string, { label: string; event: PlanEvent | null }>> = {
+  /** null: the re-based draft (plan.reconfirm) from the tickets as they are now. */
+  stale: { label: 'Review again', event: null },
+  partiallyFailed: { label: 'Retry', event: { type: 'plan.retry' } },
+  unknown: { label: 'Check again', event: { type: 'plan.check' } },
+}
+
 function PlanActions({ plan, onReconfirm }: { plan: PlanHandle; onReconfirm(): void }) {
   const { snap, send } = plan
-  if (snap.matches('replanning'))
+  const state = String(snap.value)
+  const lone = LONE[state]
+  if (lone)
     return (
-      <Button size="xs" variant="subtle" onClick={() => send({ type: 'plan.cancel' })}>
-        Cancel
+      <Button size="xs" variant="subtle" onClick={() => send(lone.event)}>
+        {lone.label}
       </Button>
     )
-  if (snap.matches('applied'))
-    return (
-      <Button size="xs" variant="subtle" onClick={() => send({ type: 'plan.dismiss' })}>
-        OK
-      </Button>
-    )
-  const discard = (
-    <Button size="xs" variant="subtle" color="gray" onClick={() => send({ type: 'plan.discard' })}>
-      Discard
-    </Button>
-  )
-  if (snap.matches('stale'))
-    return (
-      <Group gap="xs">
-        {discard}
-        <Button size="xs" onClick={onReconfirm}>
-          Review again
-        </Button>
-      </Group>
-    )
-  if (snap.matches('partiallyFailed'))
-    return (
-      <Group gap="xs">
-        {discard}
-        <Button size="xs" onClick={() => send({ type: 'plan.retry' })}>
-          Retry
-        </Button>
-      </Group>
-    )
+  const next = NEXT[state] ?? { label: 'Apply', event: { type: 'plan.apply' } }
   return (
     <Group gap="xs">
-      {discard}
       <Button
         size="xs"
-        disabled={!snap.can({ type: 'plan.apply' })}
-        onClick={() => send({ type: 'plan.apply' })}
+        variant="subtle"
+        color="gray"
+        disabled={!snap.can({ type: 'plan.discard' })}
+        onClick={() => send({ type: 'plan.discard' })}
       >
-        Apply
+        Discard
+      </Button>
+      <Button
+        size="xs"
+        disabled={next.event !== null && !snap.can(next.event)}
+        onClick={() => (next.event ? send(next.event) : onReconfirm())}
+      >
+        {next.label}
       </Button>
     </Group>
   )

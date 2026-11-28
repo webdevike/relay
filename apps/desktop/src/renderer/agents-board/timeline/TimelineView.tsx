@@ -40,12 +40,20 @@ type Zoom = 'week' | 'month' | 'quarter'
 const ZOOMS: readonly Zoom[] = ['week', 'month', 'quarter']
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 // cellWidth is per smallest scale unit; lengthUnit 'day' keeps drag/resize snapping to days.
+// Each preset ends with an empty row of the same unit: the band where the date lines' labels sit
+// (DateLines), so Today and milestone labels never cover a tick or a date of the scale above.
+const LABEL_BAND = (unit: IScaleConfig['unit']): IScaleConfig => ({
+  unit,
+  step: 1,
+  format: () => '',
+})
 const PRESETS: Record<Zoom, { cellWidth: number; scales: IScaleConfig[] }> = {
   week: {
     cellWidth: 84,
     scales: [
       { unit: 'month', step: 1, format: '%F %Y' },
       { unit: 'week', step: 1, format: (d: Date) => `${d.getDate()} ${MON[d.getMonth()]}` },
+      LABEL_BAND('week'),
     ],
   },
   month: {
@@ -53,6 +61,7 @@ const PRESETS: Record<Zoom, { cellWidth: number; scales: IScaleConfig[] }> = {
     scales: [
       { unit: 'year', step: 1, format: '%Y' },
       { unit: 'month', step: 1, format: '%F' },
+      LABEL_BAND('month'),
     ],
   },
   quarter: {
@@ -64,6 +73,7 @@ const PRESETS: Record<Zoom, { cellWidth: number; scales: IScaleConfig[] }> = {
         step: 1,
         format: (d: Date) => `Q${Math.floor(d.getMonth() / 3) + 1}`,
       },
+      LABEL_BAND('quarter'),
     ],
   },
 }
@@ -93,9 +103,14 @@ const READ_ONLY_STATES: Partial<Record<string, true>> = {
   confirming: true,
   applying: true,
   stale: true,
+  unknown: true,
+  checking: true,
 }
 
-/** No edits in a read-only Timeline, or while Astra re-plans, the confirm is open, rows write or the draft is stale. */
+/**
+ * No edits in a read-only Timeline, or while Astra re-plans, the confirm is open, rows write, the
+ * draft is stale or a write's outcome is unknown (its rows must stay exactly as sent).
+ */
 function editsLocked(readOnly: boolean, plan: PlanHandle): boolean {
   return readOnly || READ_ONLY_STATES[String(plan.snap.value)] === true
 }
@@ -188,7 +203,7 @@ function wire(a: IApi, ref: MutableRefObject<Live>): void {
 export interface TimelineViewProps {
   tickets: TicketBoardFacts[]
   onOpen(key: string): void
-  /** The host's plan routes (`tickets.plan`, `tickets.replan`) and test seams. */
+  /** The host's plan routes (`tickets.prepare`/`commit` applyPlan, `tickets.replan`) and test seams. */
   plan?: Partial<PlanDeps>
   /** No host plan routes (fallback): no drafts, no Apply, no re-plan; the chart only reads. */
   readOnly?: boolean

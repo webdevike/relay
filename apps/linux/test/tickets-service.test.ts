@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import signedImages from "@relay/protocol/fixtures/signed-images.json";
@@ -175,18 +175,12 @@ describe("TicketsService bounds and reads", () => {
 });
 
 describe("TicketsService ops", () => {
-  it("plan keeps Relay-only starts in plan.json and pushes them on the cards; replan needs Astra's sessions", async () => {
+  it("replan needs Astra's sessions; there is no direct Relay-start op", async () => {
     const h = started();
     await h.settled();
-    const card = async () => (await h.service.handle("desk", { kind: "board" })).board?.tickets[0];
-    expect((await card())?.plannedStart).toBeUndefined();
-    expect(await h.service.handle("desk", { kind: "plan", rows: [{ key: "ENG-1", plannedStart: "2026-12-01" }] })).toEqual({ ok: true });
-    expect((await card())?.plannedStart).toBe("2026-12-01");
-    expect(h.pushes.at(-1)).toMatchObject({ t: "tickets.delta", upserts: [{ key: "ENG-1", plannedStart: "2026-12-01" }] });
-    expect(JSON.parse(readFileSync(join(h.dir, "plan.json"), "utf8"))).toEqual({ v: 1, starts: { "ENG-1": "2026-12-01" } });
-    await h.service.handle("desk", { kind: "plan", rows: [{ key: "ENG-1", plannedStart: null }] });
-    expect((await card())?.plannedStart).toBeUndefined();
     expect(await h.service.handle("desk", { kind: "replan", projectId: "project-1" })).toEqual({ ok: false, error: "Astra is not available on this host" });
+    expect(await h.service.handle("desk", { kind: "plan", rows: [] } as never)).toMatchObject({ ok: false });
+    expect(existsSync(join(h.dir, "plan.json"))).toBe(false);
   });
 
   it("summarizes a synced ticket once per snapshot; without Claude it answers an error", async () => {
@@ -415,5 +409,174 @@ describe("TicketsService PR writes as the gh account the device saw", () => {
     h.gh.token = null;
     expect((await h.service.preparePr("desk", MERGE, "pat-example")).refused?.code).toBe("identity");
     expect(graphqlCalls(h, from)).toEqual([]);
+  });
+});
+
+describe("Timeline plan through the real gate: Relay starts and per-row retries", () => {
+  const ME = "user-me";
+  const id = (prefix: string, n: number): string => `6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f${prefix}${String(n).padStart(3, "0")}`;
+  const ROW = (n: number): string => id("a", n);
+  const BATCH = (n: number): string => id("b", n);
+  type Fault = "lost" | "reject" | undefined;
+  interface PlanIssue { id: string; identifier: string; title: string; updatedAt: string; dueDate: string | null; priority: number; prioritySortOrder: number }
+  type Row = { key: string; issueId: string; opId: string; baseUpdatedAt: number; dueDate?: string | null; plannedStart?: string | null; basePlannedStart?: string | null };
+
+  /** Linear's plan reads and issueUpdates over two issues; `fault` loses (after applying) or refuses one. */
+  interface PlanLinear { readonly linear: FakeLinear; readonly issues: Map<string, PlanIssue>; fault: (id: string) => Fault }
+  function planLinear(): PlanLinear {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    linear.add("ENG-2", T0 - MIN);
+    const issues = new Map<string, PlanIssue>(["ENG-1", "ENG-2"].map((k) => [`id-${k}`, { id: `id-${k}`, identifier: k, title: `Title ${k}`, updatedAt: new Date(T0 - MIN).toISOString(), dueDate: null, priority: 2, prioritySortOrder: 100 }]));
+    const ctl: PlanLinear = { linear, issues, fault: () => undefined };
+    linear.gateOps.set("TicketPlanIssues", (v) => ({ issues: { nodes: (v["ids"] as string[]).flatMap((i) => issues.get(i) ?? []) } }));
+    linear.gateOps.set("TicketIssueUpdate", (v) => {
+      const issue = issues.get(String(v["id"]));
+      const fault = ctl.fault(String(v["id"]));
+      if (issue === undefined || fault === "reject") return { issueUpdate: { success: false } };
+      Object.assign(issue, v["input"], { updatedAt: new Date(T0 + 1000).toISOString() });
+      if (fault === "lost") throw new Error("socket hang up");
+      return { issueUpdate: { success: true, issue: { id: issue.id, identifier: issue.identifier, url: "https://linear.app/acme/issue/x" } } };
+    });
+    return ctl;
+  }
+
+  async function host(ctl: PlanLinear, o: { dir?: string; writes?: boolean } = {}): Promise<TicketsHarness> {
+    const h = ticketsHarness({ linear: ctl.linear, writes: o.writes ?? true, realGate: true, ...(o.dir === undefined ? {} : { dir: o.dir }) });
+    h.service.start();
+    await h.settled();
+    return h;
+  }
+
+  const row = (key: string, n: number, over: Partial<Row> = {}): Row => ({ key, issueId: `id-${key}`, opId: ROW(n), baseUpdatedAt: T0 - MIN, ...over });
+  const plan = (rows: Row[]) => ({ kind: "applyPlan" as const, rows });
+  const updates = (ctl: PlanLinear): number => ctl.linear.gateCalls.filter((c) => c.op === "TicketIssueUpdate").length;
+  const starts = async (h: TicketsHarness) => Object.fromEntries(((await h.service.handle("desk", { kind: "board" })).board?.tickets ?? []).map((t) => [t.key, t.plannedStart ?? null]));
+
+  /** Isaac's confirm, then the commit with its approval. */
+  async function apply(h: TicketsHarness, rows: Row[], batch: string, device = "desk") {
+    const prepared = await h.service.handle(device, { kind: "prepare", viewerId: ME, mutation: plan(rows) });
+    if (prepared.approval === undefined) return prepared;
+    return h.service.handle(device, { kind: "commit", viewerId: ME, approvalId: prepared.approval.id, opId: batch, mutation: plan(rows) });
+  }
+
+  it("saves start-only and mixed rows' Relay starts under the approved applyPlan; a fresh read and a restart show them", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    const confirm = await h.service.handle("desk", { kind: "prepare", viewerId: ME, mutation: plan([row("ENG-1", 1, { dueDate: "2026-12-09", plannedStart: "2026-12-01", basePlannedStart: null }), row("ENG-2", 2, { plannedStart: "2026-12-03", basePlannedStart: null })]) });
+    expect(confirm.approval?.rows?.map((r) => r.change)).toEqual(["due 2026-12-09, start 2026-12-01 (Relay only)", "start 2026-12-03 (Relay only)"]);
+    const res = await h.service.handle("desk", { kind: "commit", viewerId: ME, approvalId: confirm.approval?.id ?? "", opId: BATCH(1), mutation: plan([row("ENG-1", 1, { dueDate: "2026-12-09", plannedStart: "2026-12-01", basePlannedStart: null }), row("ENG-2", 2, { plannedStart: "2026-12-03", basePlannedStart: null })]) });
+    expect(res.outcome?.state).toBe("done");
+    expect(res.outcome?.result?.rows?.map((r) => [r.key, r.state])).toEqual([["ENG-1", "done"], ["ENG-2", "done"]]);
+    // Only the mixed row's Linear part went to Linear; the start-only row wrote nothing there.
+    expect(updates(ctl)).toBe(1);
+    expect(await starts(h)).toEqual({ "ENG-1": "2026-12-01", "ENG-2": "2026-12-03" });
+    h.service.stop();
+    const again = await host(ctl, { dir: h.dir });
+    expect(await starts(again)).toEqual({ "ENG-1": "2026-12-01", "ENG-2": "2026-12-03" });
+  });
+
+  it("leaves the start of a failed or unknown row untouched and reports a start it couldn't save as failed, not done", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    ctl.fault = (i) => (i === "id-ENG-1" ? "reject" : "lost");
+    const res = await apply(h, [row("ENG-1", 1, { dueDate: "2026-12-09", plannedStart: "2026-12-01", basePlannedStart: null }), row("ENG-2", 2, { dueDate: "2026-12-10", plannedStart: "2026-12-02", basePlannedStart: null })], BATCH(1));
+    expect(res.outcome?.result?.rows?.map((r) => r.state)).toEqual(["failed", "unknown"]);
+    expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
+    // plan.json can't be written: the start-only row is reported failed with why.
+    ctl.fault = () => undefined;
+    mkdirSync(join(h.dir, "plan.json"));
+    const broken = await apply(h, [row("ENG-1", 3, { plannedStart: "2026-11-25", basePlannedStart: null })], BATCH(2));
+    expect(broken.outcome?.state).toBe("failed");
+    expect(broken.outcome?.result?.rows?.[0]).toMatchObject({ state: "failed", error: expect.stringMatching(/^Not saved: Relay couldn't save its start/) });
+    expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
+  });
+
+  it("refuses a plan made from a Relay start another device moved, and doesn't overwrite one moved between confirm and commit", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    await apply(h, [row("ENG-1", 1, { plannedStart: "2026-12-01", basePlannedStart: null })], BATCH(1), "phone");
+    expect((await apply(h, [row("ENG-1", 2, { plannedStart: "2026-12-05", basePlannedStart: null })], BATCH(2))).refused?.code).toBe("conflict");
+    const mine = [row("ENG-1", 3, { plannedStart: "2026-12-05", basePlannedStart: "2026-12-01" })];
+    const confirm = await h.service.handle("desk", { kind: "prepare", viewerId: ME, mutation: plan(mine) });
+    await apply(h, [row("ENG-1", 4, { plannedStart: "2026-12-02", basePlannedStart: "2026-12-01" })], BATCH(3), "phone");
+    const res = await h.service.handle("desk", { kind: "commit", viewerId: ME, approvalId: confirm.approval?.id ?? "", opId: BATCH(4), mutation: plan(mine) });
+    expect(res.outcome?.result?.rows?.[0]).toMatchObject({ state: "failed", error: expect.stringContaining("changed on another device") });
+    expect(await starts(h)).toMatchObject({ "ENG-1": "2026-12-02" });
+  });
+
+  it("refuses Relay starts with writes off, for another account, for an issue its key doesn't name, and a start after the unchanged due date", async () => {
+    const ctl = planLinear();
+    const off = await host(ctl, { writes: false });
+    expect((await apply(off, [row("ENG-1", 1, { plannedStart: "2026-12-01", basePlannedStart: null })], BATCH(1))).refused?.code).toBe("writesOff");
+    const h = await host(planLinear());
+    expect((await h.service.handle("desk", { kind: "prepare", viewerId: "user-old", mutation: plan([row("ENG-1", 1, { plannedStart: "2026-12-01" })]) })).refused?.code).toBe("identity");
+    expect((await apply(h, [row("ENG-1", 1, { issueId: "id-ENG-2", plannedStart: "2026-12-01" })], BATCH(1))).refused?.code).toBe("invalid");
+    expect((await apply(h, [row("ENG-9", 1, { plannedStart: "2026-12-01" })], BATCH(1))).refused?.code).toBe("invalid");
+    await apply(h, [row("ENG-1", 2, { dueDate: "2026-12-09" })], BATCH(2));
+    expect((await apply(h, [row("ENG-1", 3, { plannedStart: "2026-12-10", basePlannedStart: null })], BATCH(3))).refused?.message).toContain("would be after its due date");
+    expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
+  });
+
+  it("never shows one account's starts to another account on the same keys (the wipe clears them)", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    await apply(h, [row("ENG-1", 1, { plannedStart: "2026-12-01", basePlannedStart: null })], BATCH(1));
+    expect(await starts(h)).toMatchObject({ "ENG-1": "2026-12-01" });
+    ctl.linear.viewer = { ...ctl.linear.viewer, id: "user-new" };
+    h.advance(30_000);
+    h.advance(90_000);
+    await h.settled();
+    await vi.waitFor(async () => {
+      expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
+    });
+    expect(JSON.parse(readFileSync(join(h.dir, "plan.json"), "utf8"))).toEqual({ v: 2, accounts: {} });
+  });
+
+  it("a retry under a fresh batch id never resends a done or unknown row; only definite failures go out again", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    const rows = [row("ENG-1", 1, { dueDate: "2026-12-09" }), row("ENG-2", 2, { dueDate: "2026-12-10" })];
+    ctl.fault = (i) => (i === "id-ENG-2" ? "lost" : undefined);
+    expect((await apply(h, rows, BATCH(1))).outcome?.result?.rows?.map((r) => r.state)).toEqual(["done", "unknown"]);
+    expect(updates(ctl)).toBe(2);
+    ctl.fault = () => undefined;
+    // The same rows under another batch id: ENG-1 is known done, ENG-2 is reconciled (it landed), nothing is sent.
+    const again = await apply(h, rows, BATCH(2));
+    expect(again.outcome?.state).toBe("done");
+    expect(updates(ctl)).toBe(2);
+    // A definite failure is the only kind that goes out again, after a fresh confirm.
+    ctl.fault = (i) => (i === "id-ENG-2" ? "reject" : undefined);
+    const failing = [row("ENG-1", 3, { dueDate: "2026-12-11", baseUpdatedAt: T0 + 1000 }), row("ENG-2", 4, { dueDate: "2026-12-12", baseUpdatedAt: T0 + 1000 })];
+    const partial = await apply(h, failing, BATCH(3));
+    expect(partial).toMatchObject({ ok: false, outcome: { state: "failed" } });
+    expect(partial.outcome?.result?.rows?.map((r) => r.state)).toEqual(["done", "failed"]);
+    expect(updates(ctl)).toBe(4);
+    ctl.fault = () => undefined;
+    expect((await apply(h, failing, BATCH(4))).outcome?.state).toBe("done");
+    expect(ctl.linear.gateCalls.filter((c) => c.op === "TicketIssueUpdate").length).toBe(5);
+  });
+
+  it("checks a lost answer under the same batch id after a restart, and a delayed first commit answers the stored outcome", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    const rows = [row("ENG-1", 1, { dueDate: "2026-12-09" })];
+    ctl.fault = () => "lost";
+    expect((await apply(h, rows, BATCH(1))).outcome?.state).toBe("unknown");
+    ctl.fault = () => undefined;
+    h.service.stop();
+    const again = await host(ctl, { dir: h.dir });
+    // "Check": the same commit, no approval; the host reconciles the row with Linear and sends nothing.
+    const check = await again.service.handle("desk", { kind: "commit", viewerId: ME, opId: BATCH(1), mutation: plan(rows) });
+    expect(check.outcome).toEqual({ opId: BATCH(1), state: "done", result: { rows: [{ key: "ENG-1", opId: ROW(1), state: "done" }] } });
+    expect(updates(ctl)).toBe(1);
+    // A batch the host never got: the check is refused for a confirm; the late original commit then answers the same outcome.
+    const late = [row("ENG-2", 2, { dueDate: "2026-12-10" })];
+    const first = await again.service.handle("desk", { kind: "prepare", viewerId: ME, mutation: plan(late) });
+    expect((await again.service.handle("desk", { kind: "commit", viewerId: ME, opId: BATCH(2), mutation: plan(late) })).refused?.code).toBe("approval");
+    expect((await apply(again, late, BATCH(2))).outcome?.state).toBe("done");
+    const delayed = await again.service.handle("desk", { kind: "commit", viewerId: ME, approvalId: first.approval?.id ?? "", opId: BATCH(2), mutation: plan(late) });
+    expect(delayed.outcome?.state).toBe("done");
+    expect(updates(ctl)).toBe(2);
   });
 });

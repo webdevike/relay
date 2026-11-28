@@ -7,10 +7,12 @@
 // check; for a confirmed kind a single-use approval bound to the device, the account, the key
 // generation, the kind, the payload hash and the revision check() saw at prepare; and right before
 // the side effect, the pin is checked again (a key rotation or account change during validation
-// stops the write).
+// stops the write). applyPlan also keeps each row's own opId and hash: a row an earlier op of the
+// same account and device wrote, or may have written, is never sent again under a new batch opId
+// (done stays done; unknown is reconciled row by row), so only new rows and definite failures go out.
 
 import { createHash } from "node:crypto";
-import { TicketConfirm, ticketMutationConfirmed, type TicketMutation, type TicketOutcome, type TicketsRefusalCode, type TicketsResult, type TicketStateType } from "@relay/protocol";
+import { TicketConfirm, ticketMutationConfirmed, type TicketMutation, type TicketOutcome, type TicketPlanRow, type TicketsRefusalCode, type TicketsResult, type TicketStateType } from "@relay/protocol";
 import { Approvals } from "./approvals";
 import { ProviderRejected, publicError, StaleCredential } from "./errors";
 import { OpResult, OpsStore, type OpRecord } from "./ops-store";
@@ -36,6 +38,8 @@ export interface MutationExecutor<M> {
   run(m: M, opId: string): Promise<unknown>;
   /** After a lost response or a restart: whether the write took effect. */
   reconcile(m: M, opId: string, startedAt: number): Promise<"done" | "notDone" | "unknown">;
+  /** applyPlan: the opIds of the rows Linear shows at their values now (one read). Absent: `reconcile` per row. */
+  reconcileRows?(rows: readonly TicketPlanRow[]): Promise<ReadonlySet<string>>;
 }
 
 /** The account and credential one op runs as, from the host's last identity resolution. */
@@ -63,6 +67,9 @@ export interface MutationGateDeps {
 
 type GateAnswer = Omit<TicketsResult, "rid">;
 type Checked = Extract<CheckResult, { ok: true }>;
+type PlanMutation = Extract<TicketMutation, { kind: "applyPlan" }>;
+type RowOutcome = NonNullable<OpResult["rows"]>[number];
+type WriteBase = Omit<OpRecord, "state" | "result" | "error">;
 interface CommitRequest {
   readonly approvalId?: string;
   readonly opId: string;
@@ -104,6 +111,11 @@ export function mutationHash(m: TicketMutation): string {
   return createHash("sha256").update(canonicalJson(m)).digest("hex");
 }
 
+/** A plan row's identity beyond its opId: the same opId with other values is another change. */
+function rowHash(row: TicketPlanRow): string {
+  return createHash("sha256").update(canonicalJson(row)).digest("hex");
+}
+
 /** applyPlan: the whole op is done only when every row is. */
 function stateOf(result: OpResult | undefined): TicketOutcome["state"] {
   const rows = result?.rows ?? [];
@@ -111,9 +123,21 @@ function stateOf(result: OpResult | undefined): TicketOutcome["state"] {
   return rows.some((r) => r.state === "failed") ? "failed" : "done";
 }
 
+function landedRow(row: RowOutcome): RowOutcome {
+  const { error: _lost, ...rest } = row;
+  return { ...rest, state: "done" };
+}
+
+/** The stored result as a device sees it (row hashes stay on the host). */
+function shownResult(rec: OpRecord): TicketOutcome["result"] {
+  const rows = rec.result?.rows?.map(({ hash: _hash, ...row }) => row);
+  const result = rows === undefined ? rec.result : { ...rec.result, rows };
+  return rec.error === undefined ? result : { ...result, error: rec.error };
+}
+
 function answerOf(opId: string, rec: OpRecord): GateAnswer {
   const state = rec.state === "running" ? "unknown" : rec.state;
-  const result = rec.error === undefined ? rec.result : { ...rec.result, error: rec.error };
+  const result = shownResult(rec);
   const outcome: TicketOutcome = result === undefined ? { opId, state } : { opId, state, result };
   return state === "failed" ? { ok: false, error: rec.error ?? "Not every change was written", outcome } : { ok: true, outcome };
 }
@@ -219,6 +243,7 @@ export class MutationGate {
    */
   private async resume(req: CommitRequest, rec: OpRecord, pin: GatePin): Promise<GateAnswer> {
     if (rec.state === "done" || rec.state === "failed") return answerOf(req.opId, rec);
+    if (req.mutation.kind === "applyPlan") return this.resumePlan(pin, req.opId, req.mutation, rec);
     const status = await pin.linear.reconcile(req.mutation, req.opId, rec.at).catch(() => "unknown" as const);
     this.deps.log(`tickets gate: reconciled ${rec.kind} ${req.opId}: ${status}`);
     if (status === "done") {
@@ -248,6 +273,7 @@ export class MutationGate {
     if (!this.deps.current(pin)) return refuse("identity", STALE_PIN);
     const m = req.mutation;
     const rec0 = { kind: m.kind, hash: base.hash, at: this.deps.now(), viewerId: pin.viewerId, deviceId: base.deviceId, revision: base.revision, credential: pin.credential };
+    if (m.kind === "applyPlan") return this.writePlan(pin, req.opId, m, rec0);
     this.ops.put(req.opId, { ...rec0, state: "running" });
     let rec: OpRecord;
     try {
@@ -262,5 +288,88 @@ export class MutationGate {
     this.ops.put(req.opId, rec);
     this.deps.log(`tickets gate: ${m.kind} ${req.opId}: ${rec.state}`);
     return answerOf(req.opId, rec);
+  }
+
+  /** This account's and device's latest outcome of each row opId, when it was the same change. */
+  private priorRows(rows: readonly TicketPlanRow[], authority: Authority): Map<string, RowOutcome> {
+    const want = new Map(rows.map((r) => [r.opId, rowHash(r)]));
+    const prior = new Map<string, RowOutcome>();
+    for (const rec of this.ops.records()) {
+      if (rec.kind !== "applyPlan" || !sameAuthority(rec, authority)) continue;
+      for (const r of rec.result?.rows ?? []) if (r.hash !== undefined && want.get(r.opId) === r.hash) prior.set(r.opId, r);
+    }
+    return prior;
+  }
+
+  /** Which of these rows Linear shows at their values now; a failed read: none (they stay unknown). */
+  private async landed(pin: GatePin, rows: readonly TicketPlanRow[]): Promise<ReadonlySet<string>> {
+    if (rows.length === 0) return new Set();
+    const exec = pin.linear;
+    try {
+      if (exec.reconcileRows !== undefined) return await exec.reconcileRows(rows);
+      const each = await Promise.all(rows.map(async (r) => ((await exec.reconcile({ kind: "applyPlan", rows: [r] }, r.opId, 0)) === "done" ? [r.opId] : [])));
+      return new Set(each.flat());
+    } catch {
+      return new Set();
+    }
+  }
+
+  /**
+   * Rows an earlier plan op of this account and device wrote (done) or may have written (unknown,
+   * reconciled now) are never sent again, whatever opId the batch has; only new rows and definite
+   * failures go out.
+   */
+  private async settlePrior(pin: GatePin, rows: readonly TicketPlanRow[], authority: Authority): Promise<{ known: Map<string, RowOutcome>; send: TicketPlanRow[] }> {
+    const prior = this.priorRows(rows, authority);
+    const landed = await this.landed(
+      pin,
+      rows.filter((r) => prior.get(r.opId)?.state === "unknown"),
+    );
+    const known = new Map<string, RowOutcome>();
+    const send: TicketPlanRow[] = [];
+    for (const r of rows) {
+      const p = prior.get(r.opId);
+      if (p === undefined || p.state === "failed") send.push(r);
+      else known.set(r.opId, landed.has(r.opId) ? landedRow(p) : p);
+    }
+    return { known, send };
+  }
+
+  /** applyPlan's side effect: one record per batch with each row's outcome and identity (hash). */
+  private async writePlan(pin: GatePin, opId: string, m: PlanMutation, base: WriteBase): Promise<GateAnswer> {
+    const { known, send } = await this.settlePrior(pin, m.rows, base);
+    const rowsAs = (state: RowOutcome["state"], ran?: ReadonlyMap<string, RowOutcome>): RowOutcome[] =>
+      m.rows.map((r) => known.get(r.opId) ?? { ...(ran?.get(r.opId) ?? { key: r.key, opId: r.opId, state }), hash: rowHash(r) });
+    this.ops.put(opId, { ...base, state: "running", result: { rows: rowsAs("unknown") } });
+    let rec: OpRecord;
+    try {
+      const ran = send.length === 0 ? undefined : OpResult.safeParse(await pin.linear.run({ kind: "applyPlan", rows: send }, opId)).data?.rows;
+      // A run that answered without per-row outcomes wrote all it was given.
+      const rows = rowsAs(ran === undefined ? "done" : "unknown", ran && new Map(ran.map((r) => [r.opId, r])));
+      rec = { ...base, state: stateOf({ rows }), result: { rows } };
+    } catch (e) {
+      const rows = rowsAs(e instanceof StaleCredential || e instanceof ProviderRejected ? "failed" : "unknown");
+      rec = { ...base, state: stateOf({ rows }), result: { rows }, error: errorText(e) };
+    }
+    this.ops.put(opId, rec);
+    this.deps.log(`tickets gate: applyPlan ${opId}: ${rec.state} (${String(send.length)} of ${String(m.rows.length)} rows sent)`);
+    return answerOf(opId, rec);
+  }
+
+  /** A plan op whose answer was lost: rows still unknown are reconciled one by one, never sent again. */
+  private async resumePlan(pin: GatePin, opId: string, m: PlanMutation, rec: OpRecord): Promise<GateAnswer> {
+    const stored = new Map((rec.result?.rows ?? []).map((r) => [r.opId, r]));
+    const before = m.rows.map((r) => stored.get(r.opId) ?? { key: r.key, opId: r.opId, state: "unknown" as const, hash: rowHash(r) });
+    const landed = await this.landed(
+      pin,
+      m.rows.filter((r) => stored.get(r.opId)?.state !== "done" && stored.get(r.opId)?.state !== "failed"),
+    );
+    const rows = before.map((r) => (r.state === "unknown" && landed.has(r.opId) ? landedRow(r) : r));
+    const state = stateOf({ rows });
+    const { error, ...written } = rec;
+    const next: OpRecord = { ...written, state, result: { ...rec.result, rows }, ...(state !== "done" && error !== undefined && { error }) };
+    this.ops.put(opId, next);
+    this.deps.log(`tickets gate: reconciled applyPlan ${opId}: ${state}`);
+    return answerOf(opId, next);
   }
 }

@@ -1,14 +1,17 @@
 // Ask Astra to re-plan (PLAN T7.3): `replan {projectId, milestoneId?}` asks Astra in a private,
 // read-only item session (`relay://timeline/<projectId>[/<milestoneId>]`, the existing
 // AstraSessions with ITEM_SESSION_TOOLS and no provider credentials) to propose due dates,
-// priorities and orders for the milestone's tickets as one fenced JSON block. Her answer is checked
-// by `validateProposal` against the tickets as they were when Isaac asked; nothing is written
-// anywhere: Apply on the device stays the gate's confirmed `applyPlan`.
+// priorities and orders for the milestone's open tickets (the Timeline's visible scope: done and
+// canceled ones are left out) as one fenced JSON block. Her answer is checked by `validateProposal`
+// against the tickets as they were when Isaac asked and a live Linear read after she answered
+// (changed since: stale; gone, closed or re-keyed: dropped); the proposal carries that baseline and
+// the account it was read as. Nothing is written anywhere: Apply on the device stays the gate's
+// confirmed `applyPlan`.
 
-import type { AstraItem, TicketBoardFacts, TicketsOp, TicketsResult } from "@relay/protocol";
+import { TERMINAL_TICKET_STATE_TYPES, type AstraItem, type TicketBoardFacts, type TicketsOp, type TicketsResult } from "@relay/protocol";
 import { ASK_MARK, ITEM_SESSION_TOOLS, type AstraSessions, type seedPrompt } from "../reviews/astra";
 import type { SessionClock } from "../session";
-import { UNREADABLE_PLAN, validateProposal } from "./plan";
+import { baselineOf, UNREADABLE_PLAN, validateProposal, type LiveIssue } from "./plan";
 
 /** The assistant every re-plan asks. */
 export const REPLAN_AGENT = "astra";
@@ -27,8 +30,19 @@ export function replanUrl(projectId: string, milestoneId?: string): string {
   return `relay://timeline/${encodeURIComponent(projectId)}${milestone}`;
 }
 
+/** The Timeline's rows of this project (or milestone): its open tickets. */
 function inScope(op: ReplanOp): (t: TicketBoardFacts) => boolean {
-  return (t) => t.project?.id === op.projectId && (op.milestoneId === undefined || t.milestone?.id === op.milestoneId);
+  return (t) => !TERMINAL_TICKET_STATE_TYPES[t.state.type] && t.project?.id === op.projectId && (op.milestoneId === undefined || t.milestone?.id === op.milestoneId);
+}
+
+/** What a re-plan reads besides Astra. */
+export interface ReplanContext {
+  /** The board now (read when asked, and again for the starts' stale check). */
+  readonly tickets: () => readonly TicketBoardFacts[];
+  /** Linear now by issue id: a live read after her answer (it throws: every row is stale). */
+  readonly live: (issueIds: readonly string[]) => Promise<ReadonlyMap<string, LiveIssue>>;
+  /** The Linear account the board is read as. */
+  readonly viewerId: string | null;
 }
 
 /** "Timeline: Project / Milestone" from the first ticket in scope. */
@@ -121,23 +135,23 @@ export class Replanner {
     this.deps.sessions.stop();
   }
 
-  /** `tickets`: the board now (read when asked, and again for the stale check). */
-  async replan(op: ReplanOp, tickets: () => readonly TicketBoardFacts[]): Promise<Answer> {
-    const scope = tickets().filter(inScope(op));
+  async replan(op: ReplanOp, ctx: ReplanContext): Promise<Answer> {
+    const scope = ctx.tickets().filter(inScope(op));
     const first = scope[0];
-    if (first === undefined) return { ok: false, error: "No tickets of this milestone are on the board" };
+    if (first === undefined) return { ok: false, error: "No open tickets of this milestone are on the board" };
     const url = replanUrl(op.projectId, op.milestoneId);
     if (this.waiting.has(url)) return { ok: false, error: "Astra is still re-planning this" };
     const label = labelOf(op, first);
-    const at = Object.fromEntries(scope.map((t) => [t.key, t.updatedAt]));
+    const at = Object.fromEntries(scope.map((t) => [t.key, baselineOf(t)]));
     const list = ticketList(label, scope);
     const question = replanQuestion(label);
     const title = `${this.deps.sessions.agentName(REPLAN_AGENT)} · ${label}`;
     const answer = await this.answer(url, () => this.deps.sessions.ask(url, title, label, () => Promise.resolve(list), question, `${list}${ASK_MARK}${question}`, REPLAN_AGENT));
-    const now = Object.fromEntries(tickets().map((t) => [t.key, t.updatedAt]));
-    const check = validateProposal(proposalOf(answer), { at, now });
+    const live = await ctx.live(scope.map((t) => t.id)).catch(() => null);
+    const starts = Object.fromEntries(ctx.tickets().map((t) => [t.key, t.plannedStart ?? null]));
+    const check = validateProposal(proposalOf(answer), { at, live, starts });
     if (!check.ok) return { ok: false, refused: { code: "invalid", message: UNREADABLE_PLAN } };
-    return { ok: true, proposal: { ...check.proposal, ...(check.stale.length > 0 && { stale: check.stale }) } };
+    return { ok: true, proposal: { ...check.proposal, ...(ctx.viewerId !== null && { viewerId: ctx.viewerId }) } };
   }
 
   /** Asks, then waits for her finished answer (emit or poll), the session's error, or the timeout. */

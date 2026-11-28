@@ -142,11 +142,20 @@ function pickOrder(r: DraftRow | undefined): Partial<PlanTicket> {
   return out
 }
 
-function span(tasks: readonly TimelineTask[]): { start: Date; end: Date } {
+function span(tasks: readonly Pick<TimelineTask, 'start' | 'end'>[]): { start: Date; end: Date } {
   return {
     start: new Date(Math.min(...tasks.map((t) => t.start.getTime()))),
     end: new Date(Math.max(...tasks.map((t) => t.end.getTime()))),
   }
+}
+
+/** The days the chart must show besides the bars: every date line and every date the draft proposes. */
+function markedDays(model: TimelineModel, rows: readonly DraftRow[]): { start: Date; end: Date }[] {
+  const proposed = rows.flatMap((r) => [r.dueDate, r.plannedStart])
+  const days = [...model.lines.map((l) => l.at), ...proposed].filter(
+    (d): d is Day => typeof d === 'string',
+  )
+  return days.map((d) => ganttDates({ start: d, end: d }))
 }
 
 interface Build {
@@ -241,7 +250,7 @@ export function buildTimeline(
   }
   const b: Build = { model, today, rows }
   for (const p of groupTickets(tickets)) addProject(b, p)
-  const all = [...model.tasks, { start: model.start, end: model.end } as TimelineTask]
+  const all = [...model.tasks, { start: model.start, end: model.end }, ...markedDays(model, rows)]
   const { start, end } = span(all)
   model.start = dateOfDay(addDays(dayOfDate(start), -7))
   model.end = dateOfDay(addDays(dayOfDate(end), 14))

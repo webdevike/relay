@@ -112,28 +112,6 @@ export const ticketsInvoke = {
     input: z.object({ key: TicketKey }).strict(),
     output: fromHost({ summary: z.looseObject({}) }),
   },
-  /** Relay-only Timeline starts (host `plan.json`, never Linear); null clears one. */
-  'tickets.plan': {
-    input: z
-      .object({
-        rows: z
-          .array(
-            z
-              .object({
-                key: TicketKey,
-                plannedStart: z
-                  .string()
-                  .regex(/^\d{4}-\d{2}-\d{2}$/)
-                  .nullable(),
-              })
-              .strict(),
-          )
-          .min(1)
-          .max(200),
-      })
-      .strict(),
-    output: fromHost({}),
-  },
   /**
    * Ask Astra (private, read-only, never posted) to re-plan a project or one milestone: her
    * validated proposal (protocol TicketPlanProposal), or `refused` when it isn't a readable plan.
