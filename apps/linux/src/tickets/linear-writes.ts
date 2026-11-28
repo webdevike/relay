@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { TicketStateType, type TicketMutation, type TicketPlanRow } from "@relay/protocol";
 import { z } from "zod";
 import { HostError, ProviderRejected, publicError } from "./errors";
-import type { CheckResult, MutationExecutor } from "./gate";
+import type { CheckResult, MutationExecutor, SettledRow } from "./gate";
 import type { OpResult } from "./ops-store";
 import { validPair } from "./plan";
 
@@ -170,11 +170,28 @@ function rowChange(row: TicketPlanRow): string {
   return parts.join(", ") || "no change";
 }
 
-/** Writes one plan row, only from the revision it was drafted at; no Linear field: done without a write. */
+/** A row with no Linear field: only its Relay start, which the service saves once the row is done. */
+function startOnly(row: TicketPlanRow): boolean {
+  return row.dueDate === undefined && row.priority === undefined && row.prioritySortOrder === undefined;
+}
+
+/** Why the row can't take effect on the issue as Linear has it now; null: it can. */
+function rowFailure(row: TicketPlanRow, live: PlanIssue | undefined): string | null {
+  if (live === undefined) return GONE;
+  if (live.identifier !== row.key) return `It is ${live.identifier} in Linear now. Make the plan again.`;
+  if (Date.parse(live.updatedAt) !== row.baseUpdatedAt) return CHANGED_SINCE_PLAN;
+  const problem = datesProblem(row, live);
+  return problem === null || problem.ok ? null : problem.message;
+}
+
+/**
+ * Writes one plan row against a read of its issue taken right before it: only from the revision it
+ * was drafted at, with a valid start/due pair; no Linear field: done without a write.
+ */
 async function applyRow(gql: LinearGql, row: TicketPlanRow, live: PlanIssue | undefined): Promise<RowOutcome> {
   const base = { key: row.key, opId: row.opId };
-  if (live === undefined) return { ...base, state: "failed", error: GONE };
-  if (Date.parse(live.updatedAt) !== row.baseUpdatedAt) return { ...base, state: "failed", error: CHANGED_SINCE_PLAN };
+  const why = rowFailure(row, live);
+  if (why !== null || live === undefined) return { ...base, state: "failed", error: why ?? GONE };
   const input = rowChanges(row, live);
   if (Object.keys(input).length === 0) return { ...base, state: "done" };
   try {
@@ -536,15 +553,24 @@ function planProblem(rows: readonly TicketPlanRow[], live: ReadonlyMap<string, P
   return null;
 }
 
-/** The opIds of the rows Linear shows at their values now (one read). */
-async function landedPlanRows(gql: LinearGql, rows: readonly TicketPlanRow[]): Promise<ReadonlySet<string>> {
+/**
+ * After a lost answer or a restart (one read): a row with Linear fields is done when Linear shows
+ * its values, else still unknown (never sent again). A start-only row has no Linear trace to go by,
+ * so it is never taken as done from field equality: it is done only if it could take effect now
+ * (same revision, valid dates), else failed; the service's own saved-start record covers one whose
+ * start was already saved.
+ */
+async function settledPlanRows(gql: LinearGql, rows: readonly TicketPlanRow[]): Promise<ReadonlyMap<string, SettledRow>> {
   const live = await planIssues(gql, rows);
-  return new Set(
-    rows.filter((r) => {
-      const issue = live.get(r.issueId);
-      return issue !== undefined && Object.keys(rowChanges(r, issue)).length === 0;
-    }).map((r) => r.opId),
-  );
+  const out = new Map<string, SettledRow>();
+  for (const r of rows) {
+    const issue = live.get(r.issueId);
+    if (startOnly(r)) {
+      const why = rowFailure(r, issue);
+      out.set(r.opId, why === null ? { state: "done" } : { state: "failed", error: why });
+    } else if (issue !== undefined && Object.keys(rowChanges(r, issue)).length === 0) out.set(r.opId, { state: "done" });
+  }
+  return out;
 }
 
 function planOps(gql: LinearGql): KindOps<Of<"applyPlan">> {
@@ -558,14 +584,22 @@ function planOps(gql: LinearGql): KindOps<Of<"applyPlan">> {
       const rows = m.rows.map((r, i) => ({ key: issues[i]?.identifier ?? r.key, title: issues[i]?.title ?? "", change: rowChange(r) }));
       return { ok: true, revision, summary: `Apply the plan to ${String(rows.length)} issues in Linear`, rows };
     },
+    /**
+     * Linear rows first, each against a read of its issue taken right before it; then the
+     * start-only rows, against one read taken after every Linear write, right before the service
+     * saves their starts.
+     */
     async run(m) {
-      const live = await planIssues(gql, m.rows);
-      const rows: RowOutcome[] = [];
-      for (const row of m.rows) rows.push(await applyRow(gql, row, live.get(row.issueId)));
-      return { rows };
+      const out = new Map<string, RowOutcome>();
+      for (const row of m.rows.filter((r) => !startOnly(r))) out.set(row.opId, await applyRow(gql, row, (await planIssues(gql, [row])).get(row.issueId)));
+      const starts = m.rows.filter(startOnly);
+      const live = starts.length === 0 ? new Map<string, PlanIssue>() : await planIssues(gql, starts);
+      for (const row of starts) out.set(row.opId, await applyRow(gql, row, live.get(row.issueId)));
+      return { rows: m.rows.flatMap((r) => out.get(r.opId) ?? []) };
     },
     async reconcile(m) {
-      return (await landedPlanRows(gql, m.rows)).size === m.rows.length ? "done" : "notDone";
+      const settled = await settledPlanRows(gql, m.rows);
+      return m.rows.every((r) => settled.get(r.opId)?.state === "done") ? "done" : "notDone";
     },
   };
 }
@@ -596,6 +630,6 @@ export function linearExecutor(raw: LinearGql, viewerId: () => string | null, gu
     check: (m, known = new Set()) => ops(m).check(m, known),
     run: (m, opId) => ops(m).run(m, opId),
     reconcile: (m, opId) => ops(m).reconcile(m, opId),
-    reconcileRows: (rows) => landedPlanRows(gql, rows),
+    reconcileRows: (rows) => settledPlanRows(gql, rows),
   };
 }

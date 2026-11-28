@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketMutation, type TicketPlanRow, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketMutation, type TicketOutcome, type TicketPlanRow, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
 import { AstraSessions, type AstraSessionsDeps } from "../reviews/astra";
 import type { ToolRun } from "../reviews/exec";
@@ -82,6 +82,8 @@ const clip = (s: string | null): string | null => (s === null ? null : s.slice(0
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 /** A key is compared by its hash; the key itself is never kept. */
 const sha256 = (s: string): string => createHash("sha256").update(s).digest("hex");
+/** A plan row with no Linear field: its only effect is its Relay start. */
+const startOnlyRow = (r: TicketPlanRow): boolean => r.plannedStart !== undefined && r.dueDate === undefined && r.priority === undefined && r.prioritySortOrder === undefined;
 /** A ticket page's description (UTF-8 bytes), each comment body and all comment bodies, before the frame cap. */
 const MAX_DETAIL_DESCRIPTION_BYTES = 256 * 1024;
 const MAX_DETAIL_COMMENT_BYTES = 64 * 1024;
@@ -351,7 +353,7 @@ export class TicketsService implements TicketsRelaying {
     if (moved !== undefined) return { ok: false, refused: { code: "conflict", message: `${moved.key}: ${START_MOVED}` } };
     for (const s of starts) this.startHolds.set(s.hold, op.opId);
     try {
-      return this.saveStarts(op.viewerId, rows, await this.gateCommit(deviceId, op));
+      return this.saveStarts(op.viewerId, rows, this.savedStarts(op.viewerId, rows, await this.gateCommit(deviceId, op)));
     } finally {
       for (const s of starts) if (this.startHolds.get(s.hold) === op.opId) this.startHolds.delete(s.hold);
     }
@@ -371,6 +373,22 @@ export class TicketsService implements TicketsRelaying {
    */
   private keepAnchor(m: Extract<TicketMutation, { kind: "comment" }>, opId: string, answer: Answer): void {
     if (m.anchor !== undefined && answer.outcome !== undefined && answer.outcome.state !== "failed") this.anchors.set(answer.outcome.result?.id ?? opId, m.anchor);
+  }
+
+  /**
+   * A start-only row's only effect is its Relay start: once this host saved it (its durable record
+   * in plan.json), the row is done, whatever Linear shows now (a lost answer, a Check). Without that
+   * record nothing is inferred here: the gate's live check decides it.
+   */
+  private savedStarts(viewerId: string, rows: readonly TicketPlanRow[], answer: Answer): Answer {
+    const outcome = answer.outcome;
+    const results = outcome?.result?.rows;
+    const saved = new Set(rows.filter((r) => startOnlyRow(r) && this.plan.applied(viewerId, r.opId)).map((r) => r.opId));
+    if (outcome === undefined || results === undefined || !results.some((o) => o.state !== "done" && saved.has(o.opId))) return answer;
+    const next = results.map((o) => (saved.has(o.opId) ? { key: o.key, opId: o.opId, state: "done" as const } : o));
+    const state: TicketOutcome["state"] = next.some((r) => r.state === "unknown") ? "unknown" : next.some((r) => r.state === "failed") ? "failed" : "done";
+    const out: TicketOutcome = { ...outcome, state, result: { ...outcome.result, rows: next } };
+    return state === "failed" ? { ok: false, error: answer.error ?? "Not every change was written", outcome: out } : { ok: true, outcome: out };
   }
 
   /**
@@ -394,7 +412,7 @@ export class TicketsService implements TicketsRelaying {
     const next = results.map((o) => {
       const problem = problems.get(o.opId);
       const row = byOp.get(o.opId);
-      const linear = row !== undefined && (row.dueDate !== undefined || row.priority !== undefined || row.prioritySortOrder !== undefined);
+      const linear = row !== undefined && !startOnlyRow(row);
       return problem === undefined ? o : { ...o, state: "failed" as const, error: linear ? `Written to Linear, but ${problem}` : `Not saved: ${problem}` };
     });
     const state = next.some((r) => r.state === "unknown") ? "unknown" : "failed";

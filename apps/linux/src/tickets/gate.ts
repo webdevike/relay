@@ -42,8 +42,17 @@ export interface MutationExecutor<M> {
   run(m: M, opId: string): Promise<unknown>;
   /** After a lost response or a restart: whether the write took effect. */
   reconcile(m: M, opId: string, startedAt: number): Promise<"done" | "notDone" | "unknown">;
-  /** applyPlan: the opIds of the rows Linear shows at their values now (one read). Absent: `reconcile` per row. */
-  reconcileRows?(rows: readonly TicketPlanRow[]): Promise<ReadonlySet<string>>;
+  /**
+   * applyPlan, after a lost answer or a restart (one read): each row Linear now shows done (or, a
+   * start-only row, can't take effect: failed); a row left out stays unknown. Absent: `reconcile` per row.
+   */
+  reconcileRows?(rows: readonly TicketPlanRow[]): Promise<ReadonlyMap<string, SettledRow>>;
+}
+
+/** A plan row's state from the provider now, after a lost answer or a restart. */
+export interface SettledRow {
+  readonly state: "done" | "failed";
+  readonly error?: string;
 }
 
 /** The account and credential one op runs as, from the host's last identity resolution. */
@@ -146,9 +155,11 @@ function stateOf(result: OpResult | undefined): TicketOutcome["state"] {
   return rows.some((r) => r.state === "failed") ? "failed" : "done";
 }
 
-function landedRow(row: RowOutcome): RowOutcome {
+/** A row left unknown, as the provider now says it stands (nothing said: still unknown). */
+function settledRow(row: RowOutcome, now: SettledRow | undefined): RowOutcome {
+  if (now === undefined) return row;
   const { error: _lost, ...rest } = row;
-  return { ...rest, state: "done" };
+  return { ...rest, state: now.state, ...(now.error !== undefined && { error: now.error }) };
 }
 
 /** The stored result as a device sees it (row hashes stay on the host). */
@@ -341,16 +352,16 @@ export class MutationGate {
     return prior;
   }
 
-  /** Which of these rows Linear shows at their values now; a failed read: none (they stay unknown). */
-  private async landed(pin: GatePin, rows: readonly TicketPlanRow[]): Promise<ReadonlySet<string>> {
-    if (rows.length === 0) return new Set();
+  /** How these rows stand in Linear now (absent: still unknown); a failed read: all still unknown. */
+  private async landed(pin: GatePin, rows: readonly TicketPlanRow[]): Promise<ReadonlyMap<string, SettledRow>> {
+    if (rows.length === 0) return new Map();
     const exec = pin.linear;
     try {
       if (exec.reconcileRows !== undefined) return await exec.reconcileRows(rows);
-      const each = await Promise.all(rows.map(async (r) => ((await exec.reconcile({ kind: "applyPlan", rows: [r] }, r.opId, 0)) === "done" ? [r.opId] : [])));
-      return new Set(each.flat());
+      const each = await Promise.all(rows.map(async (r) => ((await exec.reconcile({ kind: "applyPlan", rows: [r] }, r.opId, 0)) === "done" ? [[r.opId, { state: "done" as const }] as const] : [])));
+      return new Map(each.flat());
     } catch {
-      return new Set();
+      return new Map();
     }
   }
 
@@ -402,7 +413,7 @@ export class MutationGate {
   /** The batch's own rows: unknown ones reconciled, new ones sent; never a row another batch holds. */
   private async ownRows(pin: GatePin, opId: string, claim: RowClaim): Promise<{ rows: Map<string, RowOutcome>; error?: string }> {
     const landed = await this.landed(pin, claim.check);
-    const checked = claim.check.map((r): RowOutcome => ({ key: r.key, opId: r.opId, state: landed.has(r.opId) ? "done" : "unknown" }));
+    const checked = claim.check.map((r) => settledRow({ key: r.key, opId: r.opId, state: "unknown" }, landed.get(r.opId)));
     const sent = claim.send.length === 0 ? { rows: [] } : await this.sendRows(pin, opId, claim.send);
     return { ...sent, rows: new Map([...checked, ...sent.rows].map((r) => [r.opId, r])) };
   }
@@ -462,7 +473,7 @@ export class MutationGate {
       pin,
       m.rows.filter((r) => stored.get(r.opId)?.state !== "done" && stored.get(r.opId)?.state !== "failed"),
     );
-    const rows = before.map((r) => (r.state === "unknown" && landed.has(r.opId) ? landedRow(r) : r));
+    const rows = before.map((r) => (r.state === "unknown" ? settledRow(r, landed.get(r.opId)) : r));
     const state = stateOf({ rows });
     const { error, ...written } = rec;
     const next: OpRecord = { ...written, state, result: { ...rec.result, rows }, ...(state !== "done" && error !== undefined && { error }) };

@@ -421,20 +421,28 @@ describe("Timeline plan through the real gate: Relay starts and per-row retries"
   interface PlanIssue { id: string; identifier: string; title: string; updatedAt: string; dueDate: string | null; priority: number; prioritySortOrder: number }
   type Row = { key: string; issueId: string; opId: string; baseUpdatedAt: number; dueDate?: string | null; plannedStart?: string | null; basePlannedStart?: string | null };
 
-  /** Linear's plan reads and issueUpdates over two issues; `fault` loses (after applying) or refuses one. */
-  interface PlanLinear { readonly linear: FakeLinear; readonly issues: Map<string, PlanIssue>; fault: (id: string) => Fault }
+  /**
+   * Linear's plan reads and issueUpdates over two issues; `fault` loses (after applying) or refuses
+   * one; `onRead` runs on every plan read (it may throw: a lost read), `onUpdate` while an update is
+   * being applied (another change landing meanwhile).
+   */
+  interface PlanLinear { readonly linear: FakeLinear; readonly issues: Map<string, PlanIssue>; fault: (id: string) => Fault; onRead: () => void; onUpdate: (id: string) => void }
   function planLinear(): PlanLinear {
     const linear = new FakeLinear();
     linear.add("ENG-1", T0 - MIN);
     linear.add("ENG-2", T0 - MIN);
     const issues = new Map<string, PlanIssue>(["ENG-1", "ENG-2"].map((k) => [`id-${k}`, { id: `id-${k}`, identifier: k, title: `Title ${k}`, updatedAt: new Date(T0 - MIN).toISOString(), dueDate: null, priority: 2, prioritySortOrder: 100 }]));
-    const ctl: PlanLinear = { linear, issues, fault: () => undefined };
-    linear.gateOps.set("TicketPlanIssues", (v) => ({ issues: { nodes: (v["ids"] as string[]).flatMap((i) => issues.get(i) ?? []) } }));
+    const ctl: PlanLinear = { linear, issues, fault: () => undefined, onRead: () => undefined, onUpdate: () => undefined };
+    linear.gateOps.set("TicketPlanIssues", (v) => {
+      ctl.onRead();
+      return { issues: { nodes: (v["ids"] as string[]).flatMap((i) => issues.get(i) ?? []) } };
+    });
     linear.gateOps.set("TicketIssueUpdate", (v) => {
       const issue = issues.get(String(v["id"]));
       const fault = ctl.fault(String(v["id"]));
       if (issue === undefined || fault === "reject") return { issueUpdate: { success: false } };
       Object.assign(issue, v["input"], { updatedAt: new Date(T0 + 1000).toISOString() });
+      ctl.onUpdate(issue.id);
       if (fault === "lost") throw new Error("socket hang up");
       return { issueUpdate: { success: true, issue: { id: issue.id, identifier: issue.identifier, url: "https://linear.app/acme/issue/x" } } };
     });
@@ -597,5 +605,74 @@ describe("Timeline plan through the real gate: Relay starts and per-row retries"
     const delayed = await again.service.handle("desk", { kind: "commit", viewerId: ME, approvalId: first.approval?.id ?? "", opId: BATCH(2), mutation: plan(late) });
     expect(delayed.outcome?.state).toBe("done");
     expect(updates(ctl)).toBe(2);
+  });
+
+  const planFile = (h: TicketsHarness): string | null => (existsSync(join(h.dir, "plan.json")) ? readFileSync(join(h.dir, "plan.json"), "utf8") : null);
+  /** ENG-2 as another device changes it in Linear: due Dec 3, a newer revision. */
+  const moveEng2 = (ctl: PlanLinear): void => {
+    Object.assign(ctl.issues.get("id-ENG-2")!, { dueDate: "2026-12-03", updatedAt: new Date(T0 + 9_000).toISOString() });
+  };
+
+  it("checks each row against Linear right before it: ENG-2 changed while ENG-1 was being written fails, its start unsaved", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    const before = planFile(h);
+    // Linear moves ENG-2 (due Dec 3) while ENG-1's write is in progress.
+    ctl.onUpdate = (id) => {
+      if (id === "id-ENG-1") moveEng2(ctl);
+    };
+    const res = await apply(h, [row("ENG-1", 1, { dueDate: "2026-12-09" }), row("ENG-2", 2, { plannedStart: "2026-12-05", basePlannedStart: null })], BATCH(1));
+    expect(res.outcome?.result?.rows).toEqual([
+      { key: "ENG-1", opId: ROW(1), state: "done" },
+      { key: "ENG-2", opId: ROW(2), state: "failed", error: "Changed in Linear since the plan was made" },
+    ]);
+    expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
+    expect(planFile(h)).toBe(before);
+    // A Linear row changed while an earlier row was written fails the same way, with no write of its own.
+    ctl.onUpdate = (id) => {
+      if (id === "id-ENG-1") Object.assign(ctl.issues.get("id-ENG-2")!, { updatedAt: new Date(T0 + 12_000).toISOString() });
+    };
+    const base = Date.parse(ctl.issues.get("id-ENG-2")!.updatedAt);
+    const next = await apply(h, [row("ENG-1", 3, { dueDate: "2026-12-10", baseUpdatedAt: T0 + 1000 }), row("ENG-2", 4, { dueDate: "2026-12-11", baseUpdatedAt: base })], BATCH(2));
+    expect(next.outcome?.result?.rows?.map((r) => r.state)).toEqual(["done", "failed"]);
+    expect(ctl.linear.gateCalls.filter((c) => c.op === "TicketIssueUpdate")).toHaveLength(2);
+  });
+
+  it("a start-only row interrupted before its execution read is never taken as done by Check: the live check refuses it, plan.json unchanged", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    const before = planFile(h);
+    const rows = [row("ENG-2", 1, { plannedStart: "2026-12-05", basePlannedStart: null })];
+    const confirm = await h.service.handle("desk", { kind: "prepare", viewerId: ME, mutation: plan(rows) });
+    // The commit's live check reads once; the execution read is lost.
+    let reads = 0;
+    ctl.onRead = () => {
+      reads += 1;
+      if (reads === 2) throw new Error("socket hang up");
+    };
+    const lost = await h.service.handle("desk", { kind: "commit", viewerId: ME, approvalId: confirm.approval?.id ?? "", opId: BATCH(1), mutation: plan(rows) });
+    expect(lost.outcome?.state).toBe("unknown");
+    ctl.onRead = () => undefined;
+    moveEng2(ctl);
+    h.service.stop();
+    const again = await host(ctl, { dir: h.dir });
+    const check = await again.service.handle("desk", { kind: "commit", viewerId: ME, opId: BATCH(1), mutation: plan(rows) });
+    expect(check.outcome?.result?.rows).toEqual([{ key: "ENG-2", opId: ROW(1), state: "failed", error: "Changed in Linear since the plan was made" }]);
+    expect(await starts(again)).toEqual({ "ENG-1": null, "ENG-2": null });
+    expect(planFile(again)).toBe(before);
+  });
+
+  it("a start-only row whose start was saved before the answer was lost: Check answers done and saves nothing again", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    const rows = [row("ENG-2", 1, { plannedStart: "2026-11-25", basePlannedStart: null })];
+    expect((await apply(h, rows, BATCH(1))).outcome?.state).toBe("done");
+    const saved = planFile(h);
+    // Linear moves on afterwards; the start already took effect under this batch.
+    moveEng2(ctl);
+    const check = await h.service.handle("desk", { kind: "commit", viewerId: ME, opId: BATCH(1), mutation: plan(rows) });
+    expect(check.outcome?.result?.rows).toEqual([{ key: "ENG-2", opId: ROW(1), state: "done" }]);
+    expect(planFile(h)).toBe(saved);
+    expect(await starts(h)).toMatchObject({ "ENG-2": "2026-11-25" });
   });
 });
