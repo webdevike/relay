@@ -289,14 +289,17 @@ function retained(entry: IssueEntry): IssueEntry {
 }
 
 /**
- * A PR as the cache keeps it, at most MAX_STORED_ENTRY_BYTES serialized: thread comment bodies made
- * media-safe and cut like Linear's (4 KiB each, 32 KiB together), then the newest that fit the cap.
+ * A PR as the cache keeps it, at most MAX_STORED_ENTRY_BYTES serialized: thread comment bodies cut
+ * like Linear's (4 KiB each, 32 KiB together, newest kept) and then made media-safe (only what is
+ * kept is parsed; a URL cut at the end is still redacted by its host or its signed parameter),
+ * then the newest that fit the cap.
  */
 function retainedPr(entry: PrEntry): PrEntry {
   if (entry.input === null) return entry;
-  const safe = entry.input.comments.map((c) => ({ ...c, body: safeTicketText(c.body) }));
+  const kept = newestWithin(entry.input.comments, MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES);
+  const safe = kept.map((c) => ({ ...c, body: safeTicketText(c.body) }));
   const base = jsonBytes({ ...entry, input: { ...entry.input, comments: [] } });
-  const comments = newestFitting(newestWithin(safe, MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES), base, MAX_STORED_ENTRY_BYTES);
+  const comments = newestFitting(safe, base, MAX_STORED_ENTRY_BYTES);
   return { ...entry, input: { ...entry.input, comments } };
 }
 

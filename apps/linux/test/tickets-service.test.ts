@@ -110,7 +110,10 @@ describe("TicketsService bounds and reads", () => {
       expect(text).not.toContain("eyJ");
       expect(text).not.toContain("private-user-images");
     }
-    expect(frame).toContain("(see /reviews/media/unavailable)");
+    // The shared media grammar: a private image points at the host's unavailable media, a bare
+    // signed link becomes "(private link)" and a signed link's text stays without its destination.
+    expect(frame).toContain("(see (private link))");
+    expect(frame).toContain("/reviews/media/unavailable");
   });
 
   it("keeps the whole ticket-page frame under its cap with 250 short comments carrying long quotes and full reactions", async () => {
