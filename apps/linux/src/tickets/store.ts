@@ -14,6 +14,7 @@ import { z } from "zod";
 import { readJson, writeJson } from "../reviews/exec";
 import { EMPTY_HANDLED, type HandledState, type LinearNotice, type PrAttentionInput } from "./attention";
 import type { HostIdentity } from "./identity";
+import { safeTicketText } from "./linear-sync";
 
 export const MAX_STORED_PRS = 200;
 /** UTF-8 bytes of a description kept in the hot cache. */
@@ -22,6 +23,29 @@ export const MAX_STORED_DESCRIPTION_BYTES = 8 * 1024;
 export const MAX_STORED_COMMENT_BYTES = 4 * 1024;
 /** UTF-8 bytes of one issue's kept comment bodies together, newest first. */
 export const MAX_STORED_COMMENTS_BYTES = 32 * 1024;
+/** UTF-8 bytes one cached issue or PR takes serialized: quotes, reactions, links and metadata included. */
+export const MAX_STORED_ENTRY_BYTES = 64 * 1024;
+
+const jsonBytes = (v: unknown): number => Buffer.byteLength(JSON.stringify(v), "utf8");
+
+/** A comment's reactions as the cache keeps them: 10 emoji, 10 people each. */
+const fewReactions = (c: TicketComment): TicketComment =>
+  c.reactions.length <= 10 && c.reactions.every((r) => r.users.length <= 10) ? c : { ...c, reactions: c.reactions.slice(0, 10).map((r) => ({ ...r, users: r.users.slice(0, 10) })) };
+
+/** The newest items whose bodies (each cut to `each` UTF-8 bytes) fit `budget` together, oldest first. */
+function newestWithin<T extends { readonly body: string }>(items: readonly T[], each: number, budget: number): T[] {
+  const kept: T[] = [];
+  let left = budget;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i] as T;
+    const body = clipBytes(item.body, each);
+    const size = Buffer.byteLength(body, "utf8");
+    if (size > left) break;
+    left -= size;
+    kept.push({ ...item, body });
+  }
+  return kept.reverse();
+}
 
 /** What the host left out of an issue: the description was cut, `comments` older comments dropped. */
 export interface Clipped {
@@ -121,13 +145,34 @@ export function boundComments(comments: readonly TicketComment[], each: number, 
   return { comments: kept.reverse(), dropped: comments.length - kept.length };
 }
 
-/** An issue as the hot cache keeps it: description, comments and their total cut to the byte caps. */
+/**
+ * An issue as the hot cache keeps it: description, comments and their total cut to the byte caps,
+ * reactions thinned, then the whole entry held to MAX_STORED_ENTRY_BYTES serialized (oldest comments
+ * go first, then long link and label lists).
+ */
 function retained(entry: IssueEntry): IssueEntry {
   const description = clipBytes(entry.ticket.description, MAX_STORED_DESCRIPTION_BYTES);
-  const { comments, dropped } = boundComments(entry.comments, MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES);
+  const bounded = boundComments(entry.comments.map(fewReactions), MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES);
+  const comments = bounded.comments;
+  let ticket = description === entry.ticket.description ? entry.ticket : { ...entry.ticket, description };
+  // Long link and label lists give way first (the ticket alone may take half), then the oldest comments.
+  if (jsonBytes(ticket) > MAX_STORED_ENTRY_BYTES / 2) ticket = { ...ticket, children: ticket.children.slice(0, 20), relations: ticket.relations.slice(0, 20), labels: ticket.labels.slice(0, 20) };
+  while (comments.length > 0 && jsonBytes({ ticket, comments }) > MAX_STORED_ENTRY_BYTES) comments.shift();
+  const dropped = entry.comments.length - comments.length;
   const clipped = { description: description.length < entry.ticket.description.length || entry.clipped?.description === true, comments: dropped + (entry.clipped?.comments ?? 0) };
-  const ticket = description === entry.ticket.description ? entry.ticket : { ...entry.ticket, description };
   return clipped.description || clipped.comments > 0 ? { ticket, comments, clipped } : { ticket, comments };
+}
+
+/**
+ * A PR as the cache keeps it: thread comment bodies made media-safe and cut like Linear's (4 KiB
+ * each, 32 KiB together, newest kept), the entry held to MAX_STORED_ENTRY_BYTES serialized.
+ */
+function retainedPr(entry: PrEntry): PrEntry {
+  if (entry.input === null) return entry;
+  const safe = entry.input.comments.map((c) => ({ ...c, body: safeTicketText(c.body) }));
+  const comments = newestWithin(safe, MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES);
+  while (comments.length > 0 && jsonBytes({ ...entry, input: { ...entry.input, comments } }) > MAX_STORED_ENTRY_BYTES) comments.shift();
+  return { ...entry, input: { ...entry.input, comments } };
 }
 
 function loadIssues(raw: Record<string, unknown>): Map<string, IssueEntry> {
@@ -218,8 +263,9 @@ export class TicketsStore {
 
   setPr(entry: PrEntry): void {
     const id = prId(entry.ref);
-    if (same(this.prs.get(id), entry)) return;
-    this.prs.set(id, entry);
+    const kept = retainedPr(entry);
+    if (same(this.prs.get(id), kept)) return;
+    this.prs.set(id, kept);
     this.dirty = true;
   }
 
