@@ -16,7 +16,7 @@ import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { providerBudgets, RateLimited, type Budgets } from "./budget";
-import { MutationGate, type GatePin } from "./gate";
+import { MutationGate, ProviderRejected, type GatePin } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
@@ -191,9 +191,13 @@ export class TicketsService implements TicketsRelaying {
     try {
       entry = await this.linear.detail(key, this.store.sync.identity?.linear?.viewerId ?? null);
     } catch (error) {
-      // Linear unreachable: the stored card, if any, rather than nothing.
-      entry = this.store.issue(key) ?? null;
-      if (entry === null) throw error;
+      // Linear answered no (a refused key, no permission, not found): evicted below, never the stale copy.
+      if (error instanceof ProviderRejected) entry = null;
+      else {
+        // Linear unreachable (network, 5xx, rate limit): the stored card, if any, rather than nothing.
+        entry = this.store.issue(key) ?? null;
+        if (entry === null) throw error;
+      }
     }
     if (entry === null) {
       if (this.store.issue(key) !== undefined) this.store.tombstone(key, true);

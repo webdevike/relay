@@ -3,14 +3,16 @@
 // first run, plus his open assigned ones), 25 per page and at most 8 pages a cycle. The watermark
 // (newest updatedAt - 60 s) moves only after a full pass; a cut-short pass resumes from its cursor
 // with the same filter next cycle. Watched keys (agent cards) are read by key each cycle; the
-// notifications (100) are read each cycle for attention and to refresh issues whose comments,
-// reactions or edits did not bump them. Every 30 minutes an id-only pass over the same membership
-// tombstones what left it; a key Linear no longer answers (access lost) is tombstoned when seen.
+// notifications (100) are read each cycle for attention, and the issues they touched since the
+// notice checkpoint (stored ones, and new ones that mention Isaac) are read by key before the
+// checkpoint moves past them. Every 30 minutes the stored keys are checked against the same
+// membership in batches of 50 (id-only), so it completes however many issues Isaac has, and what
+// left is tombstoned; a key Linear no longer answers (access lost) is tombstoned when seen.
 
 import { TERMINAL_TICKET_STATE_TYPES, type Ticket, type TicketComment, type TicketPrRef, type TicketStateType } from "@relay/protocol";
 import { z } from "zod";
 import type { LinearGql } from "../reviews/linear";
-import type { LinearNotice } from "./attention";
+import { MENTION_NOTICES, type LinearNotice } from "./attention";
 import type { IssueEntry, TicketsStore } from "./store";
 
 export const LINEAR_PAGE = 25;
@@ -22,7 +24,8 @@ export const TOMBSTONE_KEEP_MS = 24 * 60 * 60_000;
 /** Keys one by-key read asks for. */
 const KEYS_PER_CALL = 50;
 const MAX_KEY_CALLS = 2;
-const RECONCILE_PAGE = 250;
+/** Stored keys one membership check asks for. */
+const RECONCILE_KEYS = 50;
 const KEPT_COMMENTS = 50;
 const MAX_TEAMS = 20;
 
@@ -345,17 +348,32 @@ export class LinearSync {
     }
   }
 
-  /** The newest 100 notifications; issues they touched since the last read are read again. */
+  /**
+   * The newest 100 notifications. Since the checkpoint, the issues they touched (stored ones, and new
+   * ones that mention Isaac) are read by key first; the checkpoint then moves only past notices whose
+   * issue was read, so a failed or capped read is retried next cycle. The first read only sets it.
+   */
   private async notices(viewer: LinearViewer): Promise<void> {
     const store = this.deps.store;
     const data = Notices.parse(await this.deps.gql(NOTICES_QUERY));
     const notices: LinearNotice[] = data.notifications.nodes.flatMap((n) =>
       n.issue ? [{ type: n.type, issueKey: n.issue.identifier, commentId: n.comment?.id ?? null, at: ms(n.createdAt) ?? 0 }] : [],
     );
+    store.setSync({ notices });
     const since = store.sync.noticesAt;
-    const touched = notices.filter((n) => since !== null && n.at > since && store.issue(n.issueKey) !== undefined).map((n) => n.issueKey);
-    store.setSync({ notices, noticesAt: Math.max(since ?? 0, ...notices.map((n) => n.at)) });
-    if (touched.length > 0) await this.byKeys(viewer, touched);
+    const newest = Math.max(since ?? 0, ...notices.map((n) => n.at));
+    if (since === null) {
+      store.setSync({ noticesAt: newest });
+      return;
+    }
+    const fresh = notices.filter((n) => n.at > since && (store.issue(n.issueKey) !== undefined || MENTION_NOTICES.has(n.type))).sort((a, b) => a.at - b.at);
+    const keys = [...new Set(fresh.map((n) => n.issueKey))].slice(0, KEYS_PER_CALL * MAX_KEY_CALLS);
+    if (keys.length > 0) await this.byKeys(viewer, keys);
+    const read = new Set(keys);
+    const unread = fresh.find((n) => !read.has(n.issueKey));
+    // Past every notice up to the first one whose issue wasn't read this cycle.
+    const through = unread === undefined ? newest : Math.max(since, ...fresh.filter((n) => n.at < unread.at).map((n) => n.at));
+    store.setSync({ noticesAt: through });
   }
 
   /** Workflow states of the synced issues' teams (drag-to-move), read again every 30 min or for a new team. */
@@ -379,27 +397,26 @@ export class LinearSync {
   }
 
   /**
-   * Id-only membership (the first-pass filter from now): stored issues outside it and not watched
-   * are tombstoned. A pass that did not finish within the page limit tombstones nothing.
+   * Id-only membership (the first-pass filter from now) of the stored keys, 50 per call: stored
+   * issues outside it are tombstoned, except watched ones and those a kept notification mentions
+   * Isaac on. Bounded by the store's size, so it finishes whatever Isaac's membership is.
    */
   async reconcile(viewer: LinearViewer, watched: readonly string[], signal?: AbortSignal): Promise<void> {
     const store = this.deps.store;
-    const filter = issueFilter(viewer, this.deps.now() - LOOKBACK_MS, true);
+    const membershipNow = issueFilter(viewer, this.deps.now() - LOOKBACK_MS, true);
+    const keep = new Set([...watched, ...store.sync.notices.filter((n) => MENTION_NOTICES.has(n.type)).map((n) => n.issueKey)]);
+    const stored = store.keys().filter((k) => !keep.has(k));
     const members = new Set<string>();
-    let after: string | null = null;
-    for (let page = 0; page < LINEAR_MAX_PAGES; page++) {
+    for (let i = 0; i < stored.length; i += RECONCILE_KEYS) {
       abortIf(signal);
-      const { issues } = IdsPage.parse(await this.deps.gql(IDS_QUERY, { filter, after, first: RECONCILE_PAGE }));
+      const chunk = stored.slice(i, i + RECONCILE_KEYS);
+      const filter = { and: [membershipNow, keysFilter(chunk)] };
+      const { issues } = IdsPage.parse(await this.deps.gql(IDS_QUERY, { filter, after: null, first: chunk.length }));
       for (const n of issues.nodes) members.add(n.identifier);
-      if (!issues.pageInfo.hasNextPage) {
-        const keep = new Set(watched);
-        for (const key of store.keys()) if (!members.has(key) && !keep.has(key)) store.tombstone(key);
-        store.setSync({ reconciledAt: this.deps.now() });
-        store.purgeTombstones(TOMBSTONE_KEEP_MS);
-        return;
-      }
-      after = issues.pageInfo.endCursor;
     }
+    for (const key of stored) if (!members.has(key)) store.tombstone(key);
+    store.setSync({ reconciledAt: this.deps.now() });
+    store.purgeTombstones(TOMBSTONE_KEEP_MS);
   }
 
   /** One issue with every comment (the ticket page); null when Linear no longer answers it. */

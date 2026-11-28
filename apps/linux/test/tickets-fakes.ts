@@ -58,6 +58,8 @@ export class FakeLinear {
   readonly gateOps = new Map<string, (v: Json) => unknown>();
   /** Every gate call with the key it was sent with. */
   readonly gateCalls: { op: string; key: string }[] = [];
+  /** Kinds Linear answers 500 to while listed. */
+  readonly failing = new Set<Kind>();
 
   add(key: string, updatedAt: number, prs: readonly string[] = []): void {
     this.members.set(key, issueNode(key, updatedAt, prs));
@@ -78,6 +80,7 @@ export class FakeLinear {
     const kind = kindOf(query, variables);
     this.calls.push(kind);
     if (kind === "issues" && this.blocked !== null) await this.blocked;
+    if (this.failing.has(kind)) return answer({ errors: [{ message: "Internal server error" }] }, 500);
     const queued = this.queued.shift();
     return queued ?? answer({ data: this.data(kind, variables) });
   };
@@ -89,7 +92,7 @@ export class FakeLinear {
       notices: () => ({ notifications: { nodes: this.notices } }),
       teams: () => fixture("teams.json"),
       detail: () => ({ issue: all.get(String(v["id"])) ?? null }),
-      ids: () => this.page([...this.members.values()], v, (n) => ({ identifier: n["identifier"] })),
+      ids: () => this.page(this.keyed(this.members, v), v, (n) => ({ identifier: n["identifier"] })),
       keys: () => this.page(this.keyed(all, v), v, (n) => n),
       issues: () => this.page(this.changed(v), v, (n) => n),
     };
@@ -103,10 +106,14 @@ export class FakeLinear {
     return [...this.members.values()].filter((n) => Date.parse(String(n["updatedAt"])) > after).sort((a, b) => Date.parse(String(b["updatedAt"])) - Date.parse(String(a["updatedAt"])));
   }
 
-  private keyed(all: Map<string, Json>, v: Json): Json[] {
-    const filter = v["filter"] as { or: { team: { key: { eq: string } }; number: { eq: number } }[] };
-    return filter.or.flatMap((f) => {
-      const node = all.get(`${f.team.key.eq}-${String(f.number.eq)}`);
+  /** The issues of `pool` a by-key filter names (alone or inside an `and`); no keys: the whole pool. */
+  private keyed(pool: Map<string, Json>, v: Json): Json[] {
+    type KeyClause = { team?: { key: { eq: string } }; number?: { eq: number } };
+    const filter = v["filter"] as { or?: KeyClause[]; and?: { or?: KeyClause[] }[] };
+    const clauses = [filter.or, ...(filter.and ?? []).map((f) => f.or)].find((or) => or?.[0]?.team !== undefined);
+    if (clauses === undefined) return [...pool.values()];
+    return clauses.flatMap((f) => {
+      const node = pool.get(`${f.team?.key.eq ?? ""}-${String(f.number?.eq)}`);
       return node === undefined ? [] : [node];
     });
   }
@@ -211,7 +218,7 @@ export interface TicketsHarness {
 export interface StoreFileView {
   readonly rev: number;
   readonly issues: Record<string, unknown>;
-  readonly sync: { readonly watermark: number | null; readonly cursor: unknown };
+  readonly sync: { readonly watermark: number | null; readonly cursor: unknown; readonly noticesAt: number | null };
 }
 
 /** `realGate`: the service's own MutationGate over `linear`'s gate ops instead of the `gate` mocks. */

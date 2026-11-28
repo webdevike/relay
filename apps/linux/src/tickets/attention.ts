@@ -63,7 +63,8 @@ export interface AttentionInput {
 
 export const EMPTY_HANDLED: HandledState = { v: 1, mentions: {}, needs: {} };
 
-const MENTION_NOTICES = new Set(["issueCommentMention", "issueMention"]);
+/** Linear notification types that ask Isaac something (an @mention in an issue or comment). */
+export const MENTION_NOTICES: ReadonlySet<string> = new Set(["issueCommentMention", "issueMention"]);
 const EXCERPT_MAX = 140;
 const MAX_WAITING = 50;
 

@@ -172,12 +172,68 @@ describe("tickets sync", () => {
     const h = ticketsHarness({ linear, gh });
     h.service.start();
     await h.settled();
-    // viewer + 8 issue pages + notifications + teams + reconcile (8 id pages at most).
-    expect(linear.calls.length).toBeLessThanOrEqual(1 + LINEAR_MAX_PAGES + 1 + 1 + LINEAR_MAX_PAGES);
+    // viewer + 8 issue pages + notifications + teams + reconcile (one id call per 50 stored keys).
+    expect(linear.calls.length).toBeLessThanOrEqual(1 + LINEAR_MAX_PAGES + 1 + 1 + (LINEAR_MAX_PAGES * 25) / 50);
     expect(linear.count("issues")).toBe(LINEAR_MAX_PAGES);
     // 200 stored PRs at most: 10 probes and 20 facts calls, plus gh's login.
     expect(gh.count("probe")).toBeLessThanOrEqual(10);
     expect(gh.count("facts")).toBeLessThanOrEqual(20);
     expect(gh.calls.flatMap((c) => c.refs).length).toBeLessThanOrEqual(400);
+  });
+
+  it("completes membership reconciliation with more than 2,000 members and tombstones what left", async () => {
+    const linear = new FakeLinear();
+    for (let i = 1; i <= 2100; i++) linear.add(`ENG-${String(i)}`, T0 - i * 1000);
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    expect(await boardKeys(h)).toContain("ENG-5");
+    linear.members.delete("ENG-5");
+    const idsBefore = linear.count("ids");
+    for (let t = 0; t <= RECONCILE_EVERY_MS; t += INTERVAL) await nextCycle(h);
+    expect(await boardKeys(h)).not.toContain("ENG-5");
+    expect(await boardKeys(h)).toContain("ENG-6");
+    // One membership check of at most 500 stored keys, 50 per call.
+    expect(linear.count("ids") - idsBefore).toBeLessThanOrEqual(10);
+  });
+
+  it("reads an inline mention on an issue it hadn't cached before moving the notice checkpoint past it", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    linear.others.set("OPS-9", { ...(linear.members.get("ENG-1") ?? {}), identifier: "OPS-9", id: "id-OPS-9" });
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    const checkpoint = (): number | null => h.file().sync.noticesAt;
+    const before = checkpoint();
+    linear.notices = [{ type: "issueCommentMention", createdAt: new Date(T0 + MIN).toISOString(), issue: { identifier: "OPS-9" }, comment: { id: "comment-1" } }];
+    // Linear fails the by-key read: the checkpoint stays, so the next cycle asks again.
+    linear.failing.add("keys");
+    await nextCycle(h);
+    expect(checkpoint()).toBe(before);
+    expect(await boardKeys(h)).toEqual(["ENG-1"]);
+    linear.failing.clear();
+    for (let i = 0; i < 10 && !(await boardKeys(h)).includes("OPS-9"); i++) await nextCycle(h);
+    expect(await boardKeys(h)).toEqual(["ENG-1", "OPS-9"]);
+    expect(checkpoint()).toBe(T0 + MIN);
+  });
+
+  it("withholds a ticket Linear now refuses to show, and keeps the stored card only through an outage", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    linear.failing.add("detail");
+    expect((await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })).ticket?.key).toBe("ENG-1");
+    linear.failing.clear();
+    const denied = { errors: [{ message: "Forbidden", extensions: { code: "FORBIDDEN" } }] };
+    linear.queued.push(new Response(JSON.stringify(denied), { status: 200, headers: { "content-type": "application/json" } }));
+    const res = await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
+    expect(res.ok).toBe(false);
+    expect(res.ticket).toBeUndefined();
+    const last = h.pushes.at(-1);
+    expect(last?.t === "tickets.delta" ? last.tombstones : null).toEqual(["ENG-1"]);
+    expect(await boardKeys(h)).toEqual([]);
   });
 });
