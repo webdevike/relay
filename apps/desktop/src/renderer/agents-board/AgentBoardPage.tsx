@@ -100,8 +100,10 @@ function restoreBoardScroll(el: HTMLElement): void {
 
 /**
  * The board's scroll survives leaving the page: kept as it scrolls (the page may be hidden before
- * it unmounts, which reads as 0), put back as it mounts and again for a moment after, while the
- * pane it lands in is still taking its width. A timer, not frames: a hidden window has none.
+ * it unmounts, which reads as 0), put back as it mounts and again for up to 2 s after, while the
+ * pane it lands in is still taking its width and the cards are still loading (slow on a busy
+ * machine). A timer, not frames: a hidden window has none. Isaac's own wheel, pointer or key
+ * input ends the retries, so his scroll is never pulled back.
  */
 function useBoardScroll() {
   const ref = useRef<HTMLDivElement>(null)
@@ -113,22 +115,36 @@ function useBoardScroll() {
     let tries = 0
     restoreBoardScroll(el)
     let pending = !sticks()
-    const timer = window.setInterval(() => {
-      restoreBoardScroll(el)
-      pending = !sticks() && ++tries < 6
-      if (!pending) window.clearInterval(timer)
-    }, 50)
-    // Every real position is kept; one clamped while the pane still takes its width is not.
-    const onScroll = (): void => {
-      if (pending && !sticks()) return
+    const stop = (): void => {
       pending = false
       window.clearInterval(timer)
+    }
+    const timer = window.setInterval(() => {
+      restoreBoardScroll(el)
+      pending = !sticks() && ++tries < 40
+      if (!pending) window.clearInterval(timer)
+    }, 50)
+    // Every real position is kept; one clamped while the pane still takes its width is not, nor
+    // the 0 a board reads while hidden on its way out.
+    const onScroll = (): void => {
+      if (el.clientWidth === 0 || (pending && !sticks())) return
+      stop()
       saveBoardScroll(el)
     }
+    // Isaac's input ends the restore and keeps where the board is now: leaving by a click or key
+    // can beat the scroll event (fired on a later frame), and the board may be hidden before it
+    // unmounts, so this is the last reliable read.
+    const onInput = (): void => {
+      stop()
+      if (el.clientWidth > 0) saveBoardScroll(el)
+    }
+    const input = ['wheel', 'pointerdown', 'keydown', 'click'] as const
     el.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    for (const kind of input) el.addEventListener(kind, onInput, { capture: true, passive: true })
     return () => {
       window.clearInterval(timer)
       el.removeEventListener('scroll', onScroll, { capture: true })
+      for (const kind of input) el.removeEventListener(kind, onInput, { capture: true })
     }
   }, [])
   return ref
