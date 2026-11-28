@@ -525,6 +525,8 @@ export const TicketOutcome = z.object({
       key: TicketKey.optional(),
       url: Url.optional(),
       error: Short.optional(),
+      /** A PR merge (reviews `prCommit`), read back after the write. */
+      merge: z.enum(["merged", "queued", "autoMergeArmed"]).optional(),
       /** `applyPlan`: each row's own outcome. */
       rows: z
         .array(

@@ -24,6 +24,15 @@ import { FIXTURES_DIR } from './paths'
 const TICKETS = path.join(__dirname, '..', 'fixtures', 'tickets')
 const ticketFixture = (name: string): Json =>
   JsonSchema.parse(JSON.parse(fs.readFileSync(path.join(TICKETS, `${name}.json`), 'utf8')))
+const REVIEWS = path.join(__dirname, '..', 'fixtures', 'reviews')
+const reviewsFixture = (name: string): Json =>
+  JsonSchema.parse(JSON.parse(fs.readFileSync(path.join(REVIEWS, `${name}.json`), 'utf8')))
+/** A PR commit's `result`: where a merge stands (a turned-on auto-merge or `auto` intent arms it). */
+function mergeResult(m: Record<string, unknown>): Record<string, unknown> {
+  if (m.kind === 'autoMerge') return m.on === true ? { merge: 'autoMergeArmed' } : {}
+  if (m.kind !== 'merge') return {}
+  return { merge: m.intent === 'auto' ? 'autoMergeArmed' : 'merged' }
+}
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
@@ -862,6 +871,53 @@ export class FakeRelayHost {
     }
   }
 
+  /** Every `reviews.req` frame the app sent, in order (a host without `reviews.actions` must see no PR action). */
+  readonly reviewFrames: Json[] = []
+  /** Every `prPrepare` and `prCommit` op (`id`: the rid, `cmd`: the op), in order. */
+  readonly prMutations: Received[] = []
+  /** The next `prPrepare` or `prCommit` is refused by the gate with this code. */
+  private prRefusal: string | null = null
+
+  refuseNextPr(code: string): void {
+    this.prRefusal = code
+  }
+
+  /** `pr` (the fixture PR with its `actions` facts) and the PR actions; other reviews ops get no answer here. */
+  private reviewsReq(peer: Peer, rid: string, op: Json): void {
+    const write = op.kind === 'prPrepare' || op.kind === 'prCommit'
+    if (write) this.prMutations.push({ id: rid, cmd: op, status: null })
+    const refused = write ? this.prRefusal : null
+    if (refused) this.prRefusal = null
+    const answer = refused
+      ? { ok: false, refused: { code: refused, message: `Refused: ${refused}` } }
+      : this.reviewsAnswer(op)
+    if (answer) peer.send({ t: 'reviews.res', rid, ...answer })
+  }
+
+  private reviewsAnswer(op: Json): Json | null {
+    const mutation = JsonSchema.safeParse(op.mutation).data ?? {}
+    switch (op.kind) {
+      case 'pr':
+        return { ok: true, pr: reviewsFixture('pr') }
+      case 'prPrepare':
+        return {
+          ok: true,
+          approval: {
+            id: `pr-approval-${this.prMutations.length}`,
+            expiresAt: Date.now() + 120_000,
+            summary: `Write ${String(mutation.kind)}`,
+          },
+        }
+      case 'prCommit':
+        return {
+          ok: true,
+          outcome: { opId: op.opId, state: 'done', result: mergeResult(mutation) },
+        }
+      default:
+        return null
+    }
+  }
+
   private meetingsReq(peer: Peer, rid: string, op: Json): void {
     this.meetingOps.push(op)
     const id = String(op.id)
@@ -1592,6 +1648,9 @@ export class FakeRelayHost {
       case 'tickets.req':
         this.ticketFrames.push(f)
         return this.ticketsReq(peer, String(f.rid), JsonSchema.parse(f.op))
+      case 'reviews.req':
+        this.reviewFrames.push(f)
+        return this.reviewsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'meetings.req':
         return this.meetingsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'reviews.req':

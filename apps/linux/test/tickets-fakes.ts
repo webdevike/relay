@@ -161,13 +161,21 @@ function aliasesOf(query: string): { alias: string; repo: string; ref: string }[
   });
 }
 
-/** gh: `api user` and `api graphql --include` over `prs` (null: no access). */
+/** gh: `auth token`, `api user` and `api graphql --include` over `prs` (null: no access). */
 export class FakeGh {
   login: string | null = "pat-example";
+  /** What `gh auth token` prints; null: signed out. */
+  token: string | null = "gho_test";
   readonly prs = new Map<string, Json | null>();
   readonly calls: { kind: "user" | "probe" | "facts"; refs: string[] }[] = [];
+  /** Every call's argv with the GH_TOKEN it ran with (null: gh's own sign-in). */
+  readonly envs: { argv: readonly string[]; token: string | null }[] = [];
 
-  readonly run: ToolRun = (argv) => Promise.resolve({ ...(argv.includes("user") ? this.user() : this.graphql(argv)), timedOut: false });
+  readonly run: ToolRun = (argv, options) => {
+    this.envs.push({ argv, token: options.env?.["GH_TOKEN"] ?? null });
+    if (argv.includes("auth")) return Promise.resolve({ code: this.token === null ? 1 : 0, stdout: this.token ?? "", stderr: "", timedOut: false });
+    return Promise.resolve({ ...(argv.includes("user") ? this.user() : this.graphql(argv)), timedOut: false });
+  };
 
   private user(): { code: number; stdout: string; stderr: string } {
     this.calls.push({ kind: "user", refs: [] });
@@ -222,7 +230,7 @@ export interface StoreFileView {
 }
 
 /** `realGate`: the service's own MutationGate over `linear`'s gate ops instead of the `gate` mocks. */
-export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh; realGate?: boolean; summaryWriter?: (prompt: string) => Promise<string> } = {}): TicketsHarness {
+export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh; realGate?: boolean; ghWrites?: boolean; summaryWriter?: (prompt: string) => Promise<string> } = {}): TicketsHarness {
   let now = T0;
   const clock = new SimulatedClock();
   const budgets = providerBudgets(() => now);
@@ -250,6 +258,7 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
     sync: { clock, timing: { random: () => 0.5 } },
     ...(o.realGate === true ? {} : { gate }),
     ...(o.summaryWriter && { summaryWriter: o.summaryWriter }),
+    ...(o.ghWrites === true && { ghWrites: { run: gh.run, gh: "gh" } }),
   });
   service.onPush = (m) => pushes.push(m);
   return {

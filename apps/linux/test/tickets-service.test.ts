@@ -373,3 +373,40 @@ describe("TicketsService writes as the account the device saw", () => {
     expect(board.board?.tickets).toEqual([]);
   });
 });
+
+describe("TicketsService PR writes as the gh account the device saw", () => {
+  const H = "a".repeat(40);
+  const MERGE = { kind: "merge" as const, repo: "o/r", number: 1, method: "squash" as const, intent: "merge" as const, expectHead: H };
+  function prHost(): TicketsHarness {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const h = ticketsHarness({ linear, writes: true, ghWrites: true });
+    h.service.start();
+    return h;
+  }
+  const graphqlCalls = (h: TicketsHarness, from: number) => h.gh.envs.slice(from).filter((c) => c.argv.includes("graphql"));
+
+  it("runs every gh call of the op with the one token it pinned", async () => {
+    const h = prHost();
+    await h.settled();
+    const from = h.gh.envs.length;
+    // The fake gh has no such PR: the check refuses, but only after reading as the pinned token.
+    expect((await h.service.preparePr("desk", MERGE, "pat-example")).refused?.code).toBe("invalid");
+    const calls = h.gh.envs.slice(from);
+    expect(calls[0]?.argv).toEqual(["gh", "auth", "token"]);
+    expect(calls.slice(1).map((c) => c.token)).toEqual(calls.slice(1).map(() => "gho_test"));
+    expect(graphqlCalls(h, from)).toHaveLength(1);
+  });
+
+  it("refuses another login, a signed-out gh and a gh signed in as someone else, without reading the PR", async () => {
+    const h = prHost();
+    await h.settled();
+    const from = h.gh.envs.length;
+    expect((await h.service.commitPr("desk", { opId: OP_ID, mutation: MERGE }, "someone-else")).refused?.code).toBe("identity");
+    h.gh.login = "someone-else";
+    expect((await h.service.commitPr("desk", { opId: OP_ID, mutation: MERGE }, "pat-example")).refused?.code).toBe("identity");
+    h.gh.token = null;
+    expect((await h.service.preparePr("desk", MERGE, "pat-example")).refused?.code).toBe("identity");
+    expect(graphqlCalls(h, from)).toEqual([]);
+  });
+});

@@ -13,10 +13,12 @@ import {
   LinearTicketSchema,
   ReviewApproveSchema,
   ReviewGuideSchema,
+  ReviewPrActionsSchema,
   ReviewWorkSchema,
   type AstraItem,
   type LinearIssue,
   type LinearRow,
+  type PrActionAnswer,
   type ReviewPr,
   type ReviewQueue,
   type ReviewRow,
@@ -24,13 +26,19 @@ import {
   type SlackRow,
   type SlackThread,
 } from '@evaos/contract'
-import { REVIEWS_ASSISTANTS_FEATURE } from '@relay/protocol'
+import {
+  PrMutation,
+  REVIEWS_ACTIONS_FEATURE,
+  REVIEWS_ASSISTANTS_FEATURE,
+  ReviewsResult,
+  type ReviewsOp,
+} from '@relay/protocol'
 import type { MainContext } from '../context'
 import { parsePr, type PrFacts } from '../context-popover/gh'
 import { emit, handle } from '../ipc/handle'
 import { cmdFrame } from '../relay/commands'
 import type { RelayFeatures, RelayFrames } from '../relay/client'
-import { OLD_HOST, type HostReviews } from '../relay/host-reviews'
+import { OLD_HOST, createHostReviews, type HostReviews } from '../relay/host-reviews'
 import { REVIEWS_MEDIA_DIR, UNAVAILABLE_MEDIA, localizeImages } from './review-media'
 import { storeKey } from './astra-sessions'
 import { rowStatusOf } from './row-status'
@@ -129,6 +137,8 @@ const HostPr = z.object({
     }),
   ),
   diff: z.string(),
+  /** Absent from older hosts; a shape this app can't read is left out (the actions stay hidden). */
+  actions: ReviewPrActionsSchema.optional().catch(undefined),
 })
 
 const HostSlackThread = z.object({
@@ -330,6 +340,7 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
     checks: pr.checks,
     files: pr.files,
     diff: pr.diff,
+    ...(pr.actions === undefined ? {} : { actions: pr.actions }),
   }
 }
 
@@ -374,6 +385,60 @@ export function hostLinearIssue(host: HostReviews) {
       throw e
     }
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// PR actions: the host's write gate, in local and remote mode alike
+// ---------------------------------------------------------------------------------------------
+
+export const PR_ACTIONS_UNAVAILABLE = 'Merging from Relay needs a newer host with writes on'
+
+const GateAnswer = ReviewsResult.pick({ error: true, refused: true, approval: true, outcome: true })
+
+/** `login`: the GitHub account the page showed (`actions.viewerLogin`); the host refuses another. */
+export interface PrActions {
+  prepare(req: { login: string; mutation: unknown }): Promise<PrActionAnswer>
+  commit(req: {
+    login: string
+    approvalId?: string
+    opId: string
+    mutation: unknown
+  }): Promise<PrActionAnswer>
+}
+
+/**
+ * Merge, auto-merge, re-run, request review, reactions and PR comments as Isaac: only the host's
+ * MutationGate writes them, so they go to the host whichever mode this Mac runs in, and only to a
+ * host that lists REVIEWS_ACTIONS_FEATURE (an old host closes the socket on an unknown op).
+ */
+export function prActions(frames: RelayFeatures, host: Pick<HostReviews, 'req'>): PrActions {
+  const ask = async (op: ReviewsOp): Promise<PrActionAnswer> => {
+    if (!frames.hostHas(REVIEWS_ACTIONS_FEATURE)) return { unavailable: PR_ACTIONS_UNAVAILABLE }
+    const a = await host.req(op)
+    return { source: 'host', ok: a.ok !== false, ...GateAnswer.parse(a) }
+  }
+  return {
+    prepare: async ({ login, mutation }) =>
+      ask({ kind: 'prPrepare', login, mutation: PrMutation.parse(mutation) }),
+    commit: async ({ login, approvalId, opId, mutation }) =>
+      ask({
+        kind: 'prCommit',
+        login,
+        opId,
+        mutation: PrMutation.parse(mutation),
+        ...(approvalId === undefined ? {} : { approvalId }),
+      }),
+  }
+}
+
+export function registerPrActions(
+  ctx: MainContext,
+  frames: RelayFrames & RelayFeatures,
+  host: HostReviews = createHostReviews(frames),
+): void {
+  const actions = prActions(frames, host)
+  handle(ctx, 'reviews.prPrepare', (req) => actions.prepare(req))
+  handle(ctx, 'reviews.prCommit', (req) => actions.commit(req))
 }
 
 // ---------------------------------------------------------------------------------------------

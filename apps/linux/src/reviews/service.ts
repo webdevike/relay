@@ -10,10 +10,12 @@
 // a confirmed op, and never from a test host (`writes` false).
 
 import { join } from "node:path";
-import type { LinearTicket, ReviewApprove, ReviewItem, ReviewPr, ReviewQueue, ReviewRef, ReviewSource, ReviewSourceState, ReviewsOp, ReviewsResult, ServerMessage } from "@relay/protocol";
+import type { LinearTicket, PrMutation, ReviewApprove, ReviewItem, ReviewPr, ReviewQueue, ReviewRef, ReviewSource, ReviewSourceState, ReviewsOp, ReviewsResult, ServerMessage } from "@relay/protocol";
 import { z } from "zod";
 import type { AgentProvider, AgentProviderChange, DropBlob, ReviewsRelaying } from "../seams";
 import type { Budgets } from "../tickets/budget";
+import { publicError } from "../tickets/errors";
+import type { PrCommitRequest } from "./pr-gate";
 import type { SessionClock } from "../session";
 import { approvableKey, approveLine, approveState, readLedgers, readLoop, readTicketWork, workOf } from "./approve";
 import { AstraSessions, type AstraSessionsDeps } from "./astra";
@@ -32,6 +34,14 @@ const KEEP_DETAILS = 20;
 export const DRY_RUN_ERROR = "Test host: nothing was posted";
 
 export type ReviewsMessage = Extract<ServerMessage, { t: "reviews.queue" | "reviews.astra" }>;
+type PrOp = Extract<ReviewsOp, { kind: "prPrepare" | "prCommit" }>;
+type PrAnswer = Pick<ReviewsResult, "ok" | "error" | "refused" | "approval" | "outcome">;
+
+/** The MutationGate's PR writes as Reviews uses them (TicketsService); `login`: the gh account the device showed. */
+export interface PrWritesGate {
+  preparePr(deviceId: string, mutation: PrMutation, login: string): Promise<PrAnswer>;
+  commitPr(deviceId: string, req: PrCommitRequest, login: string): Promise<PrAnswer>;
+}
 
 export interface ReviewsServiceDeps {
   /** `$XDG_CONFIG_HOME/relay/reviews`: done.json, snooze.json, read.json, guides.json, slack.json, astra.json, media/. */
@@ -55,6 +65,8 @@ export interface ReviewsServiceDeps {
   readonly log: (line: string) => void;
   /** The per-provider budgets the tickets sync shares (only with host.json features.tickets); absent or null: unpaced. */
   readonly budgets?: Budgets | null;
+  /** The open MutationGate (tickets with writes on); null or absent: every PR action is refused. */
+  readonly prGate?: () => PrWritesGate | null;
 }
 
 /** url -> epoch ms: done.json (the item's updatedAt when Done), snooze.json (until), read.json (the updatedAt seen). */
@@ -198,7 +210,9 @@ export class ReviewsService implements ReviewsRelaying {
     return this.queue();
   }
 
-  async handle(op: ReviewsOp): Promise<Omit<ReviewsResult, "rid">> {
+  /** `deviceId`: the device that asked; PR actions bind their approval to it. */
+  async handle(op: ReviewsOp, deviceId?: string): Promise<Omit<ReviewsResult, "rid">> {
+    if (op.kind === "prPrepare" || op.kind === "prCommit") return this.prAction(op, deviceId);
     try {
       return { ok: true, ...(await this.run(op)) };
     } catch (error) {
@@ -206,11 +220,24 @@ export class ReviewsService implements ReviewsRelaying {
     }
   }
 
+  /** PR actions go only through the gate, as the device and GitHub account that asked; a test host refuses them first. */
+  private async prAction(op: PrOp, deviceId: string | undefined): Promise<PrAnswer> {
+    if (!this.deps.writes) return { ok: false, refused: { code: "writesOff", message: DRY_RUN_ERROR } };
+    const gate = this.deps.prGate?.() ?? null;
+    if (gate === null || deviceId === undefined) return { ok: false, refused: { code: "writesOff", message: "Writing to GitHub is off on this host" } };
+    try {
+      if (op.kind === "prPrepare") return await gate.preparePr(deviceId, op.mutation, op.login);
+      return await gate.commitPr(deviceId, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.login);
+    } catch (error) {
+      return { ok: false, error: publicError(error, "GitHub") };
+    }
+  }
+
   private refuseWrites(): void {
     if (!this.deps.writes) throw new Error(DRY_RUN_ERROR);
   }
 
-  private async run(op: ReviewsOp): Promise<Omit<ReviewsResult, "rid" | "ok">> {
+  private async run(op: Exclude<ReviewsOp, PrOp>): Promise<Omit<ReviewsResult, "rid" | "ok">> {
     switch (op.kind) {
       case "queue":
         return { queue: await this.loadQueue(op.refresh) };

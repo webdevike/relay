@@ -3,7 +3,7 @@
 // comment or a review.
 
 import { homedir } from "node:os";
-import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type ReviewItem, type ReviewPr } from "@relay/protocol";
+import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type PrMergeMethod, type ReviewActionCheck, type ReviewItem, type ReviewPr, type ReviewPrActions } from "@relay/protocol";
 import { z } from "zod";
 import type { Budget } from "../tickets/budget";
 import type { ToolRun } from "./exec";
@@ -11,6 +11,8 @@ import type { Fetch, ReviewMedia } from "./linear";
 import { isGithubUpload, isLinearUpload, localizeImages } from "./media";
 
 export const REVIEWS_ORG = "eCardSystems";
+/** Failed Actions runs whose attempt one PR read asks for. */
+const MAX_ATTEMPT_READS = 20;
 const GH_TIMEOUT_MS = 60_000;
 
 const ms = (iso: unknown): number => {
@@ -99,7 +101,7 @@ export const PR_JSON_FIELDS =
 const PASSED = ["SUCCESS", "NEUTRAL"];
 const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
 
-function checkState(c: RawPr["statusCheckRollup"][number]): ReviewPr["checks"][number]["state"] {
+function checkState(c: { conclusion?: string | null | undefined; state?: string | null | undefined }): ReviewPr["checks"][number]["state"] {
   const v = ([c.conclusion, c.state].find((s) => s !== null && s !== undefined && s !== "") ?? "").toUpperCase();
   if (v === "SKIPPED") return "skipped";
   if (PASSED.includes(v)) return "pass";
@@ -257,6 +259,136 @@ export function ghGraphql(run: ToolRun, gh: string, budget: Budget | null): GhGr
   };
 }
 
+// ---- PR actions facts (PLAN §2.6): what merge, auto-merge, request review and re-run act on ----
+
+const LIVE_CHECKS = `contexts(first: 100) { nodes { __typename
+  ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { databaseId runNumber workflow { name } } } }
+  ... on StatusContext { context state targetUrl } } }`;
+const LIVE_FIELDS = `title state isDraft headRefOid baseRefName mergeable mergeStateStatus isInMergeQueue isMergeQueueEnabled
+  mergeQueueEntry { state }
+  autoMergeRequest { mergeMethod enabledBy { login } }
+  latestReviews(first: 50) { nodes { author { login } state submittedAt } }
+  reviewRequests(first: 50) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }
+  commits(last: 1) { nodes { commit { oid statusCheckRollup { ${LIVE_CHECKS} } } } }`;
+
+/** One PR's live merge, review and check facts with the repo's merge settings, Isaac's permission and gh's login. */
+export function prLiveQuery(repo: string, number: number): string {
+  const [owner = "", name = ""] = repo.split("/");
+  return `{ viewer { login } repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { viewerPermission mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
+  pullRequest(number: ${String(number)}) { ${LIVE_FIELDS} } } }`;
+}
+
+const GhLogin = z.object({ login: z.string() }).nullable();
+const LiveCheck = z.object({
+  name: z.string().optional(),
+  status: z.string().nullable().optional(),
+  conclusion: z.string().nullable().optional(),
+  detailsUrl: z.string().nullable().optional(),
+  checkSuite: z
+    .object({ workflowRun: z.object({ databaseId: z.number(), runNumber: z.number(), workflow: z.object({ name: z.string() }).nullable().optional() }).nullable() })
+    .nullable()
+    .optional(),
+  context: z.string().optional(),
+  state: z.string().nullable().optional(),
+  targetUrl: z.string().nullable().optional(),
+});
+const LiveRepo = z.object({
+  viewerPermission: z.string().nullable(),
+  mergeCommitAllowed: z.boolean(),
+  squashMergeAllowed: z.boolean(),
+  rebaseMergeAllowed: z.boolean(),
+  pullRequest: z
+    .object({
+      title: z.string(),
+      state: z.string(),
+      isDraft: z.boolean(),
+      headRefOid: z.string(),
+      baseRefName: z.string(),
+      mergeable: z.string(),
+      mergeStateStatus: z.string(),
+      isInMergeQueue: z.boolean(),
+      isMergeQueueEnabled: z.boolean(),
+      mergeQueueEntry: z.object({ state: z.string() }).nullable(),
+      autoMergeRequest: z.object({ mergeMethod: z.string(), enabledBy: GhLogin }).nullable(),
+      latestReviews: z.object({ nodes: z.array(z.object({ author: GhLogin, state: z.string(), submittedAt: z.string().nullable() })) }),
+      reviewRequests: z.object({ nodes: z.array(z.object({ requestedReviewer: z.object({ login: z.string().optional(), slug: z.string().optional() }).nullable() })) }),
+      commits: z.object({
+        nodes: z.array(z.object({ commit: z.object({ oid: z.string(), statusCheckRollup: z.object({ contexts: z.object({ nodes: z.array(LiveCheck) }) }).nullable() }) })),
+      }),
+    })
+    .nullable(),
+});
+type LivePr = NonNullable<z.infer<typeof LiveRepo>["pullRequest"]>;
+
+/** A PR as the gate's GitHub executor checks it and the PR page's actions show it. */
+export interface PrLive {
+  /** OPEN, CLOSED, MERGED. */
+  readonly state: string;
+  readonly title: string;
+  readonly draft: boolean;
+  readonly headSha: string;
+  readonly base: string;
+  /** Logins and team slugs whose review is requested. */
+  readonly requested: readonly string[];
+  readonly actions: ReviewPrActions;
+}
+
+const METHODS: Record<string, PrMergeMethod> = { MERGE: "merge", SQUASH: "squash", REBASE: "rebase" };
+
+/** A check's Actions run, when it is one. */
+function runOf(c: z.infer<typeof LiveCheck>): Pick<ReviewActionCheck, "workflow" | "runId" | "runNumber"> {
+  const run = c.checkSuite?.workflowRun ?? null;
+  if (run === null) return { workflow: null, runId: null, runNumber: null };
+  return { workflow: run.workflow?.name ?? null, runId: run.databaseId, runNumber: run.runNumber };
+}
+
+function liveChecks(pr: LivePr): ReviewActionCheck[] {
+  const commit = pr.commits.nodes[0]?.commit;
+  const headSha = commit?.oid ?? pr.headRefOid;
+  return (commit?.statusCheckRollup?.contexts.nodes ?? []).map((c) => ({
+    name: c.name ?? c.context ?? "check",
+    state: checkState(c),
+    url: c.detailsUrl ?? c.targetUrl ?? null,
+    ...runOf(c),
+    attempt: null,
+    headSha,
+  }));
+}
+
+function liveActions(repo: z.infer<typeof LiveRepo>, pr: LivePr, viewerLogin: string | null): ReviewPrActions {
+  const auto = pr.autoMergeRequest;
+  return {
+    viewerLogin,
+    viewerPermission: repo.viewerPermission,
+    mergeable: pr.mergeable,
+    mergeStateStatus: pr.mergeStateStatus,
+    methods: { merge: repo.mergeCommitAllowed, squash: repo.squashMergeAllowed, rebase: repo.rebaseMergeAllowed },
+    autoMerge: auto === null ? null : { method: METHODS[auto.mergeMethod] ?? "merge", by: auto.enabledBy?.login ?? null },
+    mergeQueue: { required: pr.isMergeQueueEnabled, inQueue: pr.isInMergeQueue, entryState: pr.mergeQueueEntry?.state ?? null },
+    reviews: pr.latestReviews.nodes.map((r) => ({ login: r.author?.login ?? "ghost", state: r.state, at: ms(r.submittedAt) })),
+    checks: liveChecks(pr),
+  };
+}
+
+/** The PR's live facts; null when the repo or PR doesn't resolve for gh's account. Throws when GitHub can't say. */
+export async function readPrLive(graphql: GhGraphql, repo: string, number: number): Promise<PrLive | null> {
+  const { data, errors } = await graphql(prLiveQuery(repo, number));
+  const parsed = LiveRepo.nullable().safeParse(data["repository"] ?? null);
+  if (!parsed.success) throw new Error(`GitHub answered something else for ${repo}#${String(number)}${errors[0] === undefined ? "" : `: ${errors[0].message}`}`);
+  const pr = parsed.data?.pullRequest ?? null;
+  if (parsed.data === null || pr === null) return null;
+  const viewer = z.object({ login: z.string() }).safeParse(data["viewer"]);
+  return {
+    state: pr.state,
+    title: pr.title,
+    draft: pr.isDraft,
+    headSha: pr.headRefOid,
+    base: pr.baseRefName,
+    requested: pr.reviewRequests.nodes.flatMap((r) => [r.requestedReviewer?.login ?? r.requestedReviewer?.slug ?? ""].filter((l) => l !== "")),
+    actions: liveActions(parsed.data, pr, viewer.success ? viewer.data.login : null),
+  };
+}
+
 export class GitHub {
   constructor(
     private readonly run: ToolRun,
@@ -311,7 +443,8 @@ export class GitHub {
 
   async pr(repo: string, number: number): Promise<ReviewPr> {
     const raw = JSON.parse(await this.call(["pr", "view", String(number), "-R", repo, "--json", PR_JSON_FIELDS])) as RawPr;
-    const pr = toPr(repo, raw, await this.diffAt(repo, raw.baseRefOid, raw.headRefOid));
+    const [diff, actions] = await Promise.all([this.diffAt(repo, raw.baseRefOid, raw.headRefOid), this.actions(repo, number, raw.headRefOid)]);
+    const pr = { ...toPr(repo, raw, diff), ...(actions === null ? {} : { actions }) };
     if (this.images === undefined) return pr;
     // GitHub's attachments open only signed in, and its `<img>` tags become markdown; PR bodies
     // carry Linear proof screenshots too.
@@ -326,6 +459,30 @@ export class GitHub {
       Promise.all(pr.timeline.map(async (t) => (t.kind === "commit" ? t : { ...t, body: await local(t.body) }))),
     ]);
     return { ...pr, body, timeline };
+  }
+
+  /**
+   * The PR's actions facts at `head` (the commit the page shows), each failed Actions run with its
+   * attempt; null when GitHub can't say or already has another head (the page then hides the actions).
+   */
+  private async actions(repo: string, number: number, head: string): Promise<ReviewPrActions | null> {
+    try {
+      const live = await readPrLive(ghGraphql(this.run, this.gh, this.budget), repo, number);
+      if (live === null || live.headSha !== head) return null;
+      const failed = [...new Set(live.actions.checks.flatMap((c) => (c.state === "fail" && c.runId !== null ? [c.runId] : [])))].slice(0, MAX_ATTEMPT_READS);
+      const attempts = new Map(await Promise.all(failed.map(async (id) => [id, await this.runAttempt(repo, id)] as const)));
+      const checks = live.actions.checks.map((c) => (c.runId === null ? c : { ...c, attempt: attempts.get(c.runId) ?? null }));
+      return { ...live.actions, checks };
+    } catch {
+      return null;
+    }
+  }
+
+  /** An Actions run's attempt (REST; GraphQL has none); null when gh can't say. */
+  private async runAttempt(repo: string, id: number): Promise<number | null> {
+    const out = await this.call(["api", `repos/${repo}/actions/runs/${String(id)}`, "--jq", ".run_attempt"]).catch(() => "");
+    const attempt = Number(out.trim());
+    return Number.isInteger(attempt) && attempt > 0 ? attempt : null;
   }
 
   private token: Promise<string | null> | null = null;

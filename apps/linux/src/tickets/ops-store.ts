@@ -21,6 +21,7 @@ export const OpResult = z.object({
   id: z.string().optional(),
   key: z.string().optional(),
   url: z.string().optional(),
+  merge: z.enum(["merged", "queued", "autoMergeArmed"]).optional(),
   rows: z.array(RowOutcome).optional(),
 });
 export type OpResult = z.infer<typeof OpResult>;

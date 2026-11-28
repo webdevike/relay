@@ -7,10 +7,13 @@
 // `tickets.status`) go through `onPush`, which the server sends only to sockets that subscribed.
 
 import { createHash } from "node:crypto";
-import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { homedir } from "node:os";
+import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
+import { githubExecutor, RelayAutoMerge, relayAutoMergeWatch } from "../reviews/github-writes";
+import { PrGate, type GithubPin, type PrCommitRequest } from "../reviews/pr-gate";
 import { linearGql, type Fetch, type LinearGql } from "../reviews/linear";
 import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
@@ -57,9 +60,17 @@ export interface TicketsServiceDeps {
   readonly gate?: TicketsGate;
   /** Writes ticket summaries (`claudeWriter`); absent: `summary` answers an error. */
   readonly summaryWriter?: SummaryWriter;
+  /** gh for PR writes (reviews `prPrepare`/`prCommit`); absent: the gate refuses them. */
+  readonly ghWrites?: GhWrites;
+}
+
+export interface GhWrites {
+  readonly run: ToolRun;
+  readonly gh: string;
 }
 
 const UNAVAILABLE: Answer = { ok: false, error: "Not available yet" };
+const PR_WRITES_OFF: Answer = { ok: false, refused: { code: "writesOff", message: "Writing to GitHub is off on this host" } };
 const NO_ATTENTION: Attention = { waiting: [], needsYou: null };
 const clip = (s: string | null): string | null => (s === null ? null : s.slice(0, 2000));
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -73,6 +84,8 @@ const MAX_DETAIL_COMMENTS_BYTES = 768 * 1024;
 export const MAX_DETAIL_FRAME_BYTES = 1024 * 1024;
 /** The largest envelope around a page (`rid` at its 64-character maximum). */
 const DETAIL_ENVELOPE = { t: "tickets.res", rid: "r".repeat(64), ok: true } as const;
+/** `gh auth token` reads gh's own config: no network. */
+const GH_TOKEN_TIMEOUT_MS = 10_000;
 
 export class TicketsService implements TicketsRelaying {
   readonly writes: boolean;
@@ -84,8 +97,12 @@ export class TicketsService implements TicketsRelaying {
   private readonly linear: LinearSync;
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
+  /** GitHub PR writes (reviews `prPrepare`/`prCommit`); null without `ghWrites`. */
+  private readonly prGate: PrGate | null;
   private readonly actor: TicketsSyncActor;
   private readonly summaries: SummaryCache | null;
+  /** The PRs whose auto-merge Relay turned on (reviews/github-writes.ts). */
+  private readonly autoMerge: RelayAutoMerge;
   private linearNames: readonly string[] = [];
   private errors: TicketsStatus["errors"] = { linear: null, github: null };
   /** The account changed (or was never confirmed this run): writes wait for a full cycle. */
@@ -107,7 +124,9 @@ export class TicketsService implements TicketsRelaying {
     this.summaries = deps.summaryWriter === undefined ? null : new SummaryCache(deps.dir, deps.summaryWriter, deps.now);
     this.seen = new SeenStore(deps.dir);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
-    this.github = new GithubSync(deps.ghGraphql, this.store);
+    this.autoMerge = new RelayAutoMerge(deps.dir);
+    const watch = deps.ghWrites === undefined ? null : relayAutoMergeWatch(async () => (await this.ghPin())?.github ?? null, this.autoMerge, deps.log);
+    this.github = new GithubSync(deps.ghGraphql, this.store, watch);
     this.gate =
       deps.gate ??
       new MutationGate({
@@ -118,6 +137,10 @@ export class TicketsService implements TicketsRelaying {
         now: deps.now,
         log: deps.log,
       });
+    this.prGate =
+      deps.ghWrites === undefined
+        ? null
+        : new PrGate({ dir: deps.dir, writesEnabled: () => deps.writes, pin: () => this.ghPin(), current: (pin) => this.ghCurrent(pin), now: deps.now, log: deps.log });
     this.actor = ticketsSyncActor({
       steps: {
         identify: () => this.identify(),
@@ -289,6 +312,19 @@ export class TicketsService implements TicketsRelaying {
     return answer;
   }
 
+  /** A confirmed PR write's approval (reviews `prPrepare`); `login`: the GitHub account the device showed. */
+  preparePr(deviceId: string, mutation: PrMutation, login: string): Promise<Answer> {
+    return this.prGate === null ? Promise.resolve(PR_WRITES_OFF) : this.prGate.prepare(deviceId, mutation, login);
+  }
+
+  /** A PR write (reviews `prCommit`); the board's PR facts follow in one coalesced cycle. */
+  async commitPr(deviceId: string, req: PrCommitRequest, login: string): Promise<Answer> {
+    if (this.prGate === null) return PR_WRITES_OFF;
+    const answer = await this.prGate.commit(deviceId, req, login);
+    if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
+    return answer;
+  }
+
   // ---- Board facts ----
 
   private me(): AttentionMe {
@@ -373,6 +409,45 @@ export class TicketsService implements TicketsRelaying {
     return pin.generation === this.generation && pin.viewerId === viewerId && key !== null && sha256(key) === this.keyHash;
   }
 
+  /** gh's credential now (`gh auth token`, no network); null when gh is signed out. */
+  private async ghToken(w: GhWrites): Promise<string | null> {
+    const res = await w.run([w.gh, "auth", "token"], { cwd: homedir(), timeoutMs: GH_TOKEN_TIMEOUT_MS });
+    const token = res.code === 0 && !res.timedOut ? res.stdout.trim() : "";
+    return token === "" ? null : token;
+  }
+
+  /**
+   * The verified GitHub account with gh pinned to the credential it has now: every gh call of the op
+   * (check, write, reconcile) runs with exactly that token, and it must still sign in as the verified
+   * login. Null when there is none (gh signed out, or signed in as someone else since the last sync).
+   */
+  private async ghPin(): Promise<GithubPin | null> {
+    const w = this.deps.ghWrites;
+    const login = this.verified ? (this.store.sync.identity?.github?.login ?? null) : null;
+    if (w === undefined || login === null) return null;
+    const token = await this.ghToken(w);
+    if (token === null) return null;
+    const run: ToolRun = (argv, options) => w.run(argv, { ...options, env: { ...options.env, GH_TOKEN: token } });
+    const budget = this.deps.budgets.github;
+    const live = (await ghCall(run, w.gh, budget, ["api", "user", "--jq", ".login"])).trim();
+    if (live.toLowerCase() !== login.toLowerCase()) {
+      // gh now signs in as another account: confirm it again before anything is written.
+      this.actor.send({ type: "sync.now" });
+      return null;
+    }
+    const github = githubExecutor({ run, gh: w.gh, graphql: ghGraphql(run, w.gh, budget), budget, login: () => login, autoMerge: this.autoMerge });
+    return { login, generation: this.generation, credential: sha256(token), github };
+  }
+
+  /** Whether a pinned PR write may still go out: same generation, same verified login, same gh credential. */
+  private async ghCurrent(pin: GithubPin): Promise<boolean> {
+    const w = this.deps.ghWrites;
+    const login = this.verified ? (this.store.sync.identity?.github?.login ?? null) : null;
+    if (w === undefined || pin.generation !== this.generation || login !== pin.login) return false;
+    const token = await this.ghToken(w);
+    return token !== null && sha256(token) === pin.credential;
+  }
+
   // ---- Sync steps ----
 
   /** Resolves who the host's key acts as, reading the key once; a new key or account voids pending writes. */
@@ -393,6 +468,7 @@ export class TicketsService implements TicketsRelaying {
       this.verified = false;
       this.generation += 1;
       this.gate.invalidate("the host's Linear or GitHub account changed");
+      this.prGate?.invalidate("the host's Linear or GitHub account changed");
       return { kind: "changed" };
     }
     this.store.setSync({ identity: resolved.identity });
@@ -488,6 +564,7 @@ export function hostTicketsService(o: HostTicketsOptions): TicketsService {
     },
     budgets: o.budgets,
     writes: o.writes,
+    ghWrites: { run: o.run, gh: o.gh },
     summaryWriter: o.summaryWriter,
     now: () => Date.now(),
     log: o.log,

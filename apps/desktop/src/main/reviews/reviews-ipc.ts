@@ -23,7 +23,8 @@ import {
   sendLine,
   workOf,
 } from './approve'
-import { registerRemoteReviews, type RemoteReviewsDeps } from './remote-reviews'
+import { registerPrActions, registerRemoteReviews, type RemoteReviewsDeps } from './remote-reviews'
+import type { RelayFeatures, RelayFrames } from '../relay/client'
 import { checkState, rowStatusOf, type RawCheck } from './row-status'
 import { registerAstraSessions } from './astra-sessions'
 import { REVIEWS_MEDIA_DIR, isGithubUpload, isLinearUpload, localizeImages } from './review-media'
@@ -223,8 +224,11 @@ export function registerReviewsIpc(
   ctx: MainContext,
   run: ToolRun,
   remote: Omit<RemoteReviewsDeps, 'writes'> | null = null,
+  /** The Relay Host connection: PR actions go to its write gate in local mode too. */
+  frames: (RelayFrames & RelayFeatures) | null = remote?.frames ?? null,
 ): void {
   const writes = !ctx.env.e2e
+  if (frames) registerPrActions(ctx, frames, remote?.host)
   if (remote) {
     registerRemoteReviews(ctx, { ...remote, writes })
     return

@@ -986,6 +986,8 @@ function serve(
         clock: systemClock,
         log,
         budgets: ticketsWiring.reviewsBudgets,
+        // PR actions go through the tickets MutationGate, open only with features.ticketsWrites.
+        prGate: () => (tickets?.writes === true ? tickets : null),
       });
   const meetings = meetingsService({
     agentHome,
