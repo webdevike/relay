@@ -1,7 +1,7 @@
 # Guide v2 and image widths: before/after proof
 
 - Baseline: `61a5b2e6` (origin/main, app code untouched; only the spec, `e2e/helpers/fake-relay-host.ts` and `e2e/fixtures/reviews/` were copied in for the run, then removed)
-- Head: `53967773a82bcc17f8867f50fa4da2a4a54e2880` (branch `eva/guide-v2`) plus the uncommitted proof harness
+- Head: after shots re-taken at `fa23dd9d` (branch `eva/guide-v2`, after the review fixes); before shots unchanged
 - Spec: `apps/desktop/e2e/reviews-guide-proof.spec.ts`, the same file in both phases (`PROOF_PHASE=before|after`; Guide v2 and width assertions run only in `after`)
 - Mode: Relay Desktop in remote mode (paired `relay-remote.json`) against `FakeRelayHost`, which answers every `reviews.req` op from `apps/desktop/e2e/fixtures/reviews/answers.json` and serves the fixture PNGs at `/reviews/media/<file>/e2e-token`. No GitHub, Linear, Slack or Claude.
 - Clock: `EVAOS_NOW=2026-11-27T18:00:00Z`, renderer clock fixed to the same instant (Playwright `clock.setFixedTime`)
