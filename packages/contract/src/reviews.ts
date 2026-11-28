@@ -201,8 +201,16 @@ export const AstraItemSchema = z.object({
   /** A question omp is blocked on (Astra's `ask`), answered from the session. */
   waiting: z.string().nullable(),
   error: z.string().nullable(),
+  /** The assistant's registry id when it is not Astra (absent means Astra). */
+  agent: z.string().optional(),
 })
 export type AstraItem = z.infer<typeof AstraItemSchema>
+
+/** A registry assistant id (`astra`, `nova`): each has its own session per item; absent means Astra. */
+export const ItemAssistantSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/)
+  .max(64)
 
 /**
  * The url an item's Astra session is kept under: a Linear ticket by its key alone
@@ -407,36 +415,38 @@ export const reviewsInvoke = {
     output: z.object({ ok: z.literal(true) }),
   },
   /**
-   * Asks Astra about an item in that item's own Astra session: the first ask starts it (her prime,
-   * her thread memory and the item as `context`), later asks continue it. Nothing reaches GitHub,
-   * Linear or Slack. Answers stream as `reviews.astraUpdate`.
+   * Asks an assistant (`agent`, Astra when absent) about an item in that item's own session with
+   * her: the first ask starts it (her prime, her thread memory and the item as `context`), later
+   * asks continue it. The session only reads (no tools that write, no Linear or GitHub
+   * credentials). Nothing reaches GitHub, Linear or Slack. Answers stream as `reviews.astraUpdate`.
    */
   'reviews.astraAsk': {
     input: z
       .object({
         url: z.string().url(),
-        /** `repo#170`, `ENG-6406`: the session is titled `Astra · <label>`. */
+        /** `repo#170`, `ENG-6406`: the session is titled `<Name> · <label>`. */
         label: z.string().min(1).max(200),
         /** The item as Markdown (title, description, comments, diff); read on the first ask only. */
         context: z.string().max(400_000),
         text: z.string().min(1).max(8_000),
+        agent: ItemAssistantSchema.optional(),
       })
       .strict(),
     output: AstraItemSchema,
   },
-  /** The item's Astra session as it stands; null when there is none yet. */
+  /** The item's session with `agent` (Astra when absent) as it stands; null when there is none yet. */
   'reviews.astraThread': {
-    input: z.object({ url: z.string().url() }).strict(),
+    input: z.object({ url: z.string().url(), agent: ItemAssistantSchema.optional() }).strict(),
     output: AstraItemSchema.nullable(),
   },
   /** Lets the item's omp process go (when idle), so the chat view can take the session over. */
   'reviews.astraRelease': {
-    input: z.object({ url: z.string().url() }).strict(),
+    input: z.object({ url: z.string().url(), agent: ItemAssistantSchema.optional() }).strict(),
     output: z.object({ released: z.boolean() }),
   },
-  /** Stops Astra's running turn on the item (the partial answer stays). */
+  /** Stops the assistant's running turn on the item (the partial answer stays). */
   'reviews.astraStop': {
-    input: z.object({ url: z.string().url() }).strict(),
+    input: z.object({ url: z.string().url(), agent: ItemAssistantSchema.optional() }).strict(),
     output: z.object({ stopped: z.boolean() }),
   },
   /** Marks a PR or ticket handled (hidden from the queue until it changes) or brings it back. */

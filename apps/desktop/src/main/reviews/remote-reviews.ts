@@ -24,13 +24,15 @@ import {
   type SlackRow,
   type SlackThread,
 } from '@evaos/contract'
+import { REVIEWS_ASSISTANTS_FEATURE } from '@relay/protocol'
 import type { MainContext } from '../context'
 import { parsePr, type PrFacts } from '../context-popover/gh'
 import { emit, handle } from '../ipc/handle'
 import { cmdFrame } from '../relay/commands'
-import type { RelayFrames } from '../relay/client'
+import type { RelayFeatures, RelayFrames } from '../relay/client'
 import { OLD_HOST, type HostReviews } from '../relay/host-reviews'
 import { REVIEWS_MEDIA_DIR, localizeImages } from './review-media'
+import { storeKey } from './astra-sessions'
 import { rowStatusOf } from './row-status'
 
 const fail = (code: string, message: string): Error => Object.assign(new Error(message), { code })
@@ -375,8 +377,8 @@ export function hostLinearIssue(host: HostReviews) {
 
 export interface RemoteReviewsDeps {
   host: HostReviews
-  /** The connection's frames: Stop sends `agent.abort` for an item's live session. */
-  frames: RelayFrames
+  /** The connection's frames: Stop sends `agent.abort` for an item's live session; its features gate `agent`. */
+  frames: RelayFrames & RelayFeatures
   /** The host's http origin, for its served images; null while not connected. */
   origin(): string | null
   /** The mirror's file of omp session `id`, for "Open in chat". */
@@ -433,20 +435,31 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return p
   }
 
-  // Astra: item url -> session file, kept across restarts; live session ids for Stop.
+  // Item sessions: store key (`storeKey`, Astra's the bare url) -> session file, kept across
+  // restarts; live session ids for Stop.
   const files = (): Record<string, string> =>
     ctx.config.readJson<Record<string, string>>(ASTRA_FILES, {})
   const liveIds = new Map<string, string>()
   const toAstra = (a: HostAstra): AstraItem => {
-    if (a.sessionId !== null) liveIds.set(a.url, a.sessionId)
-    else liveIds.delete(a.url)
+    const key = storeKey(a.agent ?? 'astra', a.url)
+    if (a.sessionId !== null) liveIds.set(key, a.sessionId)
+    else liveIds.delete(key)
     const found = a.sessionId !== null ? d.sessionFile(a.sessionId) : null
     const known = files()
-    if (found !== null && known[a.url] !== found) {
-      ctx.config.writeJson(ASTRA_FILES, { ...known, [a.url]: found })
+    if (found !== null && known[key] !== found) {
+      ctx.config.writeJson(ASTRA_FILES, { ...known, [key]: found })
     }
     const { sessionId: _id, ...rest } = a
-    return { ...rest, file: found ?? known[a.url] ?? null }
+    return { ...rest, file: found ?? known[key] ?? null }
+  }
+  /**
+   * The `agent` a host op carries: nothing for Astra on a host without REVIEWS_ASSISTANTS_FEATURE
+   * (an older host refuses the field); null when the host can't run that assistant's sessions.
+   */
+  const agentField = (agent: string | undefined): { agent?: string } | null => {
+    if (agent === undefined) return {}
+    if (d.frames.hostHas(REVIEWS_ASSISTANTS_FEATURE)) return { agent }
+    return agent === 'astra' ? {} : null
   }
 
   host.onPush((f) => {
@@ -623,16 +636,21 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return { status: 'sent' as const, command }
   })
 
-  handle(ctx, 'reviews.astraAsk', async ({ url, text }) => {
+  handle(ctx, 'reviews.astraAsk', async ({ url, text, agent }) => {
     const ref = refOf(url, latest?.queue.items ?? [])
     if (ref === null)
       throw fail('not-an-item', 'Astra can only be asked about a PR, a ticket or a Slack thread')
-    const a = await host.req({ kind: 'astraAsk', url, ref, text })
+    const field = agentField(agent)
+    if (field === null)
+      throw fail('host-update', `Asking ${agent ?? ''} needs Relay Host updated on the Mini`)
+    const a = await host.req({ kind: 'astraAsk', url, ref, text, ...field })
     return toAstra(HostAstra.parse(a.astra))
   })
 
-  handle(ctx, 'reviews.astraThread', async ({ url }) => {
-    const a = await host.req({ kind: 'astra', url })
+  handle(ctx, 'reviews.astraThread', async ({ url, agent }) => {
+    const field = agentField(agent)
+    if (field === null) return null
+    const a = await host.req({ kind: 'astra', url, ...field })
     return a.astra === null || a.astra === undefined ? null : toAstra(HostAstra.parse(a.astra))
   })
 
@@ -640,10 +658,12 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   // no process on this Mac to let go of.
   handle(ctx, 'reviews.astraRelease', () => ({ released: true }))
 
-  handle(ctx, 'reviews.astraStop', async ({ url }) => {
-    let id = liveIds.get(url)
+  handle(ctx, 'reviews.astraStop', async ({ url, agent }) => {
+    const field = agentField(agent)
+    if (field === null) return { stopped: false }
+    let id = liveIds.get(storeKey(agent ?? 'astra', url))
     if (id === undefined) {
-      const a = await host.req({ kind: 'astra', url })
+      const a = await host.req({ kind: 'astra', url, ...field })
       const item = HostAstra.safeParse(a.astra)
       id = item.success ? (item.data.sessionId ?? undefined) : undefined
     }

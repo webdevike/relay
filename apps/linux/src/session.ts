@@ -28,6 +28,7 @@ import {
   CANVAS_FILES_FEATURE,
   TICKETS_FEATURE,
   TICKETS_WRITES_FEATURE,
+  REVIEWS_ASSISTANTS_FEATURE,
   STATS_FEATURE,
   toHex,
   type AgentApproval,
@@ -1514,6 +1515,8 @@ export class ClientSession {
       ...((this.deps.workspace ?? null) === null ? [] : [WORKSPACE_FEATURE]),
       ...((this.deps.canvasFiles ?? null) === null ? [] : [CANVAS_FILES_FEATURE]),
       ...this.ticketsFeatures(),
+      // `reviews.req` `astraAsk`/`astra` take an `agent`: each assistant's own item session.
+      ...(this.deps.reviews === null ? [] : [REVIEWS_ASSISTANTS_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",

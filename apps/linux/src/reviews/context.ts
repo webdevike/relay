@@ -38,8 +38,26 @@ export function prContext(pr: ReviewPr): string {
   ].join("\n");
 }
 
-/** A Linear ticket as the first message of its Astra session. */
-export function ticketContext(t: LinearTicket): string {
+/** Where in a ticket Isaac asked from: a comment thread (its root comment id) and the text he selected. */
+export interface TicketFocus {
+  readonly threadId?: string;
+  readonly quote?: string;
+}
+
+/** The thread and passage he is asking about, after the whole ticket. */
+function focusLines(t: LinearTicket, focus: TicketFocus): string[] {
+  const lines: string[] = [];
+  const root = focus.threadId;
+  const thread = root === undefined ? [] : t.comments.filter((c) => c.id === root || c.parentId === root);
+  if (thread.length > 0)
+    lines.push("", "#### The thread he is asking from", ...thread.map((c) => `- ${c.author.name}, ${when(c.at)}: ${c.body.trim()}`));
+  const quote = focus.quote?.trim() ?? "";
+  if (quote !== "") lines.push("", "#### The passage he is pointing at", ...quote.split("\n").map((line) => `> ${line}`));
+  return lines;
+}
+
+/** A Linear ticket as the first message of its item session, with the thread and passage he asked from. */
+export function ticketContext(t: LinearTicket, focus: TicketFocus = {}): string {
   const byId = new Map(t.comments.map((c) => [c.id, c]));
   return [
     `### Linear ticket ${t.key}: ${t.title}`,
@@ -62,6 +80,7 @@ export function ticketContext(t: LinearTicket): string {
             return `- ${c.author.name}${reply}, ${when(c.at)}: ${c.body.trim()}`;
           })
           .join("\n"),
+    ...focusLines(t, focus),
   ]
     .filter((line, i, all) => line !== "" || all[i - 1] !== "")
     .join("\n");

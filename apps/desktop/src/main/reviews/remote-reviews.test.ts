@@ -19,7 +19,8 @@ vi.mock('../window', () => ({ isAppUrl: () => true }))
 
 import { createConfigStore } from '../config-store'
 import type { MainContext } from '../context'
-import type { RelayFrames } from '../relay/client'
+import { REVIEWS_ASSISTANTS_FEATURE } from '@relay/protocol'
+import type { RelayFeatures, RelayFrames } from '../relay/client'
 import type { HostAnswer, HostOp, HostReviews } from '../relay/host-reviews'
 import {
   absoluteMedia,
@@ -98,18 +99,21 @@ let dir: string
 let host: FakeHost
 let sent: Array<Record<string, unknown>>
 let emitted: Array<[string, unknown]>
+let features: Set<string>
 beforeEach(() => {
   ipc.handlers.clear()
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'remote-reviews-'))
   host = new FakeHost()
   sent = []
   emitted = []
-  const frames: RelayFrames = {
+  features = new Set()
+  const frames: RelayFrames & RelayFeatures = {
     onFrame: () => () => undefined,
     sendFrame: (f) => {
       sent.push(f)
       return true
     },
+    hostHas: (feature) => features.has(feature),
   }
   const ctx = {
     config: createConfigStore(dir),
@@ -384,6 +388,45 @@ describe('the page through the host', () => {
       'reviews.astraUpdate',
       expect.objectContaining({ file: '/mirror/2026_s1.jsonl', working: false }),
     ])
+  })
+
+  it('sends `agent` only to a host that runs other assistants, and keeps each one’s session apart', async () => {
+    host.answers.queue = () => ({ queue })
+    host.answers.prList = () => ({ prs: { items: [], total: 0 } })
+    await call('reviews.queue', { refresh: false })
+    host.answers.astraAsk = (op) => ({
+      astra: {
+        url: op.url,
+        title: 'Nova · #ui-ux',
+        sessionId: 'n1',
+        turns: [],
+        working: true,
+        waiting: null,
+        error: null,
+        agent: op.agent,
+      },
+    })
+    host.answers.astra = () => ({ astra: null })
+    const ask = { url: SLACK, label: '#ui-ux', context: '', text: 'hi', agent: 'nova' }
+    // An older host: Nova is refused here, Astra goes without the field, nothing unknown is sent.
+    expect((await call('reviews.astraAsk', ask)).ok).toBe(false)
+    expect(await call('reviews.astraThread', { url: SLACK, agent: 'nova' })).toMatchObject({
+      value: null,
+    })
+    expect(host.ops.filter((op) => 'agent' in op)).toEqual([])
+    await call('reviews.astraThread', { url: SLACK, agent: 'astra' })
+    expect(host.ops.at(-1)).toEqual({ kind: 'astra', url: SLACK })
+
+    features.add(REVIEWS_ASSISTANTS_FEATURE)
+    const asked = await call('reviews.astraAsk', ask)
+    expect(host.ops.at(-1)).toMatchObject({ kind: 'astraAsk', url: SLACK, agent: 'nova' })
+    expect(asked.value).toMatchObject({ agent: 'nova', file: null })
+    // Nova's live session is hers: Astra's Stop on the same item does not reach it.
+    expect((await call('reviews.astraStop', { url: SLACK })).value).toEqual({ stopped: false })
+    expect((await call('reviews.astraStop', { url: SLACK, agent: 'nova' })).value).toEqual({
+      stopped: true,
+    })
+    expect(sent.at(-1)).toMatchObject({ cmd: { kind: 'agent.abort', sessionId: 'n1' } })
   })
 
   it('Done goes to the host’s marks', async () => {
