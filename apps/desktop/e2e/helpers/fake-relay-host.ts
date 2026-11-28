@@ -874,6 +874,13 @@ export class FakeRelayHost {
             summary: `Write ${String(m.kind)}`,
             ...(typeof m.body === 'string' && { text: m.body }),
             ...(typeof m.quotedText === 'string' && { quote: m.quotedText }),
+            // applyPlan: every row by its key (the real host names them by the live issue).
+            ...(Array.isArray(m.rows) && {
+              rows: z
+                .array(z.object({ key: z.string() }))
+                .parse(m.rows)
+                .map((r) => ({ key: r.key, title: r.key, change: 'Plan' })),
+            }),
           },
         }
       }

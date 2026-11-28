@@ -10,6 +10,7 @@ import {
 } from '@relay/protocol'
 import type { Result, TicketsFallback } from '@evaos/contract'
 import { invoke } from '../../ipc'
+import { boardViewerId } from '../card-move-actor'
 import {
   editRows,
   proposalRows,
@@ -41,7 +42,8 @@ type Refused = { refused: { code: string; message: string } }
 export interface PlanDeps {
   /** The tickets as the host has them now (the stale check before writing, Astra's baseline). */
   current(): Promise<readonly PlanTicket[]>
-  prepare(mutation: TicketMutation): Promise<{ approvalId: string } | Refused>
+  /** The gate's approval: its id and the rows it writes, by the issues' live keys (host-resolved). */
+  prepare(mutation: TicketMutation): Promise<{ approvalId: string; keys: string[] } | Refused>
   commit(input: {
     approvalId: string
     opId: string
@@ -67,11 +69,13 @@ async function host<T extends { source: string }>(
 export const LIVE_PLAN_DEPS: PlanDeps = {
   current: async () => TicketsBoard.parse((await host(invoke('tickets.board', {}))).board).tickets,
   prepare: async (mutation) => {
-    const r = await host(invoke('tickets.prepare', { mutation }))
-    return r.refused ? { refused: r.refused } : { approvalId: TicketApproval.parse(r.approval).id }
+    const r = await host(invoke('tickets.prepare', { viewerId: boardViewerId(), mutation }))
+    if (r.refused) return { refused: r.refused }
+    const approval = TicketApproval.parse(r.approval)
+    return { approvalId: approval.id, keys: (approval.rows ?? []).map((row) => row.key) }
   },
   commit: async (input) => {
-    const r = await host(invoke('tickets.commit', input))
+    const r = await host(invoke('tickets.commit', { viewerId: boardViewerId(), ...input }))
     return r.refused ? { refused: r.refused } : { outcome: TicketOutcome.parse(r.outcome) }
   },
   savePlannedStarts: async (rows) => {
@@ -101,11 +105,22 @@ function rowResults(rows: readonly DraftRow[], outcome: TicketOutcome): RowResul
   })
 }
 
-/** The Linear rows as one `applyPlan` write: prepare, then commit with the approval. */
+/** The host would write other rows than the draft Isaac reviewed: nothing is committed. */
+export const OTHER_ROWS =
+  'The host would write other tickets than this draft; nothing was written. Review it again.'
+
+/** Whether the gate's rows (live keys) are exactly the drafted ones. */
+function sameRows(rows: readonly DraftRow[], keys: readonly string[]): boolean {
+  const want = new Set(rows.map((r) => r.key))
+  return keys.length === want.size && keys.every((k) => want.has(k))
+}
+
+/** The Linear rows as one `applyPlan` write: prepare, check the host's rows, then commit with the approval. */
 async function writeLinear(rows: DraftRow[], opId: string, deps: PlanDeps): Promise<ApplyOutput> {
   const mutation: TicketMutation = { kind: 'applyPlan', rows: rows.map(toPlanRow) }
   const approval = await deps.prepare(mutation)
   if ('refused' in approval) return refusal(approval.refused, rows)
+  if (!sameRows(rows, approval.keys)) return { kind: 'refused', message: OTHER_ROWS }
   const done = await deps.commit({ approvalId: approval.approvalId, opId, mutation })
   if ('refused' in done) return refusal(done.refused, rows)
   return { kind: 'done', results: rowResults(rows, done.outcome) }

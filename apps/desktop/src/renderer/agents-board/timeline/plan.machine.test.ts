@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import { createActor, fromPromise, waitFor } from 'xstate'
 import type { TicketMutation, TicketOutcome } from '@relay/protocol'
-import { applyRows, NEEDS_NEWER_HOST, replanRows, type PlanDeps } from './plan-actor'
+import { applyRows, NEEDS_NEWER_HOST, OTHER_ROWS, replanRows, type PlanDeps } from './plan-actor'
 import type { DraftRow, PlanTicket } from './plan-rules'
 import {
   STALE_ROW,
@@ -249,7 +249,10 @@ function deps(over: Partial<PlanDeps> = {}): PlanDeps & {
   })
   return {
     current: async () => [ticket('ENG-1'), ticket('ENG-2')],
-    prepare: vi.fn(async () => ({ approvalId: 'appr-1' })),
+    prepare: vi.fn(async (m: TicketMutation) => ({
+      approvalId: 'appr-1',
+      keys: m.kind === 'applyPlan' ? m.rows.map((r) => r.key) : [],
+    })),
     commit: vi.fn(async ({ mutation }: { mutation: TicketMutation }) => ({
       outcome: outcome(mutation),
     })),
@@ -289,6 +292,15 @@ describe('plan runtime (plan-actor)', () => {
     expect(d.prepare).toHaveBeenCalledWith(mutation)
     expect(d.commit).toHaveBeenCalledWith({ approvalId: 'appr-1', opId: uuid(50), mutation })
     expect(save).toHaveBeenCalledWith([{ key: 'ENG-2', plannedStart: '2026-12-02' }])
+  })
+
+  it('commits nothing when the host would write other tickets than the draft', async () => {
+    const d = deps({ prepare: vi.fn(async () => ({ approvalId: 'appr-1', keys: ['ENG-7'] })) })
+    expect(await applyRows({ rows: [row('ENG-1', 1)], opId: uuid(50) }, d)).toEqual({
+      kind: 'refused',
+      message: OTHER_ROWS,
+    })
+    expect(d.commit).not.toHaveBeenCalled()
   })
 
   it('writes nothing when a ticket changed since the draft', async () => {
