@@ -1,8 +1,9 @@
 // One pull request's status in words, from whatever facts the page has: the host's PR facts
 // (checks with counts, review decision, merge state), else the synced card's (checks rollup,
 // decision), else only the PR's state; on the PR page, the PR read itself (`prSignalsOfReview`).
-// The ticket page's status strip and the PR sidebar both read `prStatusOf`. The merge box reads
-// `mergeOfferOf`: what the one merge button would do (PLAN §2.6), or why there is none.
+// The ticket page's status strip and the PR sidebar both read `prStatusOf`, the strip through
+// `prSignalsFor` so a PR's page says the same words in both. The merge box reads `mergeOfferOf`:
+// the one Merge now button (PLAN §2.6), or why GitHub won't merge it right now.
 import type { AgentCard, ReviewPr } from '@evaos/contract'
 import type { PrMergeMethod, TicketPrFacts } from '@relay/protocol'
 import type { TicketPr } from '../agents-board/ticket-prs'
@@ -231,6 +232,15 @@ const NO_MERGE: ReadonlyArray<(pr: ReviewPr, a: Actions) => string | null> = [
   (_, a) => (METHODS.some((m) => a.methods[m]) ? null : 'The repository allows no merge method'),
   (pr, a) =>
     a.mergeStateStatus === 'DIRTY' ? `Conflicts with ${pr.base}: resolve them first` : null,
+  (_, a) =>
+    a.mergeQueue.required ? 'This branch merges through a merge queue: add it on GitHub' : null,
+  (_, a) => {
+    const s = a.mergeStateStatus
+    if (MERGES_NOW[s]) return null
+    return (
+      MERGE_STATE_WORDS[s]?.blocked ?? MERGE_STATE_WORDS[s]?.note ?? 'GitHub won’t merge it yet'
+    )
+  },
 ]
 
 /** What the merge box offers for `pr`: hidden without host facts, a reason, or Merge now. */

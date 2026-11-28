@@ -171,6 +171,24 @@ function askText(d: Draft, text: string): string {
   return `${anchorText(d.root.path, d.root.side, at)} ${about} ${text}`
 }
 
+/** The exact-text confirm of a line comment or reply: the host's approval in full. */
+function DraftConfirm({ write, draft }: { write: PrWrite; draft: Draft | null }) {
+  const v = write.view
+  const reply = draft?.kind === 'reply'
+  return (
+    <ConfirmPost
+      opened={v.kind === 'confirming'}
+      title={reply ? 'Reply on GitHub' : 'Comment on GitHub'}
+      text={v.kind === 'confirming' ? (v.approval.text ?? draft?.text.trim()) : draft?.text.trim()}
+      note={v.kind === 'confirming' ? <ApprovalNote approval={v.approval} /> : null}
+      confirmLabel={reply ? 'Post reply' : 'Post comment'}
+      busy={v.kind === 'committing'}
+      onConfirm={write.confirm}
+      onCancel={write.cancel}
+    />
+  )
+}
+
 /** The inline threads for one PR's Diff tab. */
 export function useInlineThreads(pr: ReviewPr, onChanged?: () => void): InlineThreads {
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -193,8 +211,16 @@ export function useInlineThreads(pr: ReviewPr, onChanged?: () => void): InlineTh
     [pr.reviewComments, posted],
   )
   const index = useMemo(() => threadIndex(threads), [threads])
-  const asks = useMemo(() => asksIndex(astra.threads), [astra.threads])
-  const busy = astra.asking || write.view.kind === 'preparing' || write.view.kind === 'committing'
+  const sessionOf = useMemo(
+    () =>
+      new Map<AstraThread, AssistantSession>(sessions.flatMap((s) => s.threads.map((t) => [t, s]))),
+    [sessions],
+  )
+  const asks = useMemo(() => asksIndex([...sessionOf.keys()]), [sessionOf])
+  const busy =
+    sessions.some((s) => s.sending) ||
+    write.view.kind === 'preparing' ||
+    write.view.kind === 'committing'
   const now = Date.now()
 
   const send = useCallback(() => {

@@ -248,4 +248,19 @@ test('PR Diff: file tree, resize, rail hide, wrapped lines and an inline review 
     body: text,
   })
   expect(commits[0]!.approvalId).toBe('pr-approval-1')
+
+  // An assistant asked on a line: her own private session (`agent`), anchored to the line; nothing
+  // goes to GitHub, and no prepare or commit reaches the gate.
+  await card.locator(sel('review-diff-addline')).first().click()
+  const ask = card.locator(sel('review-inline-composer'))
+  await ask.fill('(@Nova, why 423 and not 409?)')
+  await expect(card.locator(sel('composer-private'))).toContainText('Only you')
+  await card.locator(sel('review-inline-composer-send')).click()
+  await expect.poll(() => host.reviewOps.filter((o) => o.kind === 'astraAsk').length).toBe(1)
+  const asked = host.reviewOps.find((o) => o.kind === 'astraAsk')!
+  expect(asked.agent).toBe('nova')
+  expect(String(asked.text)).toMatch(
+    /^\(On src\/api\/routes\/items\.ts line \d+(, old side)?\) \(@Nova/,
+  )
+  expect(host.prMutations).toHaveLength(2)
 })

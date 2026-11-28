@@ -228,3 +228,35 @@ test('the board shows synced tickets beside agent work; hide, filter, handle, mo
   await expect(shell.locator(sel('page-board'))).toBeHidden()
   await expect(shell.locator(sel('ticket-page'))).toHaveCount(0)
 })
+
+test.describe('a host without tickets (the fallback board)', () => {
+  test.use({ hostTickets: false })
+
+  test('agent cards keep their stage pills; prev/next steps over a run', async ({ app, shell }) => {
+    await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1440, 900))
+    await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('board'))
+    const demo = shell.locator(sel('agents-card-relay-demo'))
+    const eng5 = shell.locator(sel('agents-card-ENG-9005'))
+    await expect(demo).toBeVisible({ timeout: 30_000 })
+    // Today's meaning-bearing pills: the agent's move, Isaac's move, a live run.
+    await expect(demo.locator(sel('agents-card-pill'))).toHaveText('Waiting on Agent')
+    await expect(eng5.locator(sel('agents-card-pill'))).toHaveText(/^(Your move|Review)$/)
+    host.setActivity([RUN])
+    const run = shell.locator('[data-testid^="agents-card-run:"]')
+    await expect(run.locator(sel('agents-card-pill'))).toHaveText('Running')
+    fs.mkdirSync(SHOTS, { recursive: true })
+    await shell.screenshot({ path: path.join(SHOTS, 'fallback-pills.png') })
+
+    // Three pages (the run is not one): the last is 3 / 3, and back from it skips the run.
+    await eng5.dispatchEvent('click')
+    const ticket = shell.locator(sel('ticket-page'))
+    await expect(ticket).toHaveAttribute('data-ticket', 'ENG-9005')
+    await expect(shell.locator(sel('ticket-pos'))).toHaveText('3 / 3')
+    await expect(shell.locator(sel('ticket-next'))).toBeDisabled()
+    await shell.locator(sel('ticket-prev')).click()
+    await expect(ticket).toHaveAttribute('data-ticket', /^(ENG-9001|relay-demo)$/)
+    await expect(shell.locator(sel('ticket-pos'))).toHaveText('2 / 3')
+    // A host without `tickets` never hears a `tickets.*` frame.
+    expect(host.ticketFrames).toEqual([])
+  })
+})

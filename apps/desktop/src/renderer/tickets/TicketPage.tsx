@@ -468,7 +468,7 @@ function TicketView({ at }: { at: TicketRef }) {
         onRefresh={m.data.refresh}
       />
       {at.pr !== null || !sidebar ? (
-        <StatusStrip at={at} data={m.data} card={m.card} prs={m.prs} go={replace} />
+        <StatusStrip at={at} data={m.data} card={m.card} prs={m.prs} go={replace} read={prRead} />
       ) : null}
       {at.pr ? (
         <TicketPrPage

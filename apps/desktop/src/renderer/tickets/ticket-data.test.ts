@@ -5,7 +5,9 @@ const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
 
 import { cardOf, ticketOf } from '../agents-board/test-cards'
-import { fromLinearTicket, loadTicket, pagePrs, writeModeOf } from './ticket-data'
+import { peopleOf } from './activity-model'
+import { linearBody } from './Composer'
+import { fromLinearTicket, legacyLinksOf, loadTicket, pagePrs, writeModeOf } from './ticket-data'
 
 const LEGACY: LinearTicket = {
   id: 'issue-1',

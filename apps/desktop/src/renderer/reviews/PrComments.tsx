@@ -450,7 +450,9 @@ export function PrComments({
           people={people}
           placeholder="Leave a comment. Type @Astra to ask Astra privately."
           target={`posts on ${label} as you`}
-          busy={astra.asking || v.kind === 'preparing' || v.kind === 'committing'}
+          busy={
+            sessions.some((s) => s.sending) || v.kind === 'preparing' || v.kind === 'committing'
+          }
           onSend={send}
           testid="review-composer"
         />

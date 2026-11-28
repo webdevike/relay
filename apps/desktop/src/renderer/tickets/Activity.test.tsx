@@ -343,6 +343,53 @@ describe('Activity', () => {
     expect(calls('tickets.commit')).toHaveLength(0)
   })
 
+  it('a configured custom assistant, punctuation and formatting: private asks, nothing public', async () => {
+    gate()
+    configure([
+      { id: 'astra', title: 'Astra' },
+      { id: 'scout', title: 'Scout' },
+    ])
+    view(dataOf({ writeMode: 'legacy' }))
+    const box = screen.getByTestId('ticket-composer') as HTMLTextAreaElement
+    for (const text of ['(@Scout, check this)', '**@Astra** please check']) {
+      await userEvent.type(box, text)
+      expect(screen.getByTestId('composer-private').textContent).toContain('Only you')
+      await userEvent.click(screen.getByTestId('ticket-composer-send'))
+      await waitFor(() => expect(box.value).toBe(''))
+    }
+    const asks = calls('reviews.astraAsk').map(([, i]) => i as { agent: string; text: string })
+    expect(asks.map((a) => [a.agent, a.text])).toEqual([
+      ['scout', '(@Scout, check this)'],
+      ['astra', '**@Astra** please check'],
+    ])
+    // Her own session was read, not Astra's under another name.
+    expect(calls('reviews.astraThread').map(([, i]) => i)).toEqual(
+      expect.arrayContaining([
+        { url: detail.url, agent: 'astra' },
+        { url: detail.url, agent: 'scout' },
+      ]),
+    )
+    expect(calls('reviews.linearComment')).toHaveLength(0)
+    expect(calls('tickets.prepare')).toHaveLength(0)
+    expect(calls('tickets.commit')).toHaveLength(0)
+  })
+
+  it('a person and an assistant in one message goes private only, with the notice', async () => {
+    gate()
+    view(dataOf())
+    const box = screen.getByTestId('ticket-composer') as HTMLTextAreaElement
+    await userEvent.type(box, '@Pal Lee and (@Nova) see this')
+    expect(screen.getByTestId('composer-private').textContent).toContain(
+      'Write a separate comment for people.',
+    )
+    await userEvent.click(screen.getByTestId('ticket-composer-send'))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(1))
+    expect(calls('reviews.astraAsk')[0]![1]).toMatchObject({ agent: 'nova' })
+    expect(calls('tickets.prepare')).toHaveLength(0)
+    expect(calls('tickets.commit')).toHaveLength(0)
+    expect(calls('reviews.linearComment')).toHaveLength(0)
+  })
+
   it('@Astra in a reply asks privately with the thread, and her reply shows in that thread', async () => {
     gate()
     view(dataOf())

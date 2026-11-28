@@ -379,6 +379,23 @@ const showPr = (pr: ReviewPr, onRefresh = vi.fn()) =>
 
 const calls = (ch: string) => invoke.mock.calls.filter((c) => c[0] === ch).map((c) => c[1])
 
+/** One assistant's item session on the PR as main sends it: Isaac's ask, then her answer. */
+const astraItem = (agent: string, [ask, answer]: string[]) => ({
+  url: prOf().url,
+  title: `${agent} · api#42`,
+  file: 'f.jsonl',
+  turns: [
+    ...(ask ? [{ id: 'u', role: 'user', text: ask, streaming: false, at: Date.now() }] : []),
+    ...(answer
+      ? [{ id: 'a', role: 'assistant', text: answer, streaming: false, at: Date.now() }]
+      : []),
+  ],
+  working: false,
+  waiting: null,
+  error: null,
+  agent,
+})
+
 /** The gate approves every prepare and every commit lands (a merge reads back `merged`). */
 const gateOk = (): void => {
   handlers['reviews.prPrepare'] = () => ({
