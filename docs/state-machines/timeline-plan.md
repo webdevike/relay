@@ -14,7 +14,6 @@ Isaac's pending changes to the Board's Timeline (`apps/desktop/src/renderer/agen
 - **stale**: a ticket changed in Linear since the draft (seen before writing, or the gate's conflict): nothing was written. "Review again" re-bases the draft on the tickets as they are now and opens the confirm again.
 
 <!-- diagram:start (generated from the machine by `pnpm machines:docs`; do not edit) -->
-
 ```mermaid
 stateDiagram-v2
   [*] --> viewing
@@ -56,5 +55,4 @@ stateDiagram-v2
   stale --> viewing : plan.reconfirm
   stale --> viewing : plan.discard
 ```
-
 <!-- diagram:end -->
