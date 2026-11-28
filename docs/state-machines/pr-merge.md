@@ -16,7 +16,6 @@ The merge box on a PR's page (`apps/desktop/src/renderer/reviews/pr-merge.machin
 stateDiagram-v2
   [*] --> idle
   idle --> confirming : merge.start
-  idle --> autoMergeArmed : merge.facts [isArmed]
   confirming --> preparing : merge.confirm
   confirming --> idle : merge.cancel
   confirming --> stale : merge.facts [planChanged]
@@ -29,19 +28,11 @@ stateDiagram-v2
   preparing --> failed : done prepare
   preparing --> failed : error prepare
   merging --> merged : done commit [mergedOut]
-  merging --> queued : done commit [queuedOut]
-  merging --> autoMergeArmed : done commit [armedOut]
   merging --> stale : done commit [conflicted]
   merging --> refused : done commit [refusedOut]
   merging --> failed : done commit
   merging --> failed : error commit
   merged --> idle : merge.dismiss
-  queued --> idle : merge.dismiss
-  autoMergeArmed --> disarming : merge.disarm
-  autoMergeArmed --> idle : merge.facts [notArmed]
-  disarming --> idle : done commit [disarmedOut]
-  disarming --> autoMergeArmed : done commit
-  disarming --> autoMergeArmed : error commit
   refused --> idle : merge.dismiss
   refused --> idle : merge.cancel
   refused --> confirming : merge.start
