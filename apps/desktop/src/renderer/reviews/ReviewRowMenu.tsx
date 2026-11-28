@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { IconExternalLink, IconLayoutColumns, IconPlus } from '@tabler/icons-react'
+import type { Place } from '@evaos/shell-core'
 import { setReviewTitle } from '../eva/names-store'
 import { openPlace } from '../navigation/navigate'
 import { openInApp } from '../navigation/open-in-app'
@@ -7,34 +8,41 @@ import { openLink } from '../navigation/open-link'
 import { navTargetOf, type ClickMods } from '../navigation/open-target'
 import { EvaMenu } from '../overlay'
 import { activePlace, tabsStore } from '../tabs/tabs-store'
+import { ticketPlace } from '../tickets/ticket-place'
 import { reviewIdOf, reviewPlaceOf, reviewRefOf, reviewTitleOf } from './review-place'
-import { openPr, openThread, openTicket, type ReviewItem } from './reviews-store'
+import { openPr, openThread, type ReviewItem } from './reviews-store'
 
 /** Remembers the item's title, so the tab it opens is named at once (and after a restart). */
 function nameIt(item: ReviewItem): void {
   setReviewTitle(reviewIdOf(reviewRefOf(item)), reviewTitleOf(item))
 }
 
+/** Where a row opens: a Linear issue's ticket page (the Board's), else the item's review place. */
+function rowPlace(item: ReviewItem): Place {
+  return item.kind === 'linear' ? ticketPlace(item.row.key) : reviewPlaceOf(reviewRefOf(item))
+}
+
 /**
- * Opens a queue row. On the Reviews page a plain click shows it there (as before); anywhere else
- * (a chat, another review) it goes to the item's own place in this tab, and `newTab` (Cmd+Shift-click,
- * middle-click, the menu) always opens its own tab, so several can be open at once.
+ * Opens a queue row. On the Reviews page a plain click shows a PR or thread there (as before);
+ * anywhere else (a chat, another review), and for a Linear issue always, it goes to the item's own
+ * place in this tab, and `newTab` (Cmd+Shift-click, middle-click, the menu) always opens its own
+ * tab, so several can be open at once.
  */
 export function openReviewRow(item: ReviewItem, newTab: boolean): void {
-  if (!newTab && activePlace(tabsStore.getState()).page === 'reviews') {
+  const onPage = activePlace(tabsStore.getState()).page === 'reviews'
+  if (!newTab && onPage && item.kind !== 'linear') {
     if (item.kind === 'pr') openPr(item.row)
-    else if (item.kind === 'linear') openTicket(item.row)
     else openThread(item.row)
     return
   }
   nameIt(item)
-  openPlace(reviewPlaceOf(reviewRefOf(item)), { newTab })
+  openPlace(rowPlace(item), { newTab })
 }
 
 /** The item's own place in the pane right of the chat (a tab of it when one is open). */
 export function splitReviewRow(item: ReviewItem): void {
   nameIt(item)
-  openInApp(reviewPlaceOf(reviewRefOf(item)), 'split')
+  openInApp(rowPlace(item), 'split')
 }
 
 export interface RowMenuState {
@@ -53,7 +61,7 @@ export function activateReviewRow(item: ReviewItem, e: ClickMods): void {
   if (target === 'split') splitReviewRow(item)
   else if (target === 'background') {
     nameIt(item)
-    openInApp(reviewPlaceOf(reviewRefOf(item)), 'background')
+    openInApp(rowPlace(item), 'background')
   } else openReviewRow(item, false)
 }
 

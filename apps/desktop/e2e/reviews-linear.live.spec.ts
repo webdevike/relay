@@ -47,30 +47,31 @@ test('reads, replies to and finishes a real Linear ticket without writing anywhe
   await shell.keyboard.press('Meta+Shift+B')
   await shot(shell, 'linear-queue')
 
-  // Details: description with images inline, properties in the rail.
+  // The ticket page (the Board's): description with images inline, properties in the sidebar.
   await shell.locator(sel('review-search')).fill(TICKET)
   await shell.locator(sel('review-search')).press('Enter')
-  await expect(shell.locator(sel('linear-details'))).toBeVisible({ timeout: 30_000 })
-  await expect(shell.locator(sel('linear-rail'))).toContainText('Status')
-  await expect(shell.locator(sel('linear-rail'))).toContainText('Linked PRs')
+  await expect(shell.locator(sel('ticket-page'))).toHaveAttribute('data-ticket', TICKET, {
+    timeout: 30_000,
+  })
+  await expect(shell.locator(sel('ticket-description'))).toBeVisible({ timeout: 30_000 })
+  await expect(shell.locator(sel('ticket-sidebar'))).toBeVisible()
   await shell.waitForTimeout(800)
   await shot(shell, 'linear-details')
 
-  // Comments: threads with replies.
-  await shell.locator(sel('linear-tab-comments')).click()
-  const threads = shell.locator(sel('linear-thread'))
+  // Comments: threads with replies, in the activity under the description.
+  const threads = shell.locator(sel('ticket-thread'))
   await expect(threads.first()).toBeVisible()
   await shell.waitForTimeout(500)
   await shot(shell, 'linear-comments')
 
   // Reply under a specific comment, quoting a selection from it.
   const thread = threads.first()
-  const firstComment = thread.locator(sel('linear-comment')).first()
+  const firstComment = thread.locator(sel('ticket-comment')).first()
   await firstComment.hover()
   await firstComment.getByRole('button', { name: 'Reply' }).click()
-  const replyBox = shell.locator(sel('linear-reply-box'))
+  const replyBox = shell.locator(sel('ticket-reply-box'))
   await expect(replyBox).toBeVisible()
-  await firstComment.locator('.eva-rv-lcomment-body').evaluate((el) => {
+  await firstComment.locator(sel('ticket-comment-body')).evaluate((el) => {
     const text = el.querySelector('p') ?? el
     const range = document.createRange()
     range.selectNodeContents(text)
@@ -98,7 +99,7 @@ test('reads, replies to and finishes a real Linear ticket without writing anywhe
   await expect(shell.getByText('Test instance: the comment was not posted to Linear')).toBeVisible()
 
   // @ lists Astra and the people on the ticket; @Astra goes privately to Astra, never to Linear.
-  const box = shell.locator(sel('linear-composer'))
+  const box = shell.locator(sel('ticket-composer'))
   await box.click()
   // Picking a person shows @Name; Linear gets their profile link, the mention it understands.
   await box.pressSequentially('@ste')
@@ -120,13 +121,16 @@ test('reads, replies to and finishes a real Linear ticket without writing anywhe
   await box.press('Enter')
   // Astra is first in the list; what an @Astra ask does is reviews-astra.live.spec.ts.
   await expect(box).toHaveValue('@Astra ')
-  await expect(shell.locator(sel('linear-composer'))).toHaveAttribute('data-private', 'true')
+  await expect(shell.locator(sel('composer-private'))).toContainText('Only you')
   await shot(shell, 'linear-private-typing')
   await box.fill('')
 
-  // Done hides it locally.
-  await shell.locator(sel('review-done')).click()
-  await expect(shell.locator(sel('linear-detail'))).toHaveCount(0)
-  await expect(shell.locator(sel(`review-ticket-${TICKET}`))).toHaveCount(0)
-  await shot(shell, 'linear-after-done')
+  // Done (shown while the ticket waits in the inbox) hides it locally and goes back to Reviews.
+  const done = shell.locator(sel('review-done'))
+  if ((await done.count()) > 0) {
+    await done.click()
+    await expect(shell.locator(sel('ticket-page'))).toHaveCount(0)
+    await expect(shell.locator(sel(`review-ticket-${TICKET}`))).toHaveCount(0)
+    await shot(shell, 'linear-after-done')
+  }
 })

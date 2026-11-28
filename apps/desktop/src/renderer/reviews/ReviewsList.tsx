@@ -7,10 +7,12 @@ import {
   IconSearch,
 } from '@tabler/icons-react'
 import type { ReviewRow, SlackRow } from '@evaos/contract'
+import type { Place } from '@evaos/shell-core'
 import { emojify } from '@relay/slack-emoji'
 import { ListEmpty, ListRow, ListTime, ListView, rowTip, type ListGroup } from '../ui/list'
 import { ago, agoPhrase, prKey, queueGroups } from './review-model'
 import {
+  isDone,
   openReviewItem,
   readSlack,
   reviewItemOf,
@@ -40,6 +42,7 @@ import { SourceMark } from './review-ui'
 import { ReviewRowMenu, activateReviewRow, type RowMenuState } from './ReviewRowMenu'
 import { reviewIdOf, reviewIdOfPlace } from './review-place'
 import { activePlace, useTabs } from '../tabs/tabs-store'
+import { parseTicketPlace } from '../tickets/ticket-place'
 import { rowPills, rowStatusKey, useRowStatus } from './row-status'
 import { RowMarks } from './RowMarks'
 import { parseOneOf, parseStringList, usePref } from '../ui-prefs'
@@ -56,8 +59,17 @@ const VIEWS: Array<{ value: ReviewsView; label: string }> = [
 /** A queue row: a PR, a Linear ticket or a Slack thread, or the Open row for a typed key. */
 type QueueItem = ReviewItem | { kind: 'open'; item: ReviewItem }
 
-const isDone = (r: { url: string; updatedAt: number }, done: Record<string, number>): boolean =>
-  done[r.url] !== undefined && r.updatedAt <= done[r.url]!
+/** What is open: a review or ticket tab's item, else the Reviews page's selection. */
+function openId(here: Place, pr: ReviewRow | null, thread: SlackRow | null): string | null {
+  const ticket = parseTicketPlace(here.page)
+  if (ticket?.kind === 'key') return `linear:${ticket.id}`
+  const review = reviewIdOfPlace(here)
+  if (review !== null) return review
+  if (pr) return `pr:${pr.repo}#${pr.number}`
+  return thread
+    ? reviewIdOf({ kind: 'slack', channel: thread.channel, threadTs: thread.threadTs })
+    : null
+}
 
 /**
  * The review queue, Linear and Slack groups, a source filter, and a search across them that
@@ -70,7 +82,6 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
   const queue = useReviews((s) => s.queue)
   const view = useReviews((s) => s.view)
   const selectedPr = useReviews((s) => s.selected)
-  const ticket = useReviews((s) => s.ticket)
   const thread = useReviews((s) => s.thread)
   const linear = useReviews((s) => s.linear)
   const slack = useReviews((s) => s.slack)
@@ -103,17 +114,8 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
   const targetId = target ? itemId(target) : null
   const shows = (s: SourceFilter) => source === 'all' || source === s
 
-  // What is open: the place of a review tab, else the Reviews page's selection.
   const here = useTabs(activePlace)
-  const activeId =
-    reviewIdOfPlace(here) ??
-    (ticket
-      ? `linear:${ticket.key}`
-      : selectedPr
-        ? `pr:${selectedPr.repo}#${selectedPr.number}`
-        : thread
-          ? reviewIdOf({ kind: 'slack', channel: thread.channel, threadTs: thread.threadTs })
-          : null)
+  const activeId = openId(here, selectedPr, thread)
   const queueRows = (queue && shows('github') ? queueGroups(queue, view) : [])
     .map((g) =>
       searching

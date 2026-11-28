@@ -11,14 +11,16 @@ export type ReviewsView = 'for-me' | 'created'
 
 /**
  * Reviews as two surfaces share it: the queue lives in the sliding sidebar, the selected item's
- * detail in the page. Selection is exclusive: at most one of a pull request, ticket or thread.
+ * detail in the page. Selection is exclusive: at most one of a pull request or thread. A Linear
+ * issue has no detail here: it opens its ticket page (`ticketAsk` hands a link's to it).
  */
 export interface ReviewsState {
   queue: ReviewQueue | null
   error: string | null
   view: ReviewsView
   selected: ReviewRow | null
-  ticket: LinearRow | null
+  /** A Linear issue a link or an agent asked Reviews to open: the Reviews page opens its ticket page. */
+  ticketAsk: LinearRow | null
   thread: SlackRow | null
   linear: { rows: LinearRow[] | null; error: string | null }
   slack: SlackState
@@ -31,7 +33,7 @@ const initial = (): ReviewsState => ({
   error: null,
   view: 'created',
   selected: null,
-  ticket: null,
+  ticketAsk: null,
   thread: null,
   linear: { rows: null, error: null },
   slack: { queue: null, reading: false, error: null },
@@ -86,19 +88,27 @@ bindPref(reviewsStore, 'reviews.view', {
 })
 
 export function setView(view: ReviewsView): void {
-  set({ view, selected: null, ticket: null, thread: null })
+  set({ view, selected: null, thread: null })
 }
 
 export function openPr(row: ReviewRow): void {
-  set({ ticket: null, thread: null, selected: row })
-}
-
-export function openTicket(row: LinearRow): void {
-  set({ selected: null, thread: null, ticket: row })
+  set({ thread: null, selected: row })
 }
 
 export function openThread(row: SlackRow): void {
-  set({ selected: null, ticket: null, thread: row })
+  set({ selected: null, thread: row })
+}
+
+/** Done holds a row back until it changes: marked done at or after its newest activity. */
+export const isDone = (
+  r: { url: string; updatedAt: number },
+  done: Record<string, number>,
+): boolean => done[r.url] !== undefined && r.updatedAt <= done[r.url]!
+
+/** `key`'s row while it waits in the Linear inbox (queued, not Done), else null. */
+export function inboxTicket(s: ReviewsState, key: string): LinearRow | null {
+  const row = s.linear.rows?.find((r) => r.key === key)
+  return row && !isDone(row, { ...s.queue?.done, ...s.doneLocal }) ? row : null
 }
 
 /** An item link as the row Reviews opens: a GitHub pull request, a Linear issue or a Slack message. */
@@ -194,13 +204,17 @@ export function reviewItemOf(
   return null
 }
 
-/** Opens an item link in Reviews (an agent's deep link); false when it is no item Reviews shows. */
+/**
+ * Opens an item link in Reviews (an agent's deep link): a pull request or thread as the page's
+ * selection, a Linear issue through the page to its ticket page. False when it is no item Reviews
+ * shows.
+ */
 export function openReviewItem(url: string): boolean {
   const item = reviewItemOf(url)
   if (!item) return false
-  if (item.kind === 'pr') set({ ticket: null, thread: null, selected: item.row })
-  else if (item.kind === 'linear') set({ selected: null, thread: null, ticket: item.row })
-  else set({ selected: null, ticket: null, thread: item.row })
+  if (item.kind === 'pr') set({ thread: null, selected: item.row })
+  else if (item.kind === 'linear') set({ selected: null, thread: null, ticketAsk: item.row })
+  else set({ selected: null, thread: item.row })
   return true
 }
 

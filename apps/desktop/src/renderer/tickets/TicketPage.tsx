@@ -2,8 +2,10 @@
 // Linear's issue view: a top bar (Board > column > key, prev/next over the board's order), a
 // centered main column (title, summary, description, sub-issues, resources, activity) beside the
 // properties sidebar, or, with the sidebar folded, a one-line status strip. A PR's page shows the
-// PR view (TicketPrPage) inside the same chrome. Esc goes PR, ticket, board through the window's
-// history, so the board comes back as it was left.
+// PR view (TicketPrPage) inside the same chrome. Reviews' Linear rows open this page too; while the
+// ticket waits in the Reviews inbox the top bar carries Reviews' Done. Esc goes PR, ticket, then
+// Reviews (when it came from there) or the board through the window's history, so the page left
+// comes back as it was.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ActionIcon, Tooltip, UnstyledButton } from '@mantine/core'
 import {
@@ -26,6 +28,7 @@ import { openPlace } from '../navigation/navigate'
 import { historyJump, navHistoryStore } from '../navigation/nav-history'
 import { useReplacePlace } from '../pages/place-host'
 import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
+import { InboxDone, reviewsBefore } from '../reviews/InboxDone'
 import { TicketPrPage } from './TicketPrPage'
 import { startAgentsBoard, useAgentsBoard } from '../agents-board/agents-store'
 import { COLUMN_TITLE, visibleCards } from '../agents-board/board-view'
@@ -77,6 +80,13 @@ function backTo(target: Place, replace: (p: Place) => void): void {
     if (placeKey(e.place) === want) return historyJump(i)
   }
   replace(target)
+}
+
+/** Out of a ticket: back to Reviews when it was opened from there, else to the board. */
+function leaveTicket(replace: (p: Place) => void): void {
+  const reviews = reviewsBefore()
+  if (reviews !== null) historyJump(reviews)
+  else backTo(placeOf('board'), replace)
 }
 
 /** One `reviews.prSearch` per page open (title and branch hits name more PRs). */
@@ -238,6 +248,7 @@ function TopBar({
     <header className="eva-tk-top">
       <Crumbs at={at} card={card} title={title} go={go} leave={leave} />
       <span className="eva-tk-spacer" />
+      {at.kind === 'key' && !at.pr ? <InboxDone ticketKey={at.id} title={title} /> : null}
       {linearUrl ? (
         <IconButton
           label="Open in Linear"
@@ -410,9 +421,10 @@ function TicketView({ at }: { at: TicketRef }) {
   const sidebar = useTicketsUi((s) => s.sidebar)
   const now = useNow()
   const leave = (): void => backTo(placeOf('board'), replace)
-  // Esc: a PR's page goes back to its ticket, the ticket to the board.
+  // Esc: a PR's page goes back to its ticket, the ticket to Reviews when it came from there, else
+  // to the board.
   useDismissable(DISMISS_PRIORITY.selection, () =>
-    at.pr ? backTo(ticketHome(at), replace) : leave(),
+    at.pr ? backTo(ticketHome(at), replace) : leaveTicket(replace),
   )
   return (
     <div
