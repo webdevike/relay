@@ -1,0 +1,172 @@
+// The Board's Timeline view against a stand-in Relay host with `tickets` and `tickets.writes`
+// (fixtures in e2e/fixtures/tickets: timeline-board.json, replan-proposal.json): the Board |
+// Timeline switch survives a reload, zoom buttons, a bar opens its ticket page, and Ask Astra to
+// re-plan brings the host's proposal into the draft; Apply lists every change and writes it as
+// exactly one `applyPlan` prepare + commit through the gate, Discard writes nothing. No network:
+// Linear and Astra only exist as the fake host's fixtures.
+//
+//   pnpm build && pnpm e2e:run e2e/timeline.spec.ts --retries 0 --max-failures 1
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import type { Page } from '@playwright/test'
+import { TICKETS_FEATURE, TICKETS_WRITES_FEATURE } from '@relay/protocol'
+import { test as base, expect } from './fixtures'
+import { FakeRelayHost } from './helpers/fake-relay-host'
+import { makeEvaFixture } from './helpers/eva-fixture'
+import { pickScheme } from './helpers/appearance'
+
+const SHOTS = path.join(__dirname, '..', 'test-results', 'timeline-shots')
+const DAY_MS = 86_400_000
+
+let host: FakeRelayHost
+
+/** A local calendar day `days` from today (`YYYY-MM-DD`). */
+function dayFromNow(days: number): string {
+  const d = new Date(Date.now() + days * DAY_MS)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** "+N" in the fixture is N days from today, so the bars sit in the opening week view. */
+const relative = (v: unknown): unknown =>
+  typeof v === 'string' && /^\+\d+$/.test(v) ? dayFromNow(Number(v.slice(1))) : v
+
+function timelineTickets(): Record<string, unknown>[] {
+  const file = path.join(__dirname, 'fixtures', 'tickets', 'timeline-board.json')
+  const { tickets } = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+    tickets: Record<string, unknown>[]
+  }
+  return tickets.map((t) => {
+    const milestone = t.milestone as Record<string, unknown>
+    return {
+      ...t,
+      dueDate: relative(t.dueDate),
+      startedAt: t.dueDate === null ? null : Date.now() - 3 * DAY_MS,
+      milestone: { ...milestone, targetDate: relative(milestone.targetDate) },
+    }
+  })
+}
+
+const test = base.extend({
+  launchEnv: async ({}, use) => {
+    const fx = makeEvaFixture()
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-timeline-'))
+    const relayDir = path.join(root, 'relay')
+    host = await FakeRelayHost.start(relayDir)
+    host.features = ['render.report', TICKETS_FEATURE, TICKETS_WRITES_FEATURE]
+    host.tickets.board.tickets = timelineTickets()
+    await use({ ...fx.env, EVAOS_RELAY_DIR: relayDir })
+    await host.close()
+    fs.rmSync(root, { recursive: true, force: true })
+    fx.cleanup()
+  },
+})
+
+test.use({ startOnChat: false })
+
+const sel = (id: string): string => `[data-testid="${id}"]`
+type Shell = { __evaosShell: { openPlace(page: string): void } }
+type Mutation = { kind: string; mutation?: { kind: string; rows?: { key: string }[] } }
+const mutations = (): Mutation[] => host.mutations.map((m) => m.cmd as Mutation)
+const ops = (kind: string): unknown[] =>
+  host.ticketFrames.map((f) => f.op as { kind: string }).filter((o) => o.kind === kind)
+
+async function openBoard(shell: Page): Promise<void> {
+  await shell.waitForFunction(() => '__evaosShell' in window)
+  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('board'))
+}
+
+test('the Timeline: switch, zoom, open a ticket, re-plan with Astra, apply and discard', async ({
+  app,
+  shell,
+}) => {
+  await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1440, 900))
+  await pickScheme(shell, 'dark')
+  await openBoard(shell)
+  await expect(shell.locator(sel('agents-board'))).toBeVisible({ timeout: 30_000 })
+
+  // Board | Timeline, kept across a renderer reload.
+  await shell.locator(sel('agents-view-timeline')).click()
+  const timeline = shell.locator(sel('timeline'))
+  await expect(timeline).toBeVisible()
+  await expect(shell.locator(sel('agents-board'))).toHaveCount(0)
+  const bar = shell.locator('.wx-bar[data-id=":ENG-9001"]')
+  await expect(bar).toBeVisible({ timeout: 30_000 })
+  await expect(shell.locator(sel('timeline-nodate'))).toContainText('ENG-9004')
+  await shell.waitForTimeout(600) // the pref's save debounce
+  await shell.reload()
+  await openBoard(shell)
+  await expect(timeline).toBeVisible({ timeout: 30_000 })
+  await expect(bar).toBeVisible({ timeout: 30_000 })
+
+  // Zoom buttons.
+  await expect(timeline).toHaveAttribute('data-zoom', 'week')
+  const zoomBar = shell.locator('.rb-timeline-bar')
+  await zoomBar.getByText('Month', { exact: true }).click()
+  await expect(timeline).toHaveAttribute('data-zoom', 'month')
+  await zoomBar.getByText('Quarter', { exact: true }).click()
+  await expect(timeline).toHaveAttribute('data-zoom', 'quarter')
+  await zoomBar.getByText('Week', { exact: true }).click()
+  await expect(timeline).toHaveAttribute('data-zoom', 'week')
+  fs.mkdirSync(SHOTS, { recursive: true })
+  await shell.screenshot({ path: path.join(SHOTS, 'timeline.png') })
+
+  // A bar opens its ticket page; the breadcrumb comes back to the Timeline.
+  await bar.click()
+  const crumbs = shell.locator(sel('ticket-crumbs'))
+  await expect(crumbs).toContainText('ENG-9001', { timeout: 30_000 })
+  await shell.locator(sel('ticket-crumb-board')).click()
+  await expect(timeline).toBeVisible({ timeout: 30_000 })
+
+  // Ask Astra to re-plan the milestone: her proposal becomes the draft.
+  await timeline
+    .getByText(/^Beta \(/)
+    .first()
+    .click()
+  const ask = shell.getByRole('button', { name: 'Ask Astra to re-plan' })
+  await expect(ask).toBeEnabled()
+  await ask.click()
+  const panel = shell.locator(sel('plan-panel'))
+  await expect(panel).toHaveAttribute('data-plan', 'reviewingProposal', { timeout: 30_000 })
+  await expect(panel).toContainText('Land Beta by its target date')
+  await expect(panel.locator('[data-plan-row="ENG-9001"]')).toContainText('2027-01-08')
+  await expect(panel.locator('[data-plan-row="ENG-9002"]')).toContainText('Blocks the Beta release')
+  expect(ops('replan')).toEqual([
+    { kind: 'replan', projectId: 'project-board', milestoneId: 'ms-beta' },
+  ])
+  expect(host.mutations).toEqual([])
+  await shell.screenshot({ path: path.join(SHOTS, 'proposal.png') })
+
+  // Apply: the confirm lists every change; one prepare + one commit of `applyPlan`.
+  await panel.getByRole('button', { name: 'Apply' }).click()
+  const confirm = shell.getByRole('dialog', { name: 'Apply this plan?' })
+  await expect(confirm).toBeVisible()
+  await expect(confirm).toContainText('ENG-9001')
+  await expect(confirm).toContainText('2027-01-08')
+  await expect(confirm).toContainText('ENG-9002')
+  await shell.screenshot({ path: path.join(SHOTS, 'apply-confirm.png') })
+  await shell.locator(sel('plan-confirm-apply')).click()
+  await expect(panel).toHaveAttribute('data-plan', 'applied', { timeout: 30_000 })
+  expect(mutations().map((m) => [m.kind, m.mutation?.kind])).toEqual([
+    ['prepare', 'applyPlan'],
+    ['commit', 'applyPlan'],
+  ])
+  expect(
+    mutations()[1]
+      ?.mutation?.rows?.map((r) => r.key)
+      .sort(),
+  ).toEqual(['ENG-9001', 'ENG-9002'])
+  // Relay-only starts weren't in the proposal: nothing for plan.json.
+  expect(ops('plan')).toEqual([])
+  await panel.getByRole('button', { name: 'OK' }).click()
+  await expect(panel).toHaveCount(0)
+
+  // Another proposal, discarded: nothing more is written.
+  await ask.click()
+  await expect(panel).toHaveAttribute('data-plan', 'reviewingProposal', { timeout: 30_000 })
+  await panel.getByRole('button', { name: 'Discard' }).click()
+  await expect(panel).toHaveCount(0)
+  expect(ops('replan')).toHaveLength(2)
+  expect(host.mutations).toHaveLength(2)
+})

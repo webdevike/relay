@@ -97,7 +97,19 @@ describe('TimelineView (jsdom smoke)', () => {
     expect(view).toHaveAttribute('data-zoom', 'quarter')
     await userEvent.keyboard('=')
     expect(view).toHaveAttribute('data-zoom', 'month')
-    expect(screen.getByRole('button', { name: /Ask Astra to re-plan/ })).toBeDisabled()
+    // The bar click picked ENG-1's milestone as the re-plan scope.
+    expect(screen.getByRole('button', { name: /Ask Astra to re-plan/ })).toBeEnabled()
+    expect(screen.queryByTestId('plan-panel')).toBeNull()
+  })
+
+  it('read-only (no host sync): the chart without re-plan or a draft', async () => {
+    render(
+      <MantineProvider>
+        <TimelineView tickets={[ticket('ENG-1')]} onOpen={vi.fn()} readOnly />
+      </MantineProvider>,
+    )
+    expect((await screen.findAllByText('Relay Board')).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /Ask Astra to re-plan/ })).toBeNull()
     expect(screen.queryByTestId('plan-panel')).toBeNull()
   })
 })

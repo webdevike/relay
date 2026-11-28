@@ -958,6 +958,15 @@ function serve(
     fetch: globalThis.fetch,
     log,
     summaryWriter: claudeWriter(bunRun, resolveClaude()),
+    // Ask Astra to re-plan: a private read-only item session per Timeline scope.
+    astra: {
+      agents,
+      launch: agentHome === null ? null : (options) => agents.launchJoined(options),
+      sessionFile: (sessionId) => agents.sessionFile(sessionId),
+      agentHome,
+      socketPath: defaultSocketPath(),
+      clock: systemClock,
+    },
   });
   const tickets = ticketsWiring.tickets;
   const reviews = !featureOn(config, "reviews", assistant?.thread("astra") !== undefined)

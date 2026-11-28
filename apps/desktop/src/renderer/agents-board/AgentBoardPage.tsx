@@ -37,6 +37,8 @@ import { openAgentLink } from './agent-link'
 import { useCardMove, type CardMove } from './card-move-actor'
 import { openPlace } from '../navigation/navigate'
 import { cardPlace } from '../tickets/ticket-place'
+import { parseOneOf, usePref } from '../ui-prefs'
+import { BoardTimeline } from './BoardTimeline'
 import {
   hideColumn,
   selectCard,
@@ -491,8 +493,12 @@ function Board({
   )
 }
 
-/** Title and the view switch; Timeline arrives with its own milestone. */
-function PageHead() {
+type BoardView = 'board' | 'timeline'
+const VIEW_PREF = 'agents.view'
+const parseView = parseOneOf<BoardView>(['board', 'timeline'])
+
+/** Title and the view switch (`agents.view`, kept in layout.json). */
+function PageHead({ view, onView }: { view: BoardView; onView(view: BoardView): void }) {
   return (
     <header className="eva-ab-head">
       <h1 className="eva-ab-title" data-page-title>
@@ -500,20 +506,14 @@ function PageHead() {
       </h1>
       <SegmentedControl
         size="xs"
-        value="board"
+        value={view}
+        onChange={(v) => onView(v as BoardView)}
         className="eva-ab-viewsw"
         aria-label="View"
+        data-testid="agents-view"
         data={[
-          { value: 'board', label: 'Board' },
-          {
-            value: 'timeline',
-            disabled: true,
-            label: (
-              <Tooltip label="Coming with the Timeline" openDelay={200}>
-                <span data-testid="agents-view-timeline">Timeline</span>
-              </Tooltip>
-            ),
-          },
+          { value: 'board', label: <span data-testid="agents-view-board">Board</span> },
+          { value: 'timeline', label: <span data-testid="agents-view-timeline">Timeline</span> },
         ]}
       />
     </header>
@@ -545,35 +545,46 @@ function NoCards({ board, error }: { board: AgentBoard | null; error: string | n
   )
 }
 
-/**
- * The Board page: everything the agents work on and Isaac's synced Linear tickets, as Linear's
- * board. A ticket or work item opens its page (`ticket:`); a run opens its own target. Dragging a
- * ticket to another column moves it in Linear (through the host's write gate).
- */
-export function AgentBoardPage(_props: { place: Place }) {
-  useEffect(() => startAgentsBoard(), [])
+/** The columns view: toolbar, then the columns or why there are none. */
+function BoardContent({ move }: { move: CardMove }) {
   const board = useAgentsBoard((s) => s.board)
   const error = useAgentsBoard((s) => s.error)
   const selected = useAgentsBoard((s) => s.selected)
   const filters = useAgentsBoard((s) => s.filters)
-  const move = useCardMove()
   const now = useNow()
-
   const all = board?.cards ?? []
   const shown = visibleCards(all, filters)
+  return (
+    <>
+      {board ? <BoardBar board={board} shown={shown.length} now={now} /> : null}
+      {board && all.length > 0 ? (
+        <Board cards={shown} selected={selected} now={now} move={move} />
+      ) : (
+        <NoCards board={board} error={error} />
+      )}
+    </>
+  )
+}
+
+/**
+ * The Board page: everything the agents work on and Isaac's synced Linear tickets, as Linear's
+ * board. A ticket or work item opens its page (`ticket:`); a run opens its own target. Dragging a
+ * ticket to another column moves it in Linear (through the host's write gate). The Timeline view
+ * plans the same synced tickets by date.
+ */
+export function AgentBoardPage(_props: { place: Place }) {
+  useEffect(() => startAgentsBoard(), [])
+  const cards = useAgentsBoard((s) => s.board?.cards)
+  const move = useCardMove()
+  const [view, setView] = usePref<BoardView>(VIEW_PREF, 'board', parseView)
 
   return (
     <div className="eva-ab" data-testid="page-board">
       <div className="eva-ab-main">
-        <PageHead />
-        {board ? <BoardBar board={board} shown={shown.length} now={now} /> : null}
-        {board && all.length > 0 ? (
-          <Board cards={shown} selected={selected} now={now} move={move} />
-        ) : (
-          <NoCards board={board} error={error} />
-        )}
+        <PageHead view={view} onView={setView} />
+        {view === 'timeline' ? <BoardTimeline /> : <BoardContent move={move} />}
       </div>
-      <MoveDialogs move={move} cards={all} />
+      <MoveDialogs move={move} cards={cards ?? []} />
     </div>
   )
 }

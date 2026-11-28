@@ -11,6 +11,7 @@ import {
   TicketsServerFrames,
   TicketsStatus,
   type TicketBoardFacts,
+  type TicketPlanProposal,
   type TicketsOpKind,
 } from '@relay/protocol'
 import type { TicketsFallback, TicketsFallbackReason } from '@evaos/contract'
@@ -59,6 +60,42 @@ type Frames = RelayFrames & RelayFeatures & Partial<Pick<RelaySource, 'onChange'
 
 export function fallback(reason: TicketsFallbackReason): TicketsFallback {
   return { source: 'fallback', reason, message: TICKETS_MESSAGES[reason] }
+}
+
+/** A plain host answer: `{source:'host', ...pick(result)}`, or the fallback as is. */
+export async function ask<T extends object>(
+  host: Pick<HostTickets, 'req'>,
+  op: TicketsOp,
+  pick: (res: TicketsResult) => T,
+): Promise<({ source: 'host' } & T) | TicketsFallback> {
+  const a = await host.req(op)
+  return 'ok' in a ? { source: 'host', ...pick(a.res) } : a
+}
+
+/** `tickets.plan`: Relay-only Timeline starts, kept by the host (no Linear write). */
+export function savePlan(
+  host: Pick<HostTickets, 'req'>,
+  rows: { key: string; plannedStart: string | null }[],
+): Promise<{ source: 'host' } | TicketsFallback> {
+  return ask(host, { kind: 'plan', rows }, () => ({}))
+}
+
+type Refusal = NonNullable<TicketsResult['refused']>
+
+/** `tickets.replan`: Astra's validated proposal, or the host's refusal (not a readable plan). */
+export function replan(
+  host: Pick<HostTickets, 'req'>,
+  scope: { projectId: string; milestoneId?: string | undefined },
+): Promise<
+  ({ source: 'host' } & ({ refused: Refusal } | { proposal: TicketPlanProposal })) | TicketsFallback
+> {
+  const { projectId, milestoneId } = scope
+  const op: TicketsOp = { kind: 'replan', projectId, ...(milestoneId ? { milestoneId } : {}) }
+  return ask<{ refused: Refusal } | { proposal: TicketPlanProposal }>(host, op, (res) => {
+    if (res.refused) return { refused: res.refused }
+    if (!res.proposal) throw new Error('The Mini’s Relay Host sent no plan.')
+    return { proposal: res.proposal }
+  })
 }
 
 export function createHostTickets(

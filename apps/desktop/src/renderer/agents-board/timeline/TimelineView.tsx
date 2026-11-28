@@ -95,6 +95,11 @@ const READ_ONLY_STATES: Partial<Record<string, true>> = {
   stale: true,
 }
 
+/** No edits in a read-only Timeline, or while Astra re-plans, the confirm is open, rows write or the draft is stale. */
+function editsLocked(readOnly: boolean, plan: PlanHandle): boolean {
+  return readOnly || READ_ONLY_STATES[String(plan.snap.value)] === true
+}
+
 /** The draft's order badge beside a ticket row's title. */
 function PlanCell({ row }: { row: Partial<TimelineTask> }) {
   return row.delta ? <OrderBadge delta={row.delta} /> : null
@@ -185,6 +190,8 @@ export interface TimelineViewProps {
   onOpen(key: string): void
   /** The host's plan routes (`tickets.plan`, `tickets.replan`) and test seams. */
   plan?: Partial<PlanDeps>
+  /** No host plan routes (fallback): no drafts, no Apply, no re-plan; the chart only reads. */
+  readOnly?: boolean
 }
 
 function zoomKeys(setZoom: (f: (z: Zoom) => Zoom) => void) {
@@ -222,7 +229,7 @@ function NoDateList({ model, onOpen }: { model: TimelineModel; onOpen(key: strin
 }
 
 /** The Board's Timeline: project, milestone, tickets on SVAR Gantt, with the plan draft. */
-export function TimelineView({ tickets, onOpen, plan: deps }: TimelineViewProps) {
+export function TimelineView({ tickets, onOpen, plan: deps, readOnly = false }: TimelineViewProps) {
   const plan = usePlan(deps)
   const rows = plan.snap.context.rows
   const [today] = useState(() => dayOfMs(Date.now()))
@@ -251,8 +258,7 @@ export function TimelineView({ tickets, onOpen, plan: deps }: TimelineViewProps)
     [today],
   )
   const onKey = zoomKeys(setZoom)
-  // While Astra re-plans, the confirm is open, rows write or the draft is stale: no edits.
-  const busy = READ_ONLY_STATES[String(plan.snap.value)] === true
+  const busy = editsLocked(readOnly, plan)
   const preset = PRESETS[zoom]
   const reconfirm = (): void =>
     plan.send({ type: 'plan.reconfirm', rows: rebaseRows(rows, tickets) })
@@ -283,9 +289,11 @@ export function TimelineView({ tickets, onOpen, plan: deps }: TimelineViewProps)
         <Text size="xs" c="dimmed" className="rb-timeline-hint">
           W / M / Q or - / = to zoom
         </Text>
-        <ReplanButton plan={plan} scope={scope} />
+        {readOnly ? null : <ReplanButton plan={plan} scope={scope} />}
       </div>
-      <PlanPanel plan={plan} deltas={deltas} onOpen={onOpen} onReconfirm={reconfirm} />
+      {readOnly ? null : (
+        <PlanPanel plan={plan} deltas={deltas} onOpen={onOpen} onReconfirm={reconfirm} />
+      )}
       <div className="rb-timeline-body">
         <div
           className="rb-timeline-chart"

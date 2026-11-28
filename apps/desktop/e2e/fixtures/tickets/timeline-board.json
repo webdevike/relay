@@ -1,0 +1,212 @@
+{
+  "tickets": [
+    {
+      "key": "ENG-9001",
+      "id": "issue-9001",
+      "documentContentId": "doc-issue-9001",
+      "title": "Sample synced ticket",
+      "url": "https://linear.example.test/issue/ENG-9001",
+      "state": {
+        "id": "state-progress",
+        "name": "In Progress",
+        "type": "started",
+        "color": "#f2c94c"
+      },
+      "team": {
+        "id": "team-eng",
+        "key": "ENG"
+      },
+      "priority": 2,
+      "prioritySortOrder": 10,
+      "assignee": {
+        "id": "user-isaac",
+        "name": "Test Owner",
+        "avatarUrl": null
+      },
+      "creator": {
+        "id": "user-pal",
+        "name": "Sample Teammate",
+        "avatarUrl": null
+      },
+      "labels": [
+        {
+          "id": "label-bridge",
+          "name": "Bridge",
+          "color": "#5e6ad2"
+        }
+      ],
+      "project": {
+        "id": "project-board",
+        "name": "Sample board",
+        "targetDate": "2026-12-18"
+      },
+      "milestone": {
+        "id": "ms-beta",
+        "name": "Beta",
+        "targetDate": "+21",
+        "sortOrder": 1
+      },
+      "parent": null,
+      "children": [],
+      "relations": [],
+      "prs": [
+        {
+          "repo": "example/sample",
+          "number": 42
+        }
+      ],
+      "dueDate": "+5",
+      "startedAt": 1764000000000,
+      "createdAt": 1763900000000,
+      "updatedAt": 1764100000000,
+      "subscribed": true,
+      "prFacts": [
+        {
+          "repo": "example/sample",
+          "number": 42,
+          "title": "Sample bridge change",
+          "url": "https://github.example.test/example/sample/pull/42",
+          "author": "sample-dev",
+          "state": "open",
+          "draft": false,
+          "checks": {
+            "state": "pass",
+            "passed": 3,
+            "failed": 0,
+            "pending": 0
+          },
+          "decision": "REVIEW_REQUIRED",
+          "mergeState": "BLOCKED",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "updatedAt": 1764100000000
+        }
+      ],
+      "attention": {
+        "waiting": [],
+        "needsYou": null
+      }
+    },
+    {
+      "key": "ENG-9002",
+      "id": "issue-9002",
+      "documentContentId": "doc-issue-9002",
+      "title": "Second sample ticket",
+      "url": "https://linear.example.test/issue/ENG-9002",
+      "state": {
+        "id": "state-todo",
+        "name": "Todo",
+        "type": "unstarted",
+        "color": "#e2e2e2"
+      },
+      "team": {
+        "id": "team-eng",
+        "key": "ENG"
+      },
+      "priority": 3,
+      "prioritySortOrder": 20,
+      "assignee": {
+        "id": "user-isaac",
+        "name": "Test Owner",
+        "avatarUrl": null
+      },
+      "creator": {
+        "id": "user-pal",
+        "name": "Sample Teammate",
+        "avatarUrl": null
+      },
+      "labels": [
+        {
+          "id": "label-bridge",
+          "name": "Bridge",
+          "color": "#5e6ad2"
+        }
+      ],
+      "project": {
+        "id": "project-board",
+        "name": "Sample board",
+        "targetDate": "2026-12-18"
+      },
+      "milestone": {
+        "id": "ms-beta",
+        "name": "Beta",
+        "targetDate": "+21",
+        "sortOrder": 1
+      },
+      "parent": null,
+      "children": [],
+      "relations": [],
+      "prs": [],
+      "dueDate": "+9",
+      "startedAt": 1764000000000,
+      "createdAt": 1763900000000,
+      "updatedAt": 1764100000000,
+      "subscribed": true,
+      "prFacts": [],
+      "attention": {
+        "waiting": [],
+        "needsYou": null
+      }
+    },
+    {
+      "key": "ENG-9004",
+      "id": "issue-9004",
+      "documentContentId": "doc-issue-9004",
+      "title": "Undated sample ticket",
+      "url": "https://linear.example.test/issue/ENG-9004",
+      "state": {
+        "id": "state-todo",
+        "name": "Todo",
+        "type": "unstarted",
+        "color": "#e2e2e2"
+      },
+      "team": {
+        "id": "team-eng",
+        "key": "ENG"
+      },
+      "priority": 4,
+      "prioritySortOrder": 30,
+      "assignee": {
+        "id": "user-isaac",
+        "name": "Test Owner",
+        "avatarUrl": null
+      },
+      "creator": {
+        "id": "user-pal",
+        "name": "Sample Teammate",
+        "avatarUrl": null
+      },
+      "labels": [
+        {
+          "id": "label-bridge",
+          "name": "Bridge",
+          "color": "#5e6ad2"
+        }
+      ],
+      "project": {
+        "id": "project-board",
+        "name": "Sample board",
+        "targetDate": "2026-12-18"
+      },
+      "milestone": {
+        "id": "ms-beta",
+        "name": "Beta",
+        "targetDate": "+21",
+        "sortOrder": 1
+      },
+      "parent": null,
+      "children": [],
+      "relations": [],
+      "prs": [],
+      "dueDate": null,
+      "startedAt": null,
+      "createdAt": 1763900000000,
+      "updatedAt": 1764100000000,
+      "subscribed": true,
+      "prFacts": [],
+      "attention": {
+        "waiting": [],
+        "needsYou": null
+      }
+    }
+  ]
+}

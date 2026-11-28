@@ -8,8 +8,10 @@
 
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
+import { AstraSessions, type AstraSessionsDeps } from "../reviews/astra";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
 import { githubExecutor, StaleGithubCredential } from "../reviews/github-writes";
@@ -27,6 +29,7 @@ import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from
 import { LinearSync, type LinearViewer } from "./linear-sync";
 import { linearExecutor } from "./linear-writes";
 import { PlanStore } from "./plan";
+import { Replanner, timelineSeed } from "./replan";
 import { boundComments, boundTeams, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
 import { SummaryCache, type SummarySnapshot, type SummaryWriter } from "./summary";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
@@ -64,6 +67,8 @@ export interface TicketsServiceDeps {
   readonly summaryWriter?: SummaryWriter;
   /** gh for PR writes (reviews `prPrepare`/`prCommit`); absent: the gate refuses them. */
   readonly ghWrites?: GhWrites;
+  /** Astra's re-plans (a private read-only item session); absent: `replan` answers an error. */
+  readonly replanner?: Pick<Replanner, "replan" | "stop">;
 }
 
 export interface GhWrites {
@@ -71,7 +76,6 @@ export interface GhWrites {
   readonly gh: string;
 }
 
-const UNAVAILABLE: Answer = { ok: false, error: "Not available yet" };
 const PR_WRITES_OFF: Answer = { ok: false, refused: { code: "writesOff", message: "Writing to GitHub is off on this host" } };
 const NO_ATTENTION: Attention = { waiting: [], needsYou: null };
 const clip = (s: string | null): string | null => (s === null ? null : s.slice(0, 2000));
@@ -166,6 +170,7 @@ export class TicketsService implements TicketsRelaying {
 
   stop(): void {
     this.actor.stop();
+    this.deps.replanner?.stop();
   }
 
   /** Never rejects: a failure is `{ ok: false, error }`. */
@@ -197,7 +202,7 @@ export class TicketsService implements TicketsRelaying {
         this.publish();
         return { ok: true };
       },
-      replan: () => UNAVAILABLE,
+      replan: (o) => (this.deps.replanner === undefined ? { ok: false, error: "Astra is not available on this host" } : this.deps.replanner.replan(o, () => this.board().tickets)),
     };
     const answer = (ops[op.kind] as (o: TicketsOp) => Promise<Answer> | Answer)(op);
     return Promise.resolve(answer);
@@ -555,6 +560,23 @@ export interface HostTicketsOptions {
   readonly log: (line: string) => void;
   /** `claudeWriter` for ticket summaries. */
   readonly summaryWriter: SummaryWriter;
+  /** Astra's item sessions for `replan` (the agents bridge); absent: `replan` answers an error. */
+  readonly astra?: Pick<AstraSessionsDeps, "agents" | "launch" | "sessionFile" | "agentHome" | "socketPath" | "clock">;
+}
+
+/** Re-plans in the Timeline's own read-only Astra sessions (`tickets/astra.json`). */
+function timelineReplanner(o: HostTicketsOptions, astra: NonNullable<HostTicketsOptions["astra"]>): Replanner {
+  let replanner: Replanner | null = null;
+  const sessions = new AstraSessions({
+    ...astra,
+    storePath: join(o.dir, "astra.json"),
+    emit: (item) => replanner?.observe(item),
+    log: o.log,
+    seed: timelineSeed,
+    readOnly: true,
+  });
+  replanner = new Replanner({ sessions, clock: astra.clock });
+  return replanner;
 }
 
 /** gh signed out (as opposed to failing): its login is then nobody's. */
@@ -587,6 +609,7 @@ export function hostTicketsService(o: HostTicketsOptions): TicketsService {
     summaryWriter: o.summaryWriter,
     now: () => Date.now(),
     log: o.log,
+    ...(o.astra === undefined ? {} : { replanner: timelineReplanner(o, o.astra) }),
   });
 }
 

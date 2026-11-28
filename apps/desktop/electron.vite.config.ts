@@ -32,6 +32,16 @@ const staleSignal = {
   },
 }
 
+// SVAR's bundled CSS (the Board's Timeline) declares Roboto and Open Sans from cdn.svar.dev; the
+// renderer uses its own fonts and loads nothing from a CDN (CSP font-src 'self' data:).
+const svarNoCdnFonts = {
+  name: 'relay-svar-no-cdn-fonts',
+  transform(code: string, id: string) {
+    if (!/[\\/]@svar-ui[\\/].*\.css$/.test(id)) return null
+    return { code: code.replace(/@font-face\s*\{[^}]*\}/g, ''), map: null }
+  },
+}
+
 // The built app keeps the strict CSP from index.html; only the dev server relaxes it for HMR.
 const devCsp = {
   name: 'eva-dev-csp',
@@ -73,7 +83,7 @@ export default defineConfig({
       __RELAY_BUILD__: JSON.stringify(buildStamp),
       __RELAY_BUILT_AT__: JSON.stringify(new Date().toISOString()),
     },
-    plugins: [react(), devCsp, staleSignal],
+    plugins: [react(), devCsp, staleSignal, svarNoCdnFonts],
     server: {
       // This app's workspace (apps/desktop/pnpm-workspace.yaml) is nested in the monorepo: allow the
       // monorepo root for its packages, @relay/widget-runtime, @relay/portrait-motion and the DiceBear
