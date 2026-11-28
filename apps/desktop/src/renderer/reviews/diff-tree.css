@@ -1,0 +1,178 @@
+/* Diff tab: wrapped lines in fixed gutters, the file tree rail, inline review threads. */
+
+/* Lines wrap inside their cell: no row scrolls sideways in split, unified or a narrow pane. */
+.eva-rv-diff .eva-rv-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  min-width: 0;
+  overflow: hidden;
+}
+.eva-rv-diff .eva-rv-code code.hljs {
+  display: inline;
+  padding: 0;
+  overflow: visible;
+  white-space: inherit;
+  background: none;
+}
+.eva-rv-filediffs {
+  overflow-x: hidden;
+}
+.eva-rv-diff .eva-rv-num {
+  position: relative;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+/* The + that starts a thread on a line: in the gutter, on hover or focus. */
+.eva-rv-addline {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-contrast);
+  cursor: pointer;
+  opacity: 0;
+}
+.eva-rv-diff tr:hover .eva-rv-addline,
+.eva-rv-addline:focus-visible {
+  opacity: 1;
+}
+
+/* The rail: fixed width (saved), its edge drags. */
+.eva-rv-ftree {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--eva-c-border);
+}
+.eva-rv-ftree-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-ftree-empty {
+  padding: var(--mantine-spacing-xs);
+}
+.eva-rv-ftree-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.eva-rv-ftree-resize:hover,
+.eva-rv-ftree-resize:focus-visible {
+  outline: 0;
+  background: color-mix(in srgb, var(--mantine-primary-color-filled) 40%, transparent);
+}
+
+/* A tree row: icon, name, then +, - and Viewed in fixed columns so they line up at every depth. */
+.eva-rv-tree-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 36px 36px 18px;
+  align-items: center;
+  column-gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-height: 24px;
+  padding-right: calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius-sm);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-tree-row:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-tree-row[data-active] {
+  background: var(--eva-c-secondary-active-background);
+}
+.eva-rv-tree-icon {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-tree-row[data-change='ADDED'] .eva-rv-tree-icon {
+  color: var(--eva-c-success);
+}
+.eva-rv-tree-row[data-change='DELETED'] .eva-rv-tree-icon {
+  color: var(--eva-c-danger);
+}
+.eva-rv-tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-rv-tree-row[data-kind='dir'] .eva-rv-tree-label {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-tree-row[data-kind='file'][data-viewed] .eva-rv-tree-label {
+  color: var(--eva-c-muted-foreground);
+  text-decoration: line-through;
+}
+.eva-rv-tree-add,
+.eva-rv-tree-del {
+  font-family: var(--eva-font-mono);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.eva-rv-tree-add {
+  color: var(--eva-c-success);
+}
+.eva-rv-tree-del {
+  color: var(--eva-c-danger);
+}
+.eva-rv-tree-check {
+  display: grid;
+  place-items: center;
+}
+
+/* Review threads under their line. */
+.eva-rv-ithreads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  font-family: var(--mantine-font-family);
+  line-height: 1.5;
+  font-size: var(--eva-fz-body);
+  white-space: normal;
+  word-break: normal;
+}
+.eva-rv-ithread {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-background);
+}
+.eva-rv-ithread > .eva-rv-replybox {
+  align-self: stretch;
+}
+.eva-rv-ithread-comment {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  align-self: stretch;
+  min-width: 0;
+}
+.eva-rv-ithread-comment + .eva-rv-ithread-comment {
+  padding-top: calc(var(--mantine-spacing-xs) * 0.6);
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rv-ithreads-notice {
+  padding: 0 var(--mantine-spacing-sm);
+}

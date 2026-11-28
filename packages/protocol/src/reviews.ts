@@ -156,6 +156,31 @@ export const ReviewPrActions = z.object({
 });
 export type ReviewPrActions = z.infer<typeof ReviewPrActions>;
 
+/** Review comments one PR read carries. */
+export const MAX_REVIEW_COMMENTS = 300;
+
+/**
+ * One review (line) comment. `line` is its line in the current diff (null when outdated),
+ * `originalLine` the line it was written on; `side` LEFT is the old file. A reply has `inReplyTo`
+ * (its thread root's id) and its root's place.
+ */
+export const ReviewComment = z.object({
+  id: z.number().int(),
+  inReplyTo: z.number().int().nullable(),
+  path: z.string(),
+  line: z.number().int().nullable(),
+  originalLine: z.number().int().nullable(),
+  side: z.enum(["LEFT", "RIGHT"]),
+  outdated: z.boolean(),
+  author: z.string(),
+  /** Markdown. */
+  body: z.string(),
+  at: ms,
+  /** Who reacted with each emoji (unicode); absent from older hosts. */
+  reactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
+});
+export type ReviewComment = z.infer<typeof ReviewComment>;
+
 export const ReviewPr = z.object({
   repo: z.string(),
   number: z.number().int(),
@@ -167,6 +192,8 @@ export const ReviewPr = z.object({
   createdAt: ms,
   updatedAt: ms,
   body: z.string(),
+  /** Who reacted to the body with each emoji (unicode); absent from older hosts. */
+  bodyReactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
   base: z.string(),
   head: z.string(),
   headSha: z.string(),
@@ -191,6 +218,10 @@ export const ReviewPr = z.object({
       /** A review's verdict (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`); a commit's short sha. */
       state: z.string().nullable(),
       at: ms,
+      /** A comment's REST id (reactions go to it); absent on reviews, commits and from older hosts. */
+      id: z.number().int().optional(),
+      /** Who reacted to a comment with each emoji (unicode); absent from older hosts. */
+      reactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
     }),
   ),
   checks: z.array(ReviewCheck),
@@ -208,6 +239,8 @@ export const ReviewPr = z.object({
   diffTruncated: z.boolean(),
   /** Merge, review and check facts for PR actions; absent from older hosts and when GitHub could not say. */
   actions: ReviewPrActions.optional(),
+  /** Review (line) comments, oldest first, at most `MAX_REVIEW_COMMENTS`; absent from older hosts and when GitHub could not say. */
+  reviewComments: z.array(ReviewComment).optional(),
 });
 export type ReviewPr = z.infer<typeof ReviewPr>;
 

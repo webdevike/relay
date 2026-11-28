@@ -9,6 +9,8 @@ import type { Budget } from "../tickets/budget";
 import type { ToolRun } from "./exec";
 import type { Fetch, ReviewMedia } from "./linear";
 import { isGithubUpload, isLinearUpload, localizeImages } from "./media";
+import { readReviewComments } from "./review-comments";
+import { readPrReactions, withReactions } from "./pr-reactions";
 
 export const REVIEWS_ORG = "eCardSystems";
 /** Failed Actions runs whose attempt one PR read asks for. */
@@ -78,7 +80,8 @@ export interface RawPr {
     body: string;
     submittedAt: string;
   }[];
-  comments: { author: { login: string } | null; body: string; createdAt: string }[];
+  /** `url` ends `#issuecomment-<REST id>`. */
+  comments: { author: { login: string } | null; body: string; createdAt: string; url?: string }[];
   assignees: { login: string }[];
   labels: { name: string; color: string }[];
   milestone?: { title: string } | null;
@@ -111,13 +114,19 @@ function checkState(c: { conclusion?: string | null | undefined; state?: string 
 
 const CHECK_ORDER = ["fail", "pending", "pass", "skipped"];
 
+/** A conversation comment's REST id, from its `#issuecomment-<id>` url. */
+function commentId(url: string | undefined): { id?: number } {
+  const id = Number(/#issuecomment-(\d+)$/.exec(url ?? "")?.[1]);
+  return Number.isSafeInteger(id) && id > 0 ? { id } : {};
+}
+
 /** `gh pr view --json PR_JSON_FIELDS` plus its diff at `baseRefOid...headRefOid` as the protocol's PR; pushed commits join the timeline. */
 export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
   const login = (a: { login: string } | null): string => a?.login ?? "ghost";
   const requested = raw.reviewRequests.map((r) => r.login ?? r.slug ?? r.name ?? "?");
   const reviewed = raw.latestReviews.filter((r) => !requested.includes(login(r.author))).map((r) => ({ login: login(r.author), state: r.state }));
   const timeline: ReviewPr["timeline"] = [
-    ...raw.comments.map((c) => ({ kind: "comment" as const, author: login(c.author), body: c.body, state: null, at: ms(c.createdAt) })),
+    ...raw.comments.map((c) => ({ kind: "comment" as const, author: login(c.author), body: c.body, state: null, at: ms(c.createdAt), ...commentId(c.url) })),
     ...raw.reviews
       .filter((r) => r.body.trim() !== "" || r.state !== "COMMENTED")
       .map((r) => ({ kind: "review" as const, author: login(r.author), body: r.body, state: r.state, at: ms(r.submittedAt) })),
@@ -443,8 +452,19 @@ export class GitHub {
 
   async pr(repo: string, number: number): Promise<ReviewPr> {
     const raw = JSON.parse(await this.call(["pr", "view", String(number), "-R", repo, "--json", PR_JSON_FIELDS])) as RawPr;
-    const [diff, actions] = await Promise.all([this.diffAt(repo, raw.baseRefOid, raw.headRefOid), this.actions(repo, number, raw.headRefOid)]);
-    const pr = { ...toPr(repo, raw, diff), ...(actions === null ? {} : { actions }) };
+    const graphql = ghGraphql(this.run, this.gh, this.budget);
+    const [diff, actions, reviewComments, reactions] = await Promise.all([
+      this.diffAt(repo, raw.baseRefOid, raw.headRefOid),
+      this.actions(repo, number, raw.headRefOid),
+      readReviewComments(graphql, repo, number).catch(() => null),
+      readPrReactions(graphql, repo, number).catch(() => null),
+    ]);
+    const read = toPr(repo, raw, diff);
+    const pr = {
+      ...(reactions === null ? read : withReactions(read, reactions)),
+      ...(actions === null ? {} : { actions }),
+      ...(reviewComments === null ? {} : { reviewComments }),
+    };
     if (this.images === undefined) return pr;
     // GitHub's attachments open only signed in, and its `<img>` tags become markdown; PR bodies
     // carry Linear proof screenshots too.
@@ -454,11 +474,12 @@ export class GitHub {
       { match: isLinearUpload, headers: () => Promise.resolve(((key) => (key ? { authorization: key } : {}))(linearKey())) },
     ];
     const local = (md: string): Promise<string> => localizeImages(md, media, sources, fetchFn);
-    const [body, timeline] = await Promise.all([
+    const [body, timeline, comments] = await Promise.all([
       local(pr.body),
       Promise.all(pr.timeline.map(async (t) => (t.kind === "commit" ? t : { ...t, body: await local(t.body) }))),
+      reviewComments === null ? null : Promise.all(reviewComments.map(async (c) => ({ ...c, body: await local(c.body) }))),
     ]);
-    return { ...pr, body, timeline };
+    return { ...pr, body, timeline, ...(comments === null ? {} : { reviewComments: comments }) };
   }
 
   /**

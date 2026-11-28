@@ -76,6 +76,27 @@ export const ReviewPrActionsSchema = z.object({
 })
 export type ReviewPrActions = z.infer<typeof ReviewPrActionsSchema>
 
+/**
+ * One review (line) comment (relay protocol ReviewComment). `line` is its line in the current diff
+ * (null when outdated), `originalLine` the line it was written on; `side` LEFT is the old file. A
+ * reply has `inReplyTo` (its thread root's id).
+ */
+export const ReviewCommentSchema = z.object({
+  id: z.number(),
+  inReplyTo: z.number().nullable(),
+  path: z.string(),
+  line: z.number().nullable(),
+  originalLine: z.number().nullable(),
+  side: z.enum(['LEFT', 'RIGHT']),
+  outdated: z.boolean(),
+  author: z.string(),
+  body: z.string(),
+  at: z.number(),
+  /** Who reacted with each emoji (unicode); absent from older hosts. */
+  reactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
+})
+export type ReviewComment = z.infer<typeof ReviewCommentSchema>
+
 export const ReviewPrSchema = z.object({
   repo: z.string(),
   number: z.number(),
@@ -87,6 +108,8 @@ export const ReviewPrSchema = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   body: z.string(),
+  /** Who reacted to the body with each emoji (unicode); absent from older hosts and local reads. */
+  bodyReactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
   base: z.string(),
   head: z.string(),
   /** The head commit the PR was read at (the Guide is asked for this head); absent from older hosts. */
@@ -117,6 +140,10 @@ export const ReviewPrSchema = z.object({
       body: z.string(),
       state: z.string().nullable(),
       at: z.number(),
+      /** A comment's REST id (reactions go to it); absent on reviews and from older hosts. */
+      id: z.number().optional(),
+      /** Who reacted to a comment with each emoji (unicode); absent from older hosts. */
+      reactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
     }),
   ),
   checks: z.array(ReviewCheckSchema),
@@ -133,6 +160,8 @@ export const ReviewPrSchema = z.object({
   diff: z.string(),
   /** PR action facts from the host (remote reads); absent otherwise. */
   actions: ReviewPrActionsSchema.optional(),
+  /** Review (line) comments, oldest first (relay protocol ReviewComment); absent from older hosts and local reads. */
+  reviewComments: z.array(ReviewCommentSchema).optional(),
 })
 export type ReviewPr = z.infer<typeof ReviewPrSchema>
 

@@ -19,6 +19,7 @@ import { cardGenMachine } from '../renderer/canvas/agent/card-gen.machine'
 import { shareSnapshotsMachine } from './meetings/share-snapshots.machine'
 import { cardStackMachine } from '../renderer/chat/stack/card-stack.machine'
 import { cardMoveMachine } from '../renderer/agents-board/card-move.machine'
+import { prMergeMachine } from '../renderer/reviews/pr-merge.machine'
 import { assistantAskMachine } from '../renderer/tickets/assistant-ask.machine'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
@@ -58,6 +59,11 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
     file: 'card-move',
     title: 'Dragging a Board card to another column (desktop)',
     machine: cardMoveMachine,
+  },
+  {
+    file: 'pr-merge',
+    title: 'Merging a pull request from its page (desktop)',
+    machine: prMergeMachine,
   },
   {
     file: 'assistant-ask',

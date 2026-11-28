@@ -33,7 +33,11 @@ const THREAD = {
   updatedAt: Date.now(),
 }
 
-const invoke = vi.fn(async (ch: string) => {
+/** Per-test answers by channel (the PR page's writes, guide, approvable); they win over the defaults. */
+let handlers: Record<string, (arg: Record<string, unknown>) => unknown> = {}
+const invoke = vi.fn(async (ch: string, arg?: Record<string, unknown>) => {
+  const h = handlers[ch]
+  if (h) return h(arg ?? {})
   if (ch === 'reviews.queue') {
     return {
       ok: true,
@@ -56,7 +60,7 @@ const invoke = vi.fn(async (ch: string) => {
   return { ok: false, error: { code: 'x', message: 'not in tests' } }
 })
 vi.mock('../ipc', () => ({
-  invoke: (...a: unknown[]) => invoke(...(a as [string])),
+  invoke: (...a: unknown[]) => invoke(...(a as [string, Record<string, unknown>])),
   on: () => () => {},
 }))
 const openPlace = vi.fn()
@@ -78,6 +82,9 @@ import { ReviewPage } from './ReviewPage'
 import { ReviewsList } from './ReviewsList'
 import { reviewPlaceOf } from './review-place'
 import { resetReviewsForTests, reviewsStore } from './reviews-store'
+import type { ReviewPr } from '@evaos/contract'
+import { applyUiPrefs, getPref, parseBool } from '../ui-prefs'
+import { PrView } from './PrView'
 
 const seed = (here: Place): void =>
   tabsStore.setState(
@@ -99,6 +106,7 @@ const THREAD_PLACE = reviewPlaceOf({
 
 beforeEach(() => {
   invoke.mockClear()
+  handlers = {}
   openPlace.mockClear()
   openLink.mockClear()
   openPlaceBeside.mockClear()
@@ -196,5 +204,297 @@ describe('ReviewPage', () => {
     const odd = placeOf('review:other:1')
     wrap(<ReviewPage place={odd} />)
     expect(screen.getByTestId('review-place-unknown')).toBeInTheDocument()
+  })
+})
+
+const HEAD = 'a'.repeat(40)
+const ACTIONS: NonNullable<ReviewPr['actions']> = {
+  viewerPermission: 'WRITE',
+  mergeable: 'MERGEABLE',
+  mergeStateStatus: 'CLEAN',
+  methods: { merge: true, squash: true, rebase: false },
+  autoMerge: null,
+  mergeQueue: { required: false, inQueue: false, entryState: null },
+  reviews: [{ login: 'noah', state: 'APPROVED', at: 1 }],
+  checks: [
+    {
+      name: 'test',
+      state: 'fail',
+      url: null,
+      workflow: 'CI',
+      runId: 7,
+      runNumber: 3,
+      attempt: 1,
+      headSha: HEAD,
+    },
+    {
+      name: 'build',
+      state: 'pass',
+      url: null,
+      workflow: 'CI',
+      runId: 7,
+      runNumber: 3,
+      attempt: null,
+      headSha: HEAD,
+    },
+    {
+      name: 'lint',
+      state: 'pass',
+      url: null,
+      workflow: null,
+      runId: null,
+      runNumber: null,
+      attempt: null,
+      headSha: HEAD,
+    },
+  ],
+}
+
+const prOf = (over: Partial<ReviewPr> = {}): ReviewPr => ({
+  repo: 'eCardSystems/api',
+  number: 42,
+  title: 'ENG-7 Pay out refunds in one batch',
+  url: 'https://github.com/eCardSystems/api/pull/42',
+  state: 'OPEN',
+  draft: false,
+  author: { login: 'todd', avatarUrl: null },
+  createdAt: Date.now() - 60_000,
+  updatedAt: Date.now(),
+  body: 'Refunds go out in one batch.',
+  bodyReactions: [{ emoji: '🎉', users: ['noah'] }],
+  base: 'main',
+  head: 'refund-batch',
+  headSha: HEAD,
+  additions: 1,
+  deletions: 1,
+  reviewers: [{ login: 'noah', state: 'APPROVED' }],
+  assignees: [],
+  labels: [],
+  milestone: null,
+  projects: [],
+  participants: ['todd', 'noah', 'sam'],
+  commits: [],
+  timeline: [
+    {
+      kind: 'comment',
+      author: 'noah',
+      body: 'Looks right',
+      state: null,
+      at: Date.now() - 30_000,
+      id: 101,
+    },
+  ],
+  checks: [],
+  files: [{ path: 'src/a.ts', additions: 1, deletions: 1, change: 'MODIFIED' }],
+  diff: 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n',
+  actions: ACTIONS,
+  ...over,
+})
+
+const showPr = (pr: ReviewPr, onRefresh = vi.fn()) =>
+  wrap(<PrView pr={pr} fetchedAt={Date.now()} now={Date.now()} onRefresh={onRefresh} />)
+
+const calls = (ch: string) => invoke.mock.calls.filter((c) => c[0] === ch).map((c) => c[1])
+
+/** The gate approves every prepare and every commit lands (a merge reads back `merged`). */
+const gateOk = (): void => {
+  handlers['reviews.prPrepare'] = () => ({
+    ok: true,
+    value: {
+      source: 'host',
+      ok: true,
+      approval: { id: 'ap-1', expiresAt: Date.now() + 120_000, summary: 'Write it' },
+    },
+  })
+  handlers['reviews.prCommit'] = (a) => ({
+    ok: true,
+    value: {
+      source: 'host',
+      ok: true,
+      outcome: { opId: a['opId'], state: 'done', result: { merge: 'merged' } },
+    },
+  })
+}
+
+describe('PrView', () => {
+  beforeEach(() => applyUiPrefs({}))
+  // jsdom has no scrolling; a private thread scrolls its newest answer into view.
+  Element.prototype.scrollIntoView ??= () => {}
+
+  it('has Guide, Diff and Comments; Comments first, checks in the sidebar not a tab', async () => {
+    handlers['reviews.guide'] = () => ({
+      ok: false,
+      error: { code: 'x', message: 'no guide in tests' },
+    })
+    showPr(prOf())
+    expect(screen.getByTestId('review-conversation')).toHaveTextContent('Looks right')
+    expect(screen.queryByTestId('review-tab-checks')).toBeNull()
+    expect(screen.getByTestId('review-checks')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('review-tab-diff'))
+    expect(await screen.findByTestId('review-files')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('review-tab-guide'))
+    await waitFor(() => expect(calls('reviews.guide')).toHaveLength(1))
+    // View in Diff and the dock's Review changes stay on the Guide and Diff tabs.
+    expect(screen.getByTestId('review-changes-dock')).toBeInTheDocument()
+  })
+
+  it('dedupes checks by run and re-runs only an eligible failed run, without a confirm', async () => {
+    gateOk()
+    showPr(prOf())
+    const rows = screen.getAllByTestId('pr-check')
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining('CI'),
+      expect.stringContaining('lint'),
+    ])
+    expect(screen.getAllByTestId('pr-check-rerun')).toHaveLength(1)
+    fireEvent.click(screen.getByTestId('pr-check-rerun'))
+    await waitFor(() => expect(calls('reviews.prCommit')).toHaveLength(1))
+    expect(calls('reviews.prPrepare')).toHaveLength(0)
+    expect(calls('reviews.prCommit')[0]).toMatchObject({
+      mutation: { kind: 'rerun', runId: 7, attempt: 1, headSha: HEAD },
+    })
+  })
+
+  it('merges after a confirm naming the head, base, method and outcome: one prepare, one commit', async () => {
+    gateOk()
+    const onRefresh = vi.fn()
+    showPr(prOf(), onRefresh)
+    fireEvent.click(screen.getByTestId('pr-merge-start'))
+    expect(await screen.findByTestId('pr-merge-Head')).toHaveTextContent('aaaaaaa')
+    expect(screen.getByTestId('pr-merge-Base')).toHaveTextContent('main')
+    expect(screen.getByTestId('pr-merge-Method')).toHaveTextContent('Squash')
+    expect(screen.getByTestId('pr-merge-confirm')).toHaveTextContent('Merge now')
+    expect(calls('reviews.prPrepare')).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('pr-merge-confirm'))
+    await waitFor(() =>
+      expect(screen.getByTestId('pr-merge')).toHaveAttribute('data-state', 'merged'),
+    )
+    const mutation = { kind: 'merge', method: 'squash', intent: 'merge', expectHead: HEAD }
+    expect(calls('reviews.prPrepare')).toEqual([{ mutation: expect.objectContaining(mutation) }])
+    expect(calls('reviews.prCommit')).toEqual([
+      expect.objectContaining({ approvalId: 'ap-1', mutation: expect.objectContaining(mutation) }),
+    ])
+    expect(onRefresh).toHaveBeenCalled()
+  })
+
+  it('a refusal shows the reason and commits nothing', async () => {
+    handlers['reviews.prPrepare'] = () => ({
+      ok: true,
+      value: {
+        source: 'host',
+        ok: false,
+        refused: { code: 'writesOff', message: 'Writes are off on the host' },
+      },
+    })
+    showPr(prOf({ actions: { ...ACTIONS, mergeStateStatus: 'BLOCKED' } }))
+    expect(screen.getByTestId('pr-merge-start')).toHaveTextContent('Turn on auto-merge')
+    fireEvent.click(screen.getByTestId('pr-merge-start'))
+    fireEvent.click(await screen.findByTestId('pr-merge-confirm'))
+    expect(await screen.findByTestId('pr-merge-note')).toHaveTextContent(
+      'Writes are off on the host',
+    )
+    expect(calls('reviews.prCommit')).toHaveLength(0)
+  })
+
+  it('hides merge, re-run, request review and reactions without the host’s actions facts', () => {
+    showPr(prOf({ actions: undefined }))
+    expect(screen.queryByTestId('pr-merge')).toBeNull()
+    expect(screen.queryByTestId('pr-check-rerun')).toBeNull()
+    expect(screen.queryByTestId('pr-request-review')).toBeNull()
+    expect(screen.queryByTestId('pr-react-add')).toBeNull()
+    // The status still reads from the PR itself.
+    expect(screen.getByTestId('pr-status-line')).toBeInTheDocument()
+  })
+
+  it('folds the sidebar to a status strip and keeps the choice', async () => {
+    showPr(prOf({ actions: { ...ACTIONS, mergeStateStatus: 'BEHIND' } }))
+    expect(screen.queryByTestId('pr-strip')).toBeNull()
+    fireEvent.click(screen.getByTestId('pr-sidebar-toggle'))
+    expect(screen.queryByTestId('review-rail')).toBeNull()
+    expect(screen.getByTestId('pr-strip-line')).toHaveTextContent('Blocked: 1 failing check')
+    expect(getPref('reviews.prSidebar', true, parseBool)).toBe(false)
+  })
+
+  it('in a narrow pane starts folded and opens over the tab without changing the kept choice', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(520)
+    try {
+      showPr(prOf())
+      expect(screen.getByTestId('review-detail')).toHaveAttribute('data-narrow', 'true')
+      expect(screen.queryByTestId('review-rail')).toBeNull()
+      expect(screen.getByTestId('pr-strip')).toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('pr-sidebar-toggle'))
+      expect(screen.getByTestId('review-rail')).toBeInTheDocument()
+      expect(getPref('reviews.prSidebar', true, parseBool)).toBe(true)
+    } finally {
+      width.mockRestore()
+    }
+  })
+
+  it('posts a comment only after the gate’s confirm, and asks @Astra privately', async () => {
+    gateOk()
+    handlers['reviews.astraAsk'] = () => ({
+      ok: true,
+      value: {
+        url: prOf().url,
+        title: 'x',
+        file: 'f',
+        turns: [],
+        working: true,
+        waiting: null,
+        error: null,
+      },
+    })
+    showPr(prOf())
+    const box = screen.getByTestId('review-composer')
+    fireEvent.change(box, { target: { value: 'Ship it' } })
+    fireEvent.click(screen.getByTestId('review-composer-send'))
+    expect(await screen.findByTestId('review-confirm-text')).toHaveTextContent('Ship it')
+    expect(calls('reviews.prCommit')).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('review-confirm-post'))
+    await waitFor(() => expect(calls('reviews.prCommit')).toHaveLength(1))
+    expect(calls('reviews.prPrepare')[0]).toMatchObject({
+      mutation: { kind: 'comment', body: 'Ship it' },
+    })
+
+    fireEvent.change(box, { target: { value: '@Astra is the batch idempotent?' } })
+    fireEvent.click(screen.getByTestId('review-composer-send'))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(1))
+    expect(calls('reviews.prPrepare')).toHaveLength(1)
+    expect(calls('reviews.comment')).toHaveLength(0)
+  })
+
+  it('shows who reacted and sets Isaac’s reaction as desired state', async () => {
+    gateOk()
+    showPr(prOf())
+    const chip = screen.getAllByTestId('pr-reaction')[0]!
+    expect(chip).toHaveTextContent('🎉1')
+    fireEvent.click(chip)
+    await waitFor(() => expect(calls('reviews.prCommit')).toHaveLength(1))
+    expect(calls('reviews.prPrepare')).toHaveLength(0)
+    expect(calls('reviews.prCommit')[0]).toMatchObject({
+      mutation: { kind: 'react', target: { kind: 'prBody' }, emoji: 'hooray', on: true },
+    })
+    expect(screen.getAllByTestId('pr-reaction')[0]).toHaveTextContent('🎉2')
+  })
+
+  it('submits a draft review (request changes with a summary) through the existing confirm', async () => {
+    handlers['reviews.review'] = () => ({ ok: true, value: { ok: true } })
+    showPr(prOf())
+    fireEvent.click(screen.getByTestId('review-changes'))
+    fireEvent.click(await screen.findByText('Request changes'))
+    expect(screen.getByTestId('review-submit')).toBeDisabled()
+    fireEvent.change(screen.getByTestId('review-body'), { target: { value: 'Needs a test' } })
+    fireEvent.click(screen.getByTestId('review-submit'))
+    await waitFor(() =>
+      expect(calls('reviews.review')).toEqual([
+        { repo: 'eCardSystems/api', number: 42, event: 'request-changes', body: 'Needs a test' },
+      ]),
+    )
+  })
+
+  it('links the tickets its title names to their pages', () => {
+    showPr(prOf())
+    fireEvent.click(screen.getByTestId('pr-linked-ticket'))
+    expect(openPlace).toHaveBeenCalledWith(placeOf('ticket:ENG-7'))
   })
 })

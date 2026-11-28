@@ -2,7 +2,7 @@
 // Linear's issue view: a top bar (Board > column > key, prev/next over the board's order), a
 // centered main column (title, summary, description, sub-issues, resources, activity) beside the
 // properties sidebar, or, with the sidebar folded, a one-line status strip. A PR's page shows the
-// Reviews detail for it inside the same chrome. Esc goes PR, ticket, board through the window's
+// PR view (TicketPrPage) inside the same chrome. Esc goes PR, ticket, board through the window's
 // history, so the board comes back as it was left.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ActionIcon, Tooltip, UnstyledButton } from '@mantine/core'
@@ -17,7 +17,7 @@ import {
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
 } from '@tabler/icons-react'
-import type { AgentCard, ReviewPr, ReviewPrHit } from '@evaos/contract'
+import type { AgentCard, ReviewPrHit } from '@evaos/contract'
 import { placeKey, placeOf, type Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { setReviewTitle } from '../eva/names-store'
@@ -26,7 +26,7 @@ import { openPlace } from '../navigation/navigate'
 import { historyJump, navHistoryStore } from '../navigation/nav-history'
 import { useReplacePlace } from '../pages/place-host'
 import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
-import { Detail } from '../reviews/ReviewsPage'
+import { TicketPrPage } from './TicketPrPage'
 import { startAgentsBoard, useAgentsBoard } from '../agents-board/agents-store'
 import { COLUMN_TITLE, visibleCards } from '../agents-board/board-view'
 import type { TicketPr } from '../agents-board/ticket-prs'
@@ -49,7 +49,6 @@ import {
   parseTicketPlace,
   ticketHome,
   ticketPlace,
-  type TicketPrRef,
   type TicketRef,
 } from './ticket-place'
 import './tickets.css'
@@ -352,36 +351,6 @@ function TicketMain({
   )
 }
 
-/** A PR's page inside the ticket: today's Reviews detail for it, read when it opens. */
-function PrRoute({ pr, now }: { pr: TicketPrRef; now: number }) {
-  const [loaded, setLoaded] = useState<{ pr: ReviewPr; at: number } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const { repo, number } = pr
-  const load = useMemo(
-    () => async (): Promise<void> => {
-      setError(null)
-      const r = await invoke('reviews.pr', { repo, number })
-      if (r.ok) setLoaded({ pr: r.value, at: Date.now() })
-      else setError(r.error.message)
-    },
-    [repo, number],
-  )
-  useEffect(() => {
-    void load()
-  }, [load])
-  if (!loaded)
-    return (
-      <div className="eva-tk-dim eva-tk-loading" data-testid="ticket-pr-loading">
-        {error ? `Couldn't load ${repo}#${number}: ${error}` : 'Loading the pull request...'}
-      </div>
-    )
-  return (
-    <div className="eva-tk-pr eva-rv" data-testid="ticket-pr-page">
-      <Detail pr={loaded.pr} fetchedAt={loaded.at} now={now} onRefresh={() => void load()} />
-    </div>
-  )
-}
-
 /** The tab is named like a review tab: `ENG-12 Title`, remembered for the next start. */
 function useTabTitle(at: TicketRef, title: string | null): void {
   useEffect(() => {
@@ -464,7 +433,7 @@ function TicketView({ at }: { at: TicketRef }) {
         <StatusStrip at={at} data={m.data} card={m.card} prs={m.prs} go={replace} />
       ) : null}
       {at.pr ? (
-        <PrRoute key={`${at.pr.repo}#${at.pr.number}`} pr={at.pr} now={now} />
+        <TicketPrPage key={`${at.pr.repo}#${at.pr.number}`} pr={at.pr} now={now} />
       ) : (
         <TicketBody at={at} m={m} now={now} />
       )}

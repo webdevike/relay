@@ -9,6 +9,7 @@
   "createdAt": 1795780800000,
   "updatedAt": 1795788000000,
   "body": "Refunds go out in one batch per day.",
+  "bodyReactions": [{ "emoji": "🎉", "users": ["noah"] }],
   "base": "main",
   "head": "refund-batch",
   "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -19,7 +20,17 @@
   "labels": [],
   "milestone": null,
   "projects": [],
-  "timeline": [],
+  "timeline": [
+    {
+      "kind": "comment",
+      "author": "noah",
+      "body": "Looks right to me.",
+      "state": null,
+      "at": 1795784400000,
+      "id": 101,
+      "reactions": [{ "emoji": "👍", "users": ["todd"] }]
+    }
+  ],
   "checks": [
     { "name": "test", "state": "fail", "url": "https://github.com/eCardSystems/api/actions/runs/7" },
     { "name": "lint", "state": "pass", "url": null }

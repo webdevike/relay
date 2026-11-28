@@ -62,14 +62,13 @@ test('ticket page on a real ticket, every write a dry run', async ({ app, shell 
   await expect(page.locator(sel('review-head-id'))).toHaveText('react-client-reports-app#254', {
     timeout: 60_000,
   })
-  await expect(page.locator(sel('review-reviewers'))).toBeVisible()
+  await expect(page.locator(sel('review-rail'))).toBeVisible()
   await shot(shell, '02-pr-254-conversation')
 
-  await page.locator(sel('review-tab-files')).click()
+  await page.locator(sel('review-tab-diff')).click()
   await expect(page.locator(sel('review-diff')).first()).toBeVisible()
   await shot(shell, '03-pr-254-files')
 
-  await page.locator(sel('review-tab-checks')).click()
   await expect(page.locator(sel('review-checks'))).toBeVisible()
   await shot(shell, '04-pr-254-checks')
 

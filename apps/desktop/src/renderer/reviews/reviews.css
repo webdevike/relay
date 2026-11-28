@@ -1163,26 +1163,6 @@ button.eva-rv-sfile {
   cursor: pointer;
 }
 
-/*
- * Panel variant (the Agents board's ticket view): no rail, no inner scrolls; the Detail and the
- * ticket flow in the panel's one scroll.
- */
-.eva-rv-detail[data-variant='panel'] {
-  flex: none;
-}
-.eva-rv-detail[data-variant='panel'] .eva-rv-topbar {
-  border-bottom: 0;
-}
-.eva-rv-detail[data-variant='panel'] .eva-rv-head {
-  padding-top: 0;
-}
-.eva-rv-detail[data-variant='panel'] .eva-rv-main,
-.eva-rv-detail[data-variant='panel'] .eva-rv-content,
-.eva-rv-detail[data-variant='panel'] .eva-rv-scroll {
-  flex: none;
-  min-height: auto;
-  overflow: visible;
-}
 .eva-rv-files[data-compact] {
   height: auto;
 }
@@ -1194,18 +1174,6 @@ button.eva-rv-sfile {
 }
 .eva-rv-files[data-compact] .eva-rv-filediffs {
   overflow: visible;
-}
-.eva-rv-reviewers {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-sm);
-  font-size: var(--eva-fz-label);
-}
-.eva-rv-reviewer {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
 }
 
 /* The ticket in the panel: title, a row of properties, the clamped description, the comments. */
@@ -1291,13 +1259,156 @@ button.eva-rv-sfile {
   font-weight: var(--eva-fw-medium);
   color: var(--eva-c-foreground);
 }
-.eva-rv-detail[data-variant='panel'],
-.eva-rv-detail[data-variant='panel'] .eva-rv-content {
-  min-width: 0;
-}
-.eva-rv-detail[data-variant='panel'] .eva-rv-body,
-.eva-rv-detail[data-variant='panel'] .eva-rv-comment,
+.eva-rv-detail[data-narrow] .eva-rv-body,
+.eva-rv-detail[data-narrow] .eva-rv-comment,
 .eva-rv-lpanel .eva-rv-body,
 .eva-rv-lpanel .eva-rv-lcomment-body {
   overflow-wrap: anywhere;
+}
+
+/* PR page: the sidebar (status, merge box, reviewers, checks, tickets, details) and its folded strip. */
+.eva-rv-detail {
+  position: relative;
+}
+.eva-rv-side {
+  width: 280px;
+}
+/* A narrow pane: the opened sidebar sits over the tab, its full height. */
+.eva-rv-detail[data-narrow] .eva-rv-main {
+  position: relative;
+}
+.eva-rv-detail[data-narrow] .eva-rv-side {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: min(280px, 100%);
+  background: var(--eva-c-background);
+  box-shadow: var(--eva-shadow);
+  z-index: 2;
+}
+.eva-rv-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-sm);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-md);
+  border-top: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-strip-line {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-rv-strip-line[data-tone='ok'] {
+  color: var(--eva-c-success);
+}
+.eva-rv-strip-line[data-tone='bad'] {
+  color: var(--eva-c-danger);
+}
+.eva-rv-strip-line[data-tone='dim'] {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-conflicts {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  color: var(--eva-c-danger);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-merge {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-merge-note {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-merge-note[data-tone='ok'] {
+  color: var(--eva-c-success);
+}
+.eva-rv-merge-note[data-tone='bad'] {
+  color: var(--eva-c-danger);
+}
+.eva-rv-merge-acts {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-merge-facts,
+.eva-rv-details {
+  display: grid;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  margin: 0 0 var(--mantine-spacing-sm);
+}
+.eva-rv-merge-facts > div,
+.eva-rv-details > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-merge-facts dd,
+.eva-rv-details dd {
+  margin: 0;
+}
+.eva-rv-details {
+  font-size: var(--eva-fz-label);
+  margin: 0;
+}
+.eva-rv-checks {
+  display: flex;
+  flex-direction: column;
+}
+.eva-rv-check {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-height: 26px;
+  min-width: 0;
+}
+.eva-rv-picker {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-picker-row {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6);
+  border: 1px solid var(--eva-c-border);
+  border-radius: 999px;
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-reaction[data-mine] {
+  border-color: var(--eva-c-accent);
+  background: var(--eva-c-accent-background);
+}
+.eva-rv-reaction-pick {
+  padding: calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius-sm);
+  font-size: 16px;
+}
+.eva-rv-reaction-pick:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-rthread {
+  border-bottom: 1px solid var(--eva-c-border);
+  padding-top: var(--mantine-spacing-xs);
+}
+.eva-rv-rthread-where {
+  color: var(--eva-c-muted-foreground);
+  overflow-wrap: anywhere;
+}
+.eva-rv-rthread .eva-rv-comment {
+  border-bottom: 0;
 }

@@ -48,13 +48,12 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await expect(shell.locator(sel('review-rail'))).toContainText('tbarczak')
   await shot(shell, '02-conversation')
 
-  await shell.locator(sel('review-tab-files')).click()
+  await shell.locator(sel('review-tab-diff')).click()
   await expect(shell.locator(sel('review-diff')).first()).toBeVisible()
   await shot(shell, '03-files-split')
 
   await expect(shell.locator(sel('review-tab-commits'))).toHaveCount(0)
   await shot(shell, '04-tabs')
-  await shell.locator(sel('review-tab-checks')).click()
   await expect(shell.locator(sel('review-checks'))).toBeVisible()
   await shot(shell, '05-checks')
 
@@ -81,7 +80,7 @@ test('reviews a real PR end to end without writing anywhere', async ({ app, shel
   await expect(shell.getByRole('button', { name: 'Hand to Astra' })).toHaveCount(0)
 
   // @Astra marks the box private; what an ask does is reviews-astra.live.spec.ts.
-  await shell.locator(sel('review-tab-conversation')).click()
+  await shell.locator(sel('review-tab-comments')).click()
   const box = shell.locator(sel('review-composer'))
   await box.fill('@Astra can a hot asset page pass 1000 versions here?')
   await expect(box).toHaveAttribute('data-private', 'true')
