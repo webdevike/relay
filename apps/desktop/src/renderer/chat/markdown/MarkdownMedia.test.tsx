@@ -121,6 +121,7 @@ describe('markdown media: image or inline video', () => {
         '![Proof](https://cdn.example.com/proof.png "w=400")',
         '![Huge](https://cdn.example.com/huge.png "w=9000")',
         '![Tip](https://cdn.example.com/tip.png "The login page")',
+        '![Shot](https://cdn.example.com/shot.png "w=320 Login")',
       ].join('\n\n'),
     )
     const img = screen.getByAltText('Proof')
@@ -132,8 +133,10 @@ describe('markdown media: image or inline video', () => {
     expect(screen.getByAltText('Huge').style.maxWidth).toBe('')
     expect(screen.getByAltText('Tip')).toHaveAttribute('title', 'The login page')
     expect(screen.getByAltText('Tip').style.maxWidth).toBe('')
+    expect(screen.getByAltText('Shot').style.maxWidth).toBe('min(320px, 100%)')
+    expect(screen.getByAltText('Shot')).toHaveAttribute('title', 'Login')
     fireEvent.click(screen.getByRole('button', { name: 'Open Proof' }))
-    expect(await screen.findByAltText('Image 1 of 3')).toHaveAttribute(
+    expect(await screen.findByAltText('Image 1 of 4')).toHaveAttribute(
       'src',
       mediaUrl('https://cdn.example.com/proof.png'),
     )
@@ -244,6 +247,14 @@ describe('markdown media: render failures reach the agent', () => {
         },
       ],
     ])
+  })
+
+  it('shows the Reviews unavailable placeholder as a failure line, without loading or reporting it', () => {
+    render(inBubble('![Login screen](/reviews/media/unavailable "w=320")'))
+    expect(screen.getByTestId('md-image-error')).toHaveTextContent('Image unavailable')
+    expect(screen.queryByAltText('Login screen')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(reports()).toEqual([])
   })
 
   it('reports nothing outside a chat bubble', async () => {

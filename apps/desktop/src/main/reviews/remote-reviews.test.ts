@@ -166,10 +166,13 @@ describe('mappings', () => {
     expect(refOf('https://example.com', [])).toBeNull()
   })
 
-  it('points host image paths at the host, leaving other links alone', () => {
+  it('points host image paths at the host, leaving other links and the unavailable placeholder alone', () => {
     expect(
       absoluteMedia('a ![x](/reviews/media/f.png/tok) [l](/reviews/media/y)', 'http://h:1'),
     ).toBe('a ![x](http://h:1/reviews/media/f.png/tok) [l](/reviews/media/y)')
+    expect(absoluteMedia('![x](/reviews/media/unavailable "w=320")', 'http://h:1')).toBe(
+      '![x](/reviews/media/unavailable "w=320")',
+    )
   })
 
   it('moves commits out of the PR timeline', () => {

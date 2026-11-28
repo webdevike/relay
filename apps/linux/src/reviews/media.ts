@@ -56,8 +56,16 @@ function htmlWidth(tag: string): number | undefined {
 interface Image {
   alt: string;
   url: string;
-  /** The markdown title: an `<img>`'s width as `w=N` (the renderer's bounded width), else its title. */
+  /** The markdown title: an `<img>`'s width as `w=N` (the renderer's bounded width), followed by its title. */
   title: string | undefined;
+}
+
+/** An `<img>`'s markdown title: `w=N`, `w=N <title>` when it has both, else its title. */
+function widthTitle(width: number | undefined, title: string | undefined): string | undefined {
+  if (width === undefined) return title;
+  return title === undefined || title.trim() === ""
+    ? `w=${String(width)}`
+    : `w=${String(width)} ${title}`;
 }
 
 /** One `IMAGE` match as an image; undefined for an `<img>` without a `src`. */
@@ -74,7 +82,7 @@ function image(
   return {
     alt: attr(whole, "alt") ?? "",
     url: src,
-    title: width === undefined ? attr(whole, "title") : `w=${String(width)}`,
+    title: widthTitle(width, attr(whole, "title")),
   };
 }
 
@@ -252,9 +260,12 @@ function keep(media: ReviewMedia, key: string, ext: string, bytes: Buffer): stri
   return name;
 }
 
+/** Where a source's image that could not be downloaded points: never its (often signed) URL. */
+export const UNAVAILABLE_MEDIA = "/reviews/media/unavailable";
+
 const inflight = new Map<string, Promise<string>>();
 
-/** `url` as a host media path, downloaded once with `source`'s headers; the URL itself on failure. */
+/** `url` as a host media path, downloaded once with `source`'s headers; `UNAVAILABLE_MEDIA` on failure. */
 function download(
   url: string,
   media: ReviewMedia,
@@ -270,7 +281,7 @@ function download(
       const { ext, bytes } = await fetchMedia(url, await source.headers(), fetchFn);
       return media.path(keep(media, url, ext, bytes));
     } catch {
-      return url;
+      return UNAVAILABLE_MEDIA;
     }
   })().finally(() => inflight.delete(url));
   inflight.set(url, job);
@@ -279,8 +290,8 @@ function download(
 
 /**
  * Every image in `md` as markdown: `<img>` tags become `![alt](src "w=N")` (their width kept as the
- * title), titles stay, and images a source matches point at the host's copy. An image that fails to
- * download keeps its URL.
+ * title), titles stay, and images a source matches point at the host's copy. A source's image that fails
+ * to download points at `UNAVAILABLE_MEDIA` (its URL may be signed); other images keep their URL.
  */
 export async function localizeImages(
   md: string,

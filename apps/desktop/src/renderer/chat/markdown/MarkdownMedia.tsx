@@ -223,22 +223,28 @@ function MarkdownAudio({ src, caption }: { src: string; caption: string }) {
 export const InLink = createContext(false)
 
 /**
- * A markdown image title: `w=N` (1..2000, from an `<img width>` the Reviews media pipeline
- * rewrote) caps the image at N px within its column, never upscaling; any other title stays the
- * image's tooltip.
+ * A markdown image title: `w=N` or `w=N <title>` (N in 1..2000, from an `<img width>` the Reviews
+ * media pipeline rewrote) caps the image at N px within its column, never upscaling, and the rest
+ * is the tooltip; any other title stays the image's tooltip.
  */
 function imageTitle(title: string | undefined): {
   style: CSSProperties | undefined
   title: string | undefined
 } {
-  const w = Number(/^w=(\d{1,4})$/.exec(title ?? '')?.[1] ?? 0)
-  if (w >= 1 && w <= 2000) return { style: { maxWidth: `min(${w}px, 100%)` }, title: undefined }
+  const m = /^w=(\d{1,4})(?:\s+(.*))?$/.exec(title ?? '')
+  const w = Number(m?.[1] ?? 0)
+  if (w >= 1 && w <= 2000)
+    return { style: { maxWidth: `min(${w}px, 100%)` }, title: m?.[2] || undefined }
   return { style: undefined, title: title || undefined }
 }
 
+/** The Reviews media pipeline's stand-in for a private image it could not download. */
+const UNAVAILABLE_MEDIA = '/reviews/media/unavailable'
+
 /**
  * An image in a reply: a click (or Enter) opens it full size in the image viewer, like a widget's.
- * One that fails says so in a short line instead of a broken icon.
+ * One that fails, or that the Reviews pipeline could not download, says so in a short line instead
+ * of a broken icon.
  */
 function MarkdownImage({ src, alt, title }: { src: string; alt: string; title?: string }) {
   const [viewing, setViewing] = useState<{ images: ChatImage[]; start: number } | null>(null)
@@ -254,6 +260,12 @@ function MarkdownImage({ src, alt, title }: { src: string; alt: string; title?: 
     setFailed(true)
     report('image', src, 'image failed to load')
   }
+  if (src === UNAVAILABLE_MEDIA)
+    return (
+      <span className="eva-md-video-error" data-testid="md-image-error">
+        Image unavailable
+      </span>
+    )
   if (failed)
     return (
       <span className="eva-md-video-error" data-testid="md-image-error">

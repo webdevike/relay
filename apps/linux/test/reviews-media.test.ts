@@ -12,9 +12,16 @@ import {
   redactUrl,
   slackFetchScript,
   slackImage,
+  UNAVAILABLE_MEDIA,
 } from "../src/reviews/media";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+/** A failed private image: the placeholder with its alt and title, its URL nowhere in the output. */
+function expectUnavailable(out: string, expected: string, ...secrets: string[]): void {
+  expect(out).toBe(expected);
+  for (const secret of secrets) expect(JSON.stringify(out)).not.toContain(secret);
+}
 
 describe("review media", () => {
   // The host's config dir may have spaces; markdown only ever carries the host path.
@@ -58,17 +65,17 @@ describe("review media", () => {
     expect(readFileSync(blob?.path ?? "")).toEqual(Buffer.from(PNG));
   });
 
-  it("keeps the URL when a download fails", async () => {
+  it("points a failed download at the unavailable placeholder", async () => {
     const out = await localizeImages(
       '<img src="https://github.com/user-attachments/assets/gone">',
       media,
       [{ match: isGithubUpload, headers: () => Promise.resolve({}) }],
       () => Promise.resolve(new Response("no", { status: 404 })),
     );
-    expect(out).toBe("![](https://github.com/user-attachments/assets/gone)");
+    expectUnavailable(out, `![](${UNAVAILABLE_MEDIA})`, "assets/gone");
   });
 
-  it("keeps titles, turns an `<img>` width into `w=N`, and leaves other images as they are", async () => {
+  it("keeps titles, turns an `<img>` width into `w=N` (`w=N <title>` with a title too), and leaves other images as they are", async () => {
     const md = [
       "<img width=400 src=https://example.com/a.png alt=wide>",
       '<img style="max-width: 90%; width: 320px" src="https://example.com/b.png">',
@@ -76,6 +83,7 @@ describe("review media", () => {
       '![sized](https://example.com/d.png "w=250")',
       '![titled](<https://example.com/e.png> "The shot")',
       '<img width="50%" src="https://example.com/f.png">',
+      '<img width="320" title="Login" src="https://example.com/g.png">',
     ].join("\n\n");
     const out = await localizeImages(md, media, [], () => Promise.reject(new Error("no fetch")));
     expect(out.split("\n\n")).toEqual([
@@ -85,6 +93,7 @@ describe("review media", () => {
       '![sized](https://example.com/d.png "w=250")',
       '![titled](https://example.com/e.png "The shot")',
       "![](https://example.com/f.png)",
+      '![](https://example.com/g.png "w=320 Login")',
     ]);
   });
 
@@ -126,7 +135,7 @@ describe("review media", () => {
     expect(seen.filter((s) => s.url === signed).map((s) => s.auth)).toEqual([undefined, undefined]);
   });
 
-  it("refuses a redirect to a host off the allowlist, and too many redirects, keeping the original", async () => {
+  it("refuses a redirect to a host off the allowlist, and too many redirects, showing the placeholder", async () => {
     const seen: string[] = [];
     const gh = "https://github.com/user-attachments/assets/evil";
     const fetchFn = (url: string): Promise<Response> => {
@@ -144,7 +153,7 @@ describe("review media", () => {
       [{ match: isGithubUpload, headers: () => Promise.resolve({ authorization: "token T" }) }],
       fetchFn,
     );
-    expect(out).toBe(`![x](${gh} "Proof")`);
+    expectUnavailable(out, `![x](${UNAVAILABLE_MEDIA} "Proof")`, gh, "SECRET");
     expect(seen).toEqual([gh]);
     await expect(fetchMedia(gh, {}, fetchFn)).rejects.toThrow("not allowed");
 
@@ -158,7 +167,7 @@ describe("review media", () => {
     expect(seen).toHaveLength(4);
   });
 
-  it("fetches a private-user-images JWT URL with gh's token; an expired one keeps its markdown and the JWT stays out of errors", async () => {
+  it("fetches a private-user-images JWT URL with gh's token; an expired, timed out or failing one is the placeholder and the JWT stays out of output and errors", async () => {
     const jwt = "https://private-user-images.githubusercontent.com/9/expired.png?jwt=eyJSECRET";
     const auths: (string | undefined)[] = [];
     const expired = (_url: string, init?: RequestInit): Promise<Response> => {
@@ -166,14 +175,23 @@ describe("review media", () => {
       return Promise.resolve(new Response("expired", { status: 403 }));
     };
     const md = `<img width="400" alt="proof" src="${jwt}">`;
-    expect(
-      await localizeImages(
-        md,
-        media,
-        [{ match: isGithubUpload, headers: () => Promise.resolve({ authorization: "token T" }) }],
-        expired,
-      ),
-    ).toBe(`![proof](${jwt} "w=400")`);
+    const sources = [
+      { match: isGithubUpload, headers: () => Promise.resolve({ authorization: "token T" }) },
+    ];
+    const failing: ((url: string, init?: RequestInit) => Promise<Response>)[] = [
+      expired,
+      () => Promise.resolve(new Response("unauthorized", { status: 401 })),
+      () => Promise.reject(new DOMException("The operation timed out.", "TimeoutError")),
+      () => Promise.reject(new Error(`boom ${jwt}`)),
+    ];
+    for (const fetchFn of failing)
+      expectUnavailable(
+        await localizeImages(md, media, sources, fetchFn),
+        `![proof](${UNAVAILABLE_MEDIA} "w=400")`,
+        "eyJSECRET",
+        "jwt=",
+        "private-user-images",
+      );
     expect(auths).toEqual(["token T"]);
     const errors = await Promise.all([
       fetchMedia(jwt, {}, expired).catch((e: unknown) => String(e)),
@@ -221,7 +239,7 @@ describe("review media", () => {
         [{ match: isLinearUpload, headers: () => Promise.resolve({}) }],
         streamed,
       ),
-    ).toBe(`![big](${url})`);
+    ).toBe(`![big](${UNAVAILABLE_MEDIA})`);
     expect(pulled).toBeLessThan(13);
     expect(isGithubUpload("https://github.com.evil.example/user-attachments/assets/x")).toBe(false);
     expect(isGithubUpload("https://github.com/other/assets/x")).toBe(false);

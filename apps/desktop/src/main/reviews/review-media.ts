@@ -57,8 +57,14 @@ function htmlWidth(tag: string): number | undefined {
 interface Image {
   alt: string
   url: string
-  /** The markdown title: an `<img>`'s width as `w=N` (the renderer's bounded width), else its title. */
+  /** The markdown title: an `<img>`'s width as `w=N` (the renderer's bounded width), followed by its title. */
   title: string | undefined
+}
+
+/** An `<img>`'s markdown title: `w=N`, `w=N <title>` when it has both, else its title. */
+function widthTitle(width: number | undefined, title: string | undefined): string | undefined {
+  if (width === undefined) return title
+  return title?.trim() ? `w=${width} ${title}` : `w=${width}`
 }
 
 /** One `IMAGE` match as an image; undefined for an `<img>` without a `src`. */
@@ -75,7 +81,7 @@ function image(
   return {
     alt: attr(whole, 'alt') ?? '',
     url: src,
-    title: width === undefined ? attr(whole, 'title') : `w=${width}`,
+    title: widthTitle(width, attr(whole, 'title')),
   }
 }
 
@@ -94,7 +100,8 @@ export interface MediaSource {
 /**
  * Rewrites every image in `md`: HTML `<img>` tags become markdown images (their width kept as the
  * title `w=N`), titles stay, and images a source matches are downloaded once and point at
- * `/reviews/media/<file>`. An image that fails to download keeps its URL. Downloads run in
+ * `/reviews/media/<file>`. A matched image that fails to download points at `UNAVAILABLE_MEDIA`
+ * (its URL may be signed); other images keep their URL. Downloads run in
  * parallel; a file already in `dir` is reused.
  */
 export async function localizeImages(
@@ -247,9 +254,12 @@ function bound(dir: string, name: string, size: number, limits: MediaLimits): vo
   tallies.set(dir, { ...evictOldest(dir, name, limits), scannedAt: now })
 }
 
+/** Where a source's image that could not be downloaded points: never its (often signed) URL. */
+export const UNAVAILABLE_MEDIA = '/reviews/media/unavailable'
+
 const inflight = new Map<string, Promise<string>>()
 
-/** `url` as `/reviews/media/<file>`, downloaded once; the URL itself when it can't be fetched. */
+/** `url` as `/reviews/media/<file>`, downloaded once; `UNAVAILABLE_MEDIA` when it can't be fetched. */
 function download(
   url: string,
   dir: string,
@@ -274,7 +284,7 @@ function download(
       bound(dir, name, bytes.length, limits)
       return REVIEWS_MEDIA_PREFIX + name
     } catch {
-      return url
+      return UNAVAILABLE_MEDIA
     }
   })().finally(() => inflight.delete(hash))
   inflight.set(hash, job)

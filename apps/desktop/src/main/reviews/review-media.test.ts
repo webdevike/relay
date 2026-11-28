@@ -11,9 +11,16 @@ import {
   localizeImages,
   redactUrl,
   reviewsMediaFile,
+  UNAVAILABLE_MEDIA,
 } from './review-media'
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
+
+/** A failed private image: the placeholder with its alt and title, its URL nowhere in the output. */
+function expectUnavailable(out: string, expected: string, ...secrets: string[]): void {
+  expect(out).toBe(expected)
+  for (const secret of secrets) expect(JSON.stringify(out)).not.toContain(secret)
+}
 
 describe('review media', () => {
   // The live config dir has spaces ("Application Support/Relay Dev"); a markdown link to a path
@@ -68,19 +75,21 @@ describe('review media', () => {
     expect(seen).toHaveLength(2)
   })
 
-  it('keeps the URL when a download fails, and serves only names it made', async () => {
+  it('points a failed download at the unavailable placeholder, and serves only names it made', async () => {
     vi.stubGlobal('fetch', async () => new Response('no', { status: 404 }))
     const md = '<img src="https://github.com/user-attachments/assets/gone">'
-    expect(
+    expectUnavailable(
       await localizeImages(md, dir, [{ match: isGithubUpload, headers: async () => ({}) }]),
-    ).toBe('![](https://github.com/user-attachments/assets/gone)')
+      `![](${UNAVAILABLE_MEDIA})`,
+      'assets/gone',
+    )
     expect(reviewsMediaFile(dir, '/reviews/media/../../secrets.png')).toBeNull()
     expect(reviewsMediaFile(dir, `/reviews/media/${'a'.repeat(40)}.png`)).toBe(
       path.join(dir, `${'a'.repeat(40)}.png`),
     )
   })
 
-  it('keeps titles, turns an <img> width into w=N, both syntaxes', async () => {
+  it('keeps titles, turns an <img> width into w=N (w=N <title> with a title too), both syntaxes', async () => {
     const md = [
       '<img width=400 src=https://example.com/a.png alt=wide>',
       '<img style="max-width: 90%; width: 320px" src="https://example.com/b.png">',
@@ -88,6 +97,7 @@ describe('review media', () => {
       '![sized](https://example.com/d.png "w=250")',
       '![titled](<https://example.com/e.png> "The shot")',
       '<img width="50%" src="https://example.com/f.png">',
+      '<img width="320" title="Login" src="https://example.com/g.png">',
     ].join('\n\n')
     expect((await localizeImages(md, dir, [])).split('\n\n')).toEqual([
       '![wide](https://example.com/a.png "w=400")',
@@ -96,6 +106,7 @@ describe('review media', () => {
       '![sized](https://example.com/d.png "w=250")',
       '![titled](https://example.com/e.png "The shot")',
       '![](https://example.com/f.png)',
+      '![](https://example.com/g.png "w=320 Login")',
     ])
   })
 
@@ -142,27 +153,49 @@ describe('review media', () => {
 
     seen.length = 0
     const evil = 'https://github.com/user-attachments/assets/evil'
-    expect(
+    expectUnavailable(
       await localizeImages(`![x](${evil} "Proof")`, dir, [
         { match: isGithubUpload, headers: async () => ({ authorization: 'token T' }) },
       ]),
-    ).toBe(`![x](${evil} "Proof")`)
+      `![x](${UNAVAILABLE_MEDIA} "Proof")`,
+      evil,
+      'SECRET',
+    )
     expect(seen.map((s) => s.url)).toEqual([evil])
   })
 
-  it('keeps an expired JWT image as it was, and keeps the JWT out of errors', async () => {
+  it('shows an expired, timed out or failing JWT image as the placeholder, the JWT out of output and errors', async () => {
     const jwt = 'https://private-user-images.githubusercontent.com/9/old.png?jwt=eyJSECRET'
     const auths: Array<string | undefined> = []
     vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
       auths.push((init.headers as Record<string, string>).authorization)
       return new Response('expired', { status: 403 })
     })
-    expect(
-      await localizeImages(`<img width="400" alt="proof" src="${jwt}">`, dir, [
-        { match: isGithubUpload, headers: async () => ({ authorization: 'token T' }) },
-      ]),
-    ).toBe(`![proof](${jwt} "w=400")`)
+    const md = `<img width="400" alt="proof" src="${jwt}">`
+    const sources = [{ match: isGithubUpload, headers: async () => ({ authorization: 'token T' }) }]
+    const unavailable = async (): Promise<void> =>
+      expectUnavailable(
+        await localizeImages(md, dir, sources),
+        `![proof](${UNAVAILABLE_MEDIA} "w=400")`,
+        'eyJSECRET',
+        'jwt=',
+        'private-user-images',
+      )
+    await unavailable()
     expect(auths).toEqual(['token T'])
+    for (const failing of [
+      async () => new Response('unauthorized', { status: 401 }),
+      async () => {
+        throw new DOMException('The operation timed out.', 'TimeoutError')
+      },
+      async () => {
+        throw new Error(`boom ${jwt}`)
+      },
+    ]) {
+      vi.stubGlobal('fetch', failing)
+      await unavailable()
+    }
+    vi.stubGlobal('fetch', async () => new Response('expired', { status: 403 }))
     const error = await fetchMedia(jwt, {}).catch((e: unknown) => String(e))
     expect(error).toBe(
       'Error: https://private-user-images.githubusercontent.com/9/old.png answered 403',
@@ -174,7 +207,7 @@ describe('review media', () => {
     expect(redactUrl(jwt)).toBe('https://private-user-images.githubusercontent.com/9/old.png')
   })
 
-  it('refuses too many redirects and images over 10 MB', async () => {
+  it('refuses too many redirects and images over 10 MB, a refused image the placeholder', async () => {
     const loop = 'https://github.com/user-attachments/assets/loop'
     const calls = vi.fn(
       async () => new Response(null, { status: 307, headers: { location: loop } }),
@@ -207,6 +240,17 @@ describe('review media', () => {
         ),
     )
     await expect(fetchMedia('https://uploads.linear.app/endless', {})).rejects.toThrow('over 10 MB')
+    expect(pulled).toBeLessThan(13)
+    pulled = 0
+    const endless = 'https://uploads.linear.app/endless?signature=BIGSECRET'
+    expectUnavailable(
+      await localizeImages(`![big](${endless} "w=640")`, dir, [
+        { match: isLinearUpload, headers: async () => ({ authorization: 'lin' }) },
+      ]),
+      `![big](${UNAVAILABLE_MEDIA} "w=640")`,
+      'BIGSECRET',
+      'uploads.linear.app',
+    )
     expect(pulled).toBeLessThan(13)
     expect(isGithubUpload('https://github.com.evil.example/user-attachments/assets/x')).toBe(false)
     expect(isLinearUpload('http://uploads.linear.app/x')).toBe(false)
