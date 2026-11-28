@@ -7,8 +7,9 @@
 // projects, references, favorites, trash, SAM 2.1 segments, jobs that finish when a test says so,
 // assets served at `/studio/<id>/<token>` from fixture files), run Meetings (recordings, live
 // lines, key moments, screen snapshots served at `/meetings/shots/<id>/<token>/<n>`), answer
-// Reviews' `reviews.req` from fixtures (a PR, its Guide, images at `/reviews/media/<file>/<token>`),
-// and read every command the app sent. No WebSocket library: the few frame types Relay uses are
+// Reviews' `reviews.req` (the PR actions, or a whole PR and its Guide from fixtures with images at
+// `/reviews/media/<file>/<token>`), and
+// read every command the app sent. No WebSocket library: the few frame types Relay uses are
 // framed here (RFC 6455, text, ping, close).
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
@@ -873,6 +874,38 @@ export class FakeRelayHost {
 
   /** Every `reviews.req` frame the app sent, in order (a host without `reviews.actions` must see no PR action). */
   readonly reviewFrames: Json[] = []
+  /** Every `reviews.req` op the app sent, in order. */
+  readonly reviewOps: Json[] = []
+  /**
+   * Fixture answers per op kind (the `reviews.res` fields after `ok`), filled by `serveReviews`;
+   * they win over the built-in `pr` answer.
+   */
+  readonly reviews = new Map<string, Json>()
+
+  /** This host's http origin, as the real host's served images are linked. */
+  get origin(): string {
+    return `http://127.0.0.1:${String((this.server.address() as AddressInfo).port)}`
+  }
+
+  /**
+   * Answers `reviews.req` from `<dir>/answers.json` (op kind -> answer, `{{origin}}` standing for
+   * this host's origin) and serves each PNG in `<dir>/media` at `/reviews/media/<file>/e2e-token`,
+   * as the host serves a PR's images. An op kind without an answer is refused as a host error.
+   */
+  serveReviews(dir: string): void {
+    const text = fs
+      .readFileSync(path.join(dir, 'answers.json'), 'utf8')
+      .replaceAll('{{origin}}', this.origin)
+    const answers = z.record(z.string(), JsonSchema).parse(JSON.parse(text))
+    for (const [kind, answer] of Object.entries(answers)) this.reviews.set(kind, answer)
+    for (const file of fs.readdirSync(path.join(dir, 'media'))) {
+      this.studioFiles.set(`/reviews/media/${file}/e2e-token`, {
+        body: fs.readFileSync(path.join(dir, 'media', file)),
+        type: 'image/png',
+      })
+    }
+  }
+
   /** Every `prPrepare` and `prCommit` op (`id`: the rid, `cmd`: the op), in order. */
   readonly prMutations: Received[] = []
   /** The next `prPrepare` or `prCommit` is refused by the gate with this code. */
@@ -884,6 +917,7 @@ export class FakeRelayHost {
 
   /** `pr` (the fixture PR with its `actions` facts) and the PR actions; other reviews ops get no answer here. */
   private reviewsReq(peer: Peer, rid: string, op: Json): void {
+    this.reviewOps.push(op)
     const write = op.kind === 'prPrepare' || op.kind === 'prCommit'
     if (write) this.prMutations.push({ id: rid, cmd: op, status: null })
     const refused = write ? this.prRefusal : null
@@ -895,6 +929,10 @@ export class FakeRelayHost {
   }
 
   private reviewsAnswer(op: Json): Json | null {
+    const served = this.reviews.get(String(op.kind))
+    if (served) return { ok: true, ...served }
+    if (this.reviews.size > 0 && op.kind !== 'prPrepare' && op.kind !== 'prCommit')
+      return { ok: false, error: 'Not in this fake' }
     const mutation = JsonSchema.safeParse(op.mutation).data ?? {}
     switch (op.kind) {
       case 'pr':
@@ -939,48 +977,6 @@ export class FakeRelayHost {
         shots: this.meetings.shots.get(id) ?? [],
       },
     })
-  }
-
-  /**
-   * Reviews (relay packages/protocol/src/reviews.ts): each op kind's answer (the `reviews.res`
-   * fields after `ok`); an op without one is refused as a host error. `serveReviews` fills them.
-   */
-  readonly reviews = new Map<string, Json>()
-  /** Every `reviews.req` op the app sent, in order. */
-  readonly reviewOps: Json[] = []
-
-  /** This host's http origin, as the real host's served images are linked. */
-  get origin(): string {
-    return `http://127.0.0.1:${String((this.server.address() as AddressInfo).port)}`
-  }
-
-  /**
-   * Answers `reviews.req` from `<dir>/answers.json` (op kind -> answer, `{{origin}}` standing for
-   * this host's origin) and serves each PNG in `<dir>/media` at `/reviews/media/<file>/e2e-token`,
-   * as the host serves a PR's images.
-   */
-  serveReviews(dir: string): void {
-    const text = fs
-      .readFileSync(path.join(dir, 'answers.json'), 'utf8')
-      .replaceAll('{{origin}}', this.origin)
-    const answers = z.record(z.string(), JsonSchema).parse(JSON.parse(text))
-    for (const [kind, answer] of Object.entries(answers)) this.reviews.set(kind, answer)
-    for (const file of fs.readdirSync(path.join(dir, 'media'))) {
-      this.studioFiles.set(`/reviews/media/${file}/e2e-token`, {
-        body: fs.readFileSync(path.join(dir, 'media', file)),
-        type: 'image/png',
-      })
-    }
-  }
-
-  private reviewsReq(peer: Peer, rid: string, op: Json): void {
-    this.reviewOps.push(op)
-    const answer = this.reviews.get(String(op.kind))
-    peer.send(
-      answer
-        ? { t: 'reviews.res', rid, ok: true, ...answer }
-        : { t: 'reviews.res', rid, ok: false, error: 'Not in this fake' },
-    )
   }
 
   private studioReq(peer: Peer, rid: string, op: Json): void {
@@ -1653,8 +1649,6 @@ export class FakeRelayHost {
         return this.reviewsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'meetings.req':
         return this.meetingsReq(peer, String(f.rid), JsonSchema.parse(f.op))
-      case 'reviews.req':
-        return this.reviewsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'studio.req':
         return this.studioReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'cmd':
