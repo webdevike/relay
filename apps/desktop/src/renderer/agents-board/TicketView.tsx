@@ -45,11 +45,12 @@ function PrTab({ pr, now }: { pr: TicketPr; now: number }) {
   const [loaded, setLoaded] = useState<{ pr: ReviewPr; at: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { repo, number } = pr
-  const load = useCallback(async (): Promise<void> => {
+  const load = useCallback(async (): Promise<boolean> => {
     setError(null)
     const r = await invoke('reviews.pr', { repo, number })
     if (r.ok) setLoaded({ pr: r.value, at: Date.now() })
     else setError(r.error.message)
+    return r.ok
   }, [repo, number])
   useEffect(() => {
     void load()
@@ -66,6 +67,7 @@ function PrTab({ pr, now }: { pr: TicketPr; now: number }) {
       fetchedAt={loaded.at}
       now={now}
       onRefresh={() => void load()}
+      onReload={load}
       variant="panel"
     />
   )

@@ -33,7 +33,8 @@ const PR = {
   diff: fixture.input.diff,
 } as unknown as ReviewPr
 
-const view = (pr: ReviewPr, onViewInDiff = vi.fn(), onStale?: () => void) => (
+type Reload = () => Promise<boolean>
+const view = (pr: ReviewPr, onViewInDiff = vi.fn(), onStale?: Reload) => (
   <MantineProvider>
     <ReviewGuide
       pr={pr}
@@ -44,8 +45,7 @@ const view = (pr: ReviewPr, onViewInDiff = vi.fn(), onStale?: () => void) => (
     />
   </MantineProvider>
 )
-const show = (onViewInDiff = vi.fn(), onStale?: () => void) =>
-  render(view(PR, onViewInDiff, onStale))
+const show = (onViewInDiff = vi.fn(), onStale?: Reload) => render(view(PR, onViewInDiff, onStale))
 
 beforeEach(() => {
   localStorage.clear()
@@ -108,9 +108,9 @@ describe('ReviewGuide', () => {
     expect(screen.getAllByTestId('review-diff')).toHaveLength(1)
   })
 
-  it('reloads the PR once when the Guide was read at other commits, then says so with Reload', async () => {
+  it('reloads the PR once when the Guide was read at other commits, then says so with Retry', async () => {
     answer = 'PR changed; regenerating'
-    const onStale = vi.fn()
+    const onStale = vi.fn(async () => true)
     const { rerender } = show(vi.fn(), onStale)
     expect((await screen.findByTestId('review-guide-loading')).textContent).toContain(
       'The PR changed; reloading it',
@@ -122,12 +122,25 @@ describe('ReviewGuide', () => {
     expect(error.textContent).toContain('The PR changed again')
     expect(invoke).toHaveBeenCalledTimes(2)
     expect(onStale).toHaveBeenCalledTimes(1)
-    fireEvent.click(within(error).getByText('Reload the PR'))
+    fireEvent.click(within(error).getByText('Retry'))
     expect(onStale).toHaveBeenCalledTimes(2)
     // The next reload is in step: the Guide shows.
     answer = fixture.expected as Guide
     rerender(view({ ...PR, headSha: 'head3' }, vi.fn(), onStale))
     expect(await screen.findAllByTestId('review-guide-section')).toHaveLength(4)
+  })
+
+  it('stops waiting when the reload fails, with Retry that reloads again', async () => {
+    answer = 'PR changed; regenerating'
+    const onStale = vi.fn(async () => false)
+    show(vi.fn(), onStale)
+    const error = await screen.findByTestId('review-guide-error')
+    expect(error.textContent).toContain("reloading it didn't work")
+    expect(screen.queryByTestId('review-guide-loading')).toBeNull()
+    fireEvent.click(within(error).getByText('Retry'))
+    expect(onStale).toHaveBeenCalledTimes(2)
+    expect(await screen.findByTestId('review-guide-error')).toBeTruthy()
+    expect(screen.queryByTestId('review-guide-loading')).toBeNull()
   })
 
   it('lists cited hunks the loaded diff lacks and says when the model read part of the PR', async () => {

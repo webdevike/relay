@@ -264,6 +264,7 @@ export function Detail({
   now,
   onBack,
   onRefresh,
+  onReload,
   onDone,
   variant = 'page',
 }: {
@@ -272,6 +273,8 @@ export function Detail({
   now: number
   onBack?: () => void
   onRefresh: () => void
+  /** Reloads only the PR: true when a new PR came, false when the read failed (the Guide says so). */
+  onReload?: () => Promise<boolean>
   onDone?: () => void
   variant?: 'page' | 'panel'
 }) {
@@ -528,7 +531,7 @@ export function Detail({
                   setFocusFile(p)
                   setTab('files')
                 }}
-                onStale={onRefresh}
+                onStale={onReload}
               />
             ) : null}
           </div>
@@ -686,11 +689,12 @@ export function ReviewsPage(_: { place: Place }) {
     return () => clearInterval(t)
   }, [])
 
-  const loadPr = useCallback(async (row: ReviewRow) => {
+  const loadPr = useCallback(async (row: ReviewRow): Promise<boolean> => {
     setPrError(null)
     const r = await invoke('reviews.pr', { repo: row.repo, number: row.number })
     if (r.ok) setPr({ key: prKey(row), pr: r.value, at: Date.now() })
     else setPrError(r.error.message)
+    return r.ok
   }, [])
 
   useEffect(() => {
@@ -762,6 +766,7 @@ export function ReviewsPage(_: { place: Place }) {
             if (selected) void loadPr(selected)
             void loadQueue(true)
           }}
+          onReload={() => (selected ? loadPr(selected) : Promise.resolve(false))}
           onDone={() => void done()}
         />
       ) : selected || prError ? (

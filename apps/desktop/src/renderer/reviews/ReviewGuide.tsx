@@ -18,6 +18,8 @@ const two = (n: number): string => String(n).padStart(2, '0')
 const HEAD_CHANGED = 'PR changed; regenerating'
 /** Shown when the PR moved again after that one reload. */
 const STILL_CHANGING = 'The PR changed again while its walkthrough was loading.'
+/** Shown when that reload of the PR failed (a host gone, gh failing). */
+const RELOAD_FAILED = "The PR changed and reloading it didn't work."
 const RISK_COLOR = { low: 'green', medium: 'yellow', high: 'red' } as const
 const parseDiffMode = parseOneOf<'split' | 'unified'>(['split', 'unified'])
 
@@ -47,16 +49,27 @@ interface GuideProps {
   viewed: ReadonlySet<string>
   onViewed: (path: string, on: boolean) => void
   onViewInDiff: (path: string) => void
-  /** Reloads the PR (its new commits ask for the Guide again). */
-  onStale?: (() => void) | undefined
+  /** Reloads the PR: true when a new PR came (its commits ask for the Guide again), false when it failed. */
+  onStale?: (() => Promise<boolean>) | undefined
+}
+
+/** Waits on one reload of the PR; a failed one ends the wait with an error (Retry), never a spinner. */
+async function reloadPr(
+  reload: (() => Promise<boolean>) | undefined,
+  setGuide: (g: string) => void,
+  live: () => boolean,
+): Promise<void> {
+  setGuide(HEAD_CHANGED)
+  const loaded = reload ? await reload().catch(() => false) : false
+  if (!loaded && live()) setGuide(RELOAD_FAILED)
 }
 
 /**
  * The Guide for the PR's base and head as shown. When the runner reads other commits (a push or a
- * base move landed after the PR loaded) the page reloads the PR once; if the reloaded PR moved
- * again the answer is an error with Reload, never an endless spinner.
+ * base move landed after the PR loaded) the page reloads the PR once; if that reload fails, or the
+ * reloaded PR moved again, the answer is an error with Retry, never an endless spinner.
  */
-function useGuide(pr: ReviewPr, onStale: (() => void) | undefined) {
+function useGuide(pr: ReviewPr, onStale: (() => Promise<boolean>) | undefined) {
   const [guide, setGuide] = useState<Guide | string | null>(null)
   const reloadedFor = useRef<string | null>(null)
   const stale = useRef(onStale)
@@ -73,8 +86,7 @@ function useGuide(pr: ReviewPr, onStale: (() => void) | undefined) {
       const moved = !r.ok && r.error.message === HEAD_CHANGED
       if (moved && reloadedFor.current !== pr.url && stale.current) {
         reloadedFor.current = pr.url
-        setGuide(HEAD_CHANGED)
-        stale.current()
+        void reloadPr(stale.current, setGuide, () => live)
         return
       }
       setGuide(r.ok ? r.value : moved ? STILL_CHANGING : r.error.message)
@@ -84,12 +96,8 @@ function useGuide(pr: ReviewPr, onStale: (() => void) | undefined) {
     }
     // A reloaded PR is a new object: it asks again even when its commits are the same.
   }, [pr])
-  const reload = (): void => {
-    reloadedFor.current = null
-    setGuide(HEAD_CHANGED)
-    stale.current?.()
-  }
-  return { guide, reload: onStale ? reload : null }
+  const retry = (): void => void reloadPr(stale.current, setGuide, () => true)
+  return { guide, retry: onStale ? retry : null }
 }
 
 /**
@@ -102,7 +110,7 @@ function useGuide(pr: ReviewPr, onStale: (() => void) | undefined) {
  */
 export function ReviewGuide(props: GuideProps) {
   const { pr } = props
-  const { guide, reload } = useGuide(pr, props.onStale)
+  const { guide, retry } = useGuide(pr, props.onStale)
 
   const head = <GuideHead pr={pr} />
   if (guide === null || typeof guide === 'string') {
@@ -111,7 +119,7 @@ export function ReviewGuide(props: GuideProps) {
         <nav className="eva-rv-ticks" aria-hidden />
         <div className="eva-rv-lguide-col">
           {head}
-          <GuideWaiting error={guide} onReload={reload} />
+          <GuideWaiting error={guide} onRetry={retry} />
         </div>
       </div>
     )
@@ -140,20 +148,15 @@ function GuideHead({ pr }: { pr: ReviewPr }) {
   )
 }
 
-function GuideWaiting({
-  error,
-  onReload,
-}: {
-  error: string | null
-  onReload: (() => void) | null
-}) {
+function GuideWaiting({ error, onRetry }: { error: string | null; onRetry: (() => void) | null }) {
   if (error !== null && error !== HEAD_CHANGED) {
+    const retryable = error === STILL_CHANGING || error === RELOAD_FAILED
     return (
       <div className="eva-rv-error" data-testid="review-guide-error">
         Couldn't build the guide: {error}
-        {error === STILL_CHANGING && onReload ? (
-          <Button size="compact-xs" variant="subtle" onClick={onReload}>
-            Reload the PR
+        {retryable && onRetry ? (
+          <Button size="compact-xs" variant="subtle" onClick={onRetry}>
+            Retry
           </Button>
         ) : null}
       </div>
@@ -165,11 +168,6 @@ function GuideWaiting({
       {error === HEAD_CHANGED
         ? 'The PR changed; reloading it to write the walkthrough for the new commits...'
         : 'Writing the walkthrough from the description and diff...'}
-      {error === HEAD_CHANGED && onReload ? (
-        <Button size="compact-xs" variant="subtle" onClick={onReload}>
-          Reload the PR
-        </Button>
-      ) : null}
     </div>
   )
 }
