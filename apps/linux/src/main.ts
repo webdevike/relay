@@ -168,6 +168,7 @@ import { SamRunner } from "./studio/sam";
 import { StudioService, type StudioMessage } from "./studio/service";
 import { defaultStudioDir } from "./studio/store";
 import { bunRun, defaultReviewsDir, resolveClaude, resolveGh } from "./reviews/exec";
+import { claudeWriter } from "./reviews/guide";
 import { linearKey } from "./reviews/linear";
 import { goodopsSource } from "./query/goodops";
 import { liveRender } from "./query/openui";
@@ -956,6 +957,7 @@ function serve(
     run: bunRun,
     fetch: globalThis.fetch,
     log,
+    summaryWriter: claudeWriter(bunRun, resolveClaude()),
   });
   const tickets = ticketsWiring.tickets;
   const reviews = !featureOn(config, "reviews", assistant?.thread("astra") !== undefined)
@@ -984,6 +986,8 @@ function serve(
         clock: systemClock,
         log,
         budgets: ticketsWiring.reviewsBudgets,
+        // PR actions go through the tickets MutationGate, open only with features.ticketsWrites.
+        prGate: () => (tickets?.writes === true ? tickets : null),
       });
   const meetings = meetingsService({
     agentHome,

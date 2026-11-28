@@ -48,7 +48,7 @@ describe("tickets cache byte caps (serialized, both providers)", () => {
     const comments: PrThreadComment[] = Array.from({ length: 300 }, (_, i) => ({ id: `pc-${String(i)}`, rootId: "conversation", kind: "conversation", author: "octo", body: `![s](${JWT}) ${"x".repeat(20_000)}`, at: T0 + i, viewerReacted: false }));
     const facts = { repo: "acme/app", number: 1, title: "PR", url: "https://github.com/acme/app/pull/1", author: "octo", state: "open" as const, draft: false, checks: { state: "pass" as const, passed: 1, failed: 0, pending: 0 }, decision: null, mergeState: "CLEAN", headSha: "abc", updatedAt: T0 };
     const s = store();
-    s.store.setPr({ ref: { repo: "acme/app", number: 1 }, fingerprint: "f", noAccess: false, input: { facts, comments, viewerIsAuthor: false, viewerRequested: false, viewerReviewedHead: false, relayAutoMergeDisarmed: false } });
+    s.store.setPr({ ref: { repo: "acme/app", number: 1 }, fingerprint: "f", noAccess: false, input: { facts, comments, viewerIsAuthor: false, viewerRequested: false, viewerReviewedHead: false } });
     s.store.save();
     const kept = s.store.pr({ repo: "acme/app", number: 1 });
     expect(bytes(kept)).toBeLessThanOrEqual(MAX_STORED_ENTRY_BYTES);

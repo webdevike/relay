@@ -29,6 +29,8 @@ export const TICKETS_WRITES_FEATURE = "tickets.writes";
 export const REVIEWS_ACTIONS_FEATURE = "reviews.actions";
 /** Reviews Guide v2 on `reviews.req`. */
 export const REVIEWS_GUIDE2_FEATURE = "reviews.guide2";
+/** Reviews item sessions with any registry assistant: `agent` on `astraAsk`/`astra`. */
+export const REVIEWS_ASSISTANTS_FEATURE = "reviews.assistants";
 
 /** Tickets on the board (the host's store cap). */
 export const MAX_TICKETS = 500;
@@ -73,7 +75,13 @@ export const TicketOpId = z.string().uuid();
 export const TicketsRid = z.string().min(1).max(64);
 
 /** A Linear user (or GitHub login as `id` and `name` for GitHub authors). */
-export const TicketActor = z.object({ id: Id, name: Name, avatarUrl: Url.nullable() });
+export const TicketActor = z.object({
+  id: Id,
+  name: Name,
+  avatarUrl: Url.nullable(),
+  /** The Linear profile page; a link to it in a comment is a mention. Absent: unknown. */
+  url: Url.optional(),
+});
 export type TicketActor = z.infer<typeof TicketActor>;
 
 export const TicketStateType = z.enum([
@@ -154,6 +162,16 @@ export const Ticket = z.object({
 });
 export type Ticket = z.infer<typeof Ticket>;
 
+/**
+ * Where an inline comment's quote sat when Isaac made it in Relay: the description's text just
+ * before and after it, whitespace removed. Relay-only (host `anchors.json`), never sent to Linear.
+ */
+export const TicketAnchorContext = z.object({
+  prefix: z.string().max(200),
+  suffix: z.string().max(200),
+});
+export type TicketAnchorContext = z.infer<typeof TicketAnchorContext>;
+
 export const TicketComment = z.object({
   id: Id,
   /** The root comment of its thread; null for a root. */
@@ -172,6 +190,8 @@ export const TicketComment = z.object({
     .array(z.object({ emoji: z.string().min(1).max(64), users: z.array(TicketActor).max(50) }))
     .max(50),
   url: Url,
+  /** An inline comment Isaac made in Relay: the context that picks its occurrence of the quote. */
+  anchor: TicketAnchorContext.optional(),
 });
 export type TicketComment = z.infer<typeof TicketComment>;
 
@@ -235,6 +255,7 @@ export const WaitingMention = z.object({
 });
 export type WaitingMention = z.infer<typeof WaitingMention>;
 
+/** `autoMergeOff` is no longer raised (Relay never arms auto-merge); kept so an older host's cards still parse. */
 export const NeedsYouKind = z.enum(["waiting", "agent", "merge", "review", "autoMergeOff"]);
 export type NeedsYouKind = z.infer<typeof NeedsYouKind>;
 
@@ -359,6 +380,8 @@ export const TicketMutation = z.discriminatedUnion("kind", [
     documentContentId: Id.optional(),
     parentId: Id.optional(),
     quotedText: z.string().max(MAX_TICKET_TEXT).optional(),
+    /** Relay-only: kept by the host for the created comment, not written to Linear. */
+    anchor: TicketAnchorContext.optional(),
     body: Body,
   }),
   z.object({ kind: z.literal("editComment"), commentId: Id, body: Body }),
@@ -517,6 +540,8 @@ export const TicketOutcome = z.object({
       key: TicketKey.optional(),
       url: Url.optional(),
       error: Short.optional(),
+      /** A PR merge (reviews `prCommit`), read back after the write; an older host's other values read as absent. */
+      merge: z.literal("merged").optional().catch(undefined),
       /** `applyPlan`: each row's own outcome. */
       rows: z
         .array(

@@ -3,14 +3,19 @@
 // comment or a review.
 
 import { homedir } from "node:os";
-import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type ReviewItem, type ReviewPr } from "@relay/protocol";
+import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type ReviewActionCheck, type ReviewComment, type ReviewItem, type ReviewPr, type ReviewPrActions } from "@relay/protocol";
 import { z } from "zod";
 import type { Budget } from "../tickets/budget";
 import type { ToolRun } from "./exec";
 import type { Fetch, ReviewMedia } from "./linear";
 import { isGithubUpload, isLinearUpload, localizeImages } from "./media";
+import { readReviewComments } from "./review-comments";
+import { readPrReactions, withReactions, type PrReactions } from "./pr-reactions";
 
 export const REVIEWS_ORG = "eCardSystems";
+/** Failed Actions runs whose attempt one PR read asks for (Re-run failed), two at a time. */
+const MAX_ATTEMPT_READS = 6;
+const ATTEMPT_READS_AT_ONCE = 2;
 const GH_TIMEOUT_MS = 60_000;
 
 const ms = (iso: unknown): number => {
@@ -51,6 +56,8 @@ export interface RawPr {
   url: string;
   state: string;
   isDraft: boolean;
+  /** GitHub's review decision (`REVIEW_REQUIRED`, `APPROVED`, `CHANGES_REQUESTED`); gh says "" or null without one. */
+  reviewDecision?: string | null;
   author: { login: string } | null;
   createdAt: string;
   updatedAt: string;
@@ -76,7 +83,8 @@ export interface RawPr {
     body: string;
     submittedAt: string;
   }[];
-  comments: { author: { login: string } | null; body: string; createdAt: string }[];
+  /** `url` ends `#issuecomment-<REST id>`. */
+  comments: { author: { login: string } | null; body: string; createdAt: string; url?: string }[];
   assignees: { login: string }[];
   labels: { name: string; color: string }[];
   milestone?: { title: string } | null;
@@ -94,12 +102,12 @@ export interface RawPr {
 }
 
 export const PR_JSON_FIELDS =
-  "number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup";
+  "number,title,url,state,isDraft,reviewDecision,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup";
 
 const PASSED = ["SUCCESS", "NEUTRAL"];
 const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
 
-function checkState(c: RawPr["statusCheckRollup"][number]): ReviewPr["checks"][number]["state"] {
+function checkState(c: { conclusion?: string | null | undefined; state?: string | null | undefined }): ReviewPr["checks"][number]["state"] {
   const v = ([c.conclusion, c.state].find((s) => s !== null && s !== undefined && s !== "") ?? "").toUpperCase();
   if (v === "SKIPPED") return "skipped";
   if (PASSED.includes(v)) return "pass";
@@ -109,13 +117,19 @@ function checkState(c: RawPr["statusCheckRollup"][number]): ReviewPr["checks"][n
 
 const CHECK_ORDER = ["fail", "pending", "pass", "skipped"];
 
+/** A conversation comment's REST id, from its `#issuecomment-<id>` url. */
+function commentId(url: string | undefined): { id?: number } {
+  const id = Number(/#issuecomment-(\d+)$/.exec(url ?? "")?.[1]);
+  return Number.isSafeInteger(id) && id > 0 ? { id } : {};
+}
+
 /** `gh pr view --json PR_JSON_FIELDS` plus its diff at `baseRefOid...headRefOid` as the protocol's PR; pushed commits join the timeline. */
 export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
   const login = (a: { login: string } | null): string => a?.login ?? "ghost";
   const requested = raw.reviewRequests.map((r) => r.login ?? r.slug ?? r.name ?? "?");
   const reviewed = raw.latestReviews.filter((r) => !requested.includes(login(r.author))).map((r) => ({ login: login(r.author), state: r.state }));
   const timeline: ReviewPr["timeline"] = [
-    ...raw.comments.map((c) => ({ kind: "comment" as const, author: login(c.author), body: c.body, state: null, at: ms(c.createdAt) })),
+    ...raw.comments.map((c) => ({ kind: "comment" as const, author: login(c.author), body: c.body, state: null, at: ms(c.createdAt), ...commentId(c.url) })),
     ...raw.reviews
       .filter((r) => r.body.trim() !== "" || r.state !== "COMMENTED")
       .map((r) => ({ kind: "review" as const, author: login(r.author), body: r.body, state: r.state, at: ms(r.submittedAt) })),
@@ -134,6 +148,7 @@ export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
     url: raw.url,
     state: raw.state,
     draft: raw.isDraft,
+    reviewDecision: raw.reviewDecision || null,
     author: { login: login(raw.author) },
     createdAt: ms(raw.createdAt),
     updatedAt: ms(raw.updatedAt),
@@ -257,6 +272,138 @@ export function ghGraphql(run: ToolRun, gh: string, budget: Budget | null): GhGr
   };
 }
 
+// ---- PR actions facts (PLAN §2.6): what merge, request review and re-run act on ----
+
+const LIVE_CHECKS = `contexts(first: 100) { nodes { __typename
+  ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { databaseId runNumber workflow { name } } } }
+  ... on StatusContext { context state targetUrl } } }`;
+const LIVE_FIELDS = `title state isDraft headRefOid baseRefName mergeable mergeStateStatus isInMergeQueue isMergeQueueEnabled
+  mergeQueueEntry { state }
+  latestReviews(first: 50) { nodes { author { login } state submittedAt } }
+  reviewRequests(first: 50) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }
+  commits(last: 1) { nodes { commit { oid statusCheckRollup { ${LIVE_CHECKS} } } } }`;
+
+/** One PR's live merge, review and check facts with the repo's merge settings, Isaac's permission and gh's login. */
+export function prLiveQuery(repo: string, number: number): string {
+  const [owner = "", name = ""] = repo.split("/");
+  return `{ viewer { login } repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { viewerPermission mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
+  pullRequest(number: ${String(number)}) { ${LIVE_FIELDS} } } }`;
+}
+
+const GhLogin = z.object({ login: z.string() }).nullable();
+const LiveCheck = z.object({
+  name: z.string().optional(),
+  status: z.string().nullable().optional(),
+  conclusion: z.string().nullable().optional(),
+  detailsUrl: z.string().nullable().optional(),
+  checkSuite: z
+    .object({ workflowRun: z.object({ databaseId: z.number(), runNumber: z.number(), workflow: z.object({ name: z.string() }).nullable().optional() }).nullable() })
+    .nullable()
+    .optional(),
+  context: z.string().optional(),
+  state: z.string().nullable().optional(),
+  targetUrl: z.string().nullable().optional(),
+});
+const LiveRepo = z.object({
+  viewerPermission: z.string().nullable(),
+  mergeCommitAllowed: z.boolean(),
+  squashMergeAllowed: z.boolean(),
+  rebaseMergeAllowed: z.boolean(),
+  pullRequest: z
+    .object({
+      title: z.string(),
+      state: z.string(),
+      isDraft: z.boolean(),
+      headRefOid: z.string(),
+      baseRefName: z.string(),
+      mergeable: z.string(),
+      mergeStateStatus: z.string(),
+      isInMergeQueue: z.boolean(),
+      isMergeQueueEnabled: z.boolean(),
+      mergeQueueEntry: z.object({ state: z.string() }).nullable(),
+      latestReviews: z.object({ nodes: z.array(z.object({ author: GhLogin, state: z.string(), submittedAt: z.string().nullable() })) }),
+      reviewRequests: z.object({ nodes: z.array(z.object({ requestedReviewer: z.object({ login: z.string().optional(), slug: z.string().optional() }).nullable() })) }),
+      commits: z.object({
+        nodes: z.array(z.object({ commit: z.object({ oid: z.string(), statusCheckRollup: z.object({ contexts: z.object({ nodes: z.array(LiveCheck) }) }).nullable() }) })),
+      }),
+    })
+    .nullable(),
+});
+type LivePr = NonNullable<z.infer<typeof LiveRepo>["pullRequest"]>;
+
+/** A PR as the gate's GitHub executor checks it and the PR page's actions show it. */
+export interface PrLive {
+  /** OPEN, CLOSED, MERGED. */
+  readonly state: string;
+  readonly title: string;
+  readonly draft: boolean;
+  readonly headSha: string;
+  readonly base: string;
+  /** Logins and team slugs whose review is requested. */
+  readonly requested: readonly string[];
+  readonly actions: ReviewPrActions;
+}
+
+/** A check's Actions run, when it is one. */
+function runOf(c: z.infer<typeof LiveCheck>): Pick<ReviewActionCheck, "workflow" | "runId" | "runNumber"> {
+  const run = c.checkSuite?.workflowRun ?? null;
+  if (run === null) return { workflow: null, runId: null, runNumber: null };
+  return { workflow: run.workflow?.name ?? null, runId: run.databaseId, runNumber: run.runNumber };
+}
+
+function liveChecks(pr: LivePr): ReviewActionCheck[] {
+  const commit = pr.commits.nodes[0]?.commit;
+  const headSha = commit?.oid ?? pr.headRefOid;
+  return (commit?.statusCheckRollup?.contexts.nodes ?? []).map((c) => ({
+    name: c.name ?? c.context ?? "check",
+    state: checkState(c),
+    url: c.detailsUrl ?? c.targetUrl ?? null,
+    ...runOf(c),
+    attempt: null,
+    headSha,
+  }));
+}
+
+function liveActions(repo: z.infer<typeof LiveRepo>, pr: LivePr, viewerLogin: string | null): ReviewPrActions {
+  return {
+    viewerLogin,
+    viewerPermission: repo.viewerPermission,
+    mergeable: pr.mergeable,
+    mergeStateStatus: pr.mergeStateStatus,
+    methods: { merge: repo.mergeCommitAllowed, squash: repo.squashMergeAllowed, rebase: repo.rebaseMergeAllowed },
+    mergeQueue: { required: pr.isMergeQueueEnabled, inQueue: pr.isInMergeQueue, entryState: pr.mergeQueueEntry?.state ?? null },
+    reviews: pr.latestReviews.nodes.map((r) => ({ login: r.author?.login ?? "ghost", state: r.state, at: ms(r.submittedAt) })),
+    checks: liveChecks(pr),
+  };
+}
+
+/** The PR's live facts; null when the repo or PR doesn't resolve for gh's account. Throws when GitHub can't say. */
+export async function readPrLive(graphql: GhGraphql, repo: string, number: number): Promise<PrLive | null> {
+  const { data, errors } = await graphql(prLiveQuery(repo, number));
+  const parsed = LiveRepo.nullable().safeParse(data["repository"] ?? null);
+  if (!parsed.success) throw new Error(`GitHub answered something else for ${repo}#${String(number)}${errors[0] === undefined ? "" : `: ${errors[0].message}`}`);
+  const pr = parsed.data?.pullRequest ?? null;
+  if (parsed.data === null || pr === null) return null;
+  const viewer = z.object({ login: z.string() }).safeParse(data["viewer"]);
+  return {
+    state: pr.state,
+    title: pr.title,
+    draft: pr.isDraft,
+    headSha: pr.headRefOid,
+    base: pr.baseRefName,
+    requested: pr.reviewRequests.nodes.flatMap((r) => [r.requestedReviewer?.login ?? r.requestedReviewer?.slug ?? ""].filter((l) => l !== "")),
+    actions: liveActions(parsed.data, pr, viewer.success ? viewer.data.login : null),
+  };
+}
+
+/** What a PR read adds while PR actions are offered; each null when GitHub can't say (or not asked). */
+interface PrExtras {
+  readonly actions: ReviewPrActions | null;
+  readonly reviewComments: ReviewComment[] | null;
+  readonly reactions: PrReactions | null;
+}
+const NO_EXTRAS: PrExtras = { actions: null, reviewComments: null, reactions: null };
+
 export class GitHub {
   constructor(
     private readonly run: ToolRun,
@@ -265,6 +412,12 @@ export class GitHub {
     private readonly images?: { media: ReviewMedia; fetchFn: Fetch; linearKey: () => string | null },
     /** The GitHub budget shared with the tickets sync; null: unpaced. */
     private readonly budget: Budget | null = null,
+    /**
+     * Whether a PR read also asks for its actions facts, reactions and review (line) comments: only
+     * while this host offers PR actions (REVIEWS_ACTIONS_FEATURE). Otherwise a PR read makes the
+     * same gh calls it always did.
+     */
+    private readonly prActions: () => boolean = () => false,
   ) {}
 
   private call(args: readonly string[]): Promise<string> {
@@ -311,7 +464,14 @@ export class GitHub {
 
   async pr(repo: string, number: number): Promise<ReviewPr> {
     const raw = JSON.parse(await this.call(["pr", "view", String(number), "-R", repo, "--json", PR_JSON_FIELDS])) as RawPr;
-    const pr = toPr(repo, raw, await this.diffAt(repo, raw.baseRefOid, raw.headRefOid));
+    const extras = this.prActions() ? this.extras(repo, number, raw.headRefOid) : NO_EXTRAS;
+    const [diff, { actions, reviewComments, reactions }] = await Promise.all([this.diffAt(repo, raw.baseRefOid, raw.headRefOid), extras]);
+    const read = toPr(repo, raw, diff);
+    const pr = {
+      ...(reactions === null ? read : withReactions(read, reactions)),
+      ...(actions === null ? {} : { actions }),
+      ...(reviewComments === null ? {} : { reviewComments }),
+    };
     if (this.images === undefined) return pr;
     // GitHub's attachments open only signed in, and its `<img>` tags become markdown; PR bodies
     // carry Linear proof screenshots too.
@@ -321,11 +481,57 @@ export class GitHub {
       { match: isLinearUpload, headers: () => Promise.resolve(((key) => (key ? { authorization: key } : {}))(linearKey())) },
     ];
     const local = (md: string): Promise<string> => localizeImages(md, media, sources, fetchFn);
-    const [body, timeline] = await Promise.all([
+    const [body, timeline, comments] = await Promise.all([
       local(pr.body),
       Promise.all(pr.timeline.map(async (t) => (t.kind === "commit" ? t : { ...t, body: await local(t.body) }))),
+      reviewComments === null ? null : Promise.all(reviewComments.map(async (c) => ({ ...c, body: await local(c.body) }))),
     ]);
-    return { ...pr, body, timeline };
+    return { ...pr, body, timeline, ...(comments === null ? {} : { reviewComments: comments }) };
+  }
+
+  /** What the PR actions surface adds to a read: actions facts, review (line) comments and reactions, each null when GitHub can't say. */
+  private async extras(repo: string, number: number, head: string): Promise<PrExtras> {
+    const graphql = ghGraphql(this.run, this.gh, this.budget);
+    const [actions, reviewComments, reactions] = await Promise.all([
+      this.actions(repo, number, head),
+      readReviewComments(graphql, repo, number).catch(() => null),
+      readPrReactions(graphql, repo, number).catch(() => null),
+    ]);
+    return { actions, reviewComments, reactions };
+  }
+
+  /**
+   * The PR's actions facts at `head` (the commit the page shows), each failed Actions run with its
+   * attempt; null when GitHub can't say or already has another head (the page then hides the actions).
+   */
+  private async actions(repo: string, number: number, head: string): Promise<ReviewPrActions | null> {
+    try {
+      const live = await readPrLive(ghGraphql(this.run, this.gh, this.budget), repo, number);
+      if (live === null || live.headSha !== head) return null;
+      const failed = [...new Set(live.actions.checks.flatMap((c) => (c.state === "fail" && c.runId !== null ? [c.runId] : [])))].slice(0, MAX_ATTEMPT_READS);
+      const attempts = await this.runAttempts(repo, failed);
+      const checks = live.actions.checks.map((c) => (c.runId === null ? c : { ...c, attempt: attempts.get(c.runId) ?? null }));
+      return { ...live.actions, checks };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Each run's attempt, `ATTEMPT_READS_AT_ONCE` reads at a time. */
+  private async runAttempts(repo: string, ids: readonly number[]): Promise<Map<number, number | null>> {
+    const attempts = new Map<number, number | null>();
+    for (let i = 0; i < ids.length; i += ATTEMPT_READS_AT_ONCE) {
+      const read = await Promise.all(ids.slice(i, i + ATTEMPT_READS_AT_ONCE).map(async (id) => [id, await this.runAttempt(repo, id)] as const));
+      for (const [id, attempt] of read) attempts.set(id, attempt);
+    }
+    return attempts;
+  }
+
+  /** An Actions run's attempt (REST; GraphQL has none); null when gh can't say. */
+  private async runAttempt(repo: string, id: number): Promise<number | null> {
+    const out = await this.call(["api", `repos/${repo}/actions/runs/${String(id)}`, "--jq", ".run_attempt"]).catch(() => "");
+    const attempt = Number(out.trim());
+    return Number.isInteger(attempt) && attempt > 0 ? attempt : null;
   }
 
   private token: Promise<string | null> | null = null;

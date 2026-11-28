@@ -3,6 +3,8 @@
 // Isaac confirms the text in the renderer. Test instances (EVAOS_E2E=1) never post. @Astra asks go
 // to the item's own Astra session (astra-sessions.ts), never to GitHub. In remote mode (a thin
 // client) none of this runs here: the Mini's Relay Host answers every call (remote-reviews.ts).
+// Locally, a connected host that takes PR writes (reviews.actions) reads the PR too and owns its
+// comments (`routedPrRead`); without one, the local reads and the confirmed comment are as before.
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { z } from 'zod'
@@ -23,7 +25,17 @@ import {
   sendLine,
   workOf,
 } from './approve'
-import { registerRemoteReviews, type RemoteReviewsDeps } from './remote-reviews'
+import { REVIEWS_ACTIONS_FEATURE } from '@relay/protocol'
+import {
+  LEGACY_COMMENT_REFUSED,
+  hostMedia,
+  hostPrRead,
+  registerPrActions,
+  registerRemoteReviews,
+  type RemoteReviewsDeps,
+} from './remote-reviews'
+import type { RelayFeatures, RelayFrames } from '../relay/client'
+import { createHostReviews, type HostReviews } from '../relay/host-reviews'
 import { checkState, rowStatusOf, type RawCheck } from './row-status'
 import { registerAstraSessions } from './astra-sessions'
 import { REVIEWS_MEDIA_DIR, isGithubUpload, isLinearUpload, localizeImages } from './review-media'
@@ -102,6 +114,8 @@ interface Raw {
   url: string
   state: string
   isDraft: boolean
+  /** GitHub's review decision; gh says "" or null without one. */
+  reviewDecision?: string | null
   author: { login: string } | null
   createdAt: string
   updatedAt: string
@@ -136,7 +150,7 @@ interface Raw {
 }
 
 export const PR_JSON_FIELDS =
-  'number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
+  'number,title,url,state,isDraft,reviewDecision,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
 
 const CHECK_ORDER = ['fail', 'pending', 'pass', 'skipped']
 
@@ -179,6 +193,7 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
     url: raw.url,
     state: raw.state,
     draft: raw.isDraft,
+    reviewDecision: raw.reviewDecision || null,
     author: { login: login(raw.author), avatarUrl: null },
     createdAt: ms(raw.createdAt),
     updatedAt: ms(raw.updatedAt),
@@ -219,12 +234,55 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
   }
 }
 
+/** One `reviews.req` link for PR actions (and local mode's PR read): remote's, else one over `frames`; null with no connection. */
+function hostLink(
+  ctx: MainContext,
+  frames: (RelayFrames & RelayFeatures) | null,
+  host: HostReviews | undefined,
+): HostReviews | null {
+  if (!frames) return null
+  const link = host ?? createHostReviews(frames)
+  registerPrActions(ctx, frames, link)
+  return link
+}
+
+type PrRead = (repo: string, number: number) => Promise<ReviewPr>
+
+/**
+ * Local mode's PR read: gh on this Mac, exactly as before, unless the connected host takes PR writes
+ * (REVIEWS_ACTIONS_FEATURE). Then the host reads it, one snapshot with its actions facts and line
+ * comments, as a thin client gets it. Without such a host (flags off, old host, disconnected)
+ * nothing is asked of it. A capable host that can't answer leaves gh's read, marked `writeGate` so
+ * its comments are refused until a re-read, never posted the legacy way.
+ */
+function routedPrRead(
+  frames: RelayFeatures | null,
+  host: HostReviews | null,
+  media: (md: string) => Promise<string>,
+  fromGh: PrRead,
+): PrRead {
+  const fromHost = frames && host ? hostPrRead(host, frames, media) : null
+  return async (repo, number) => {
+    if (!fromHost || !frames?.hostHas(REVIEWS_ACTIONS_FEATURE)) return fromGh(repo, number)
+    try {
+      return await fromHost(repo, number)
+    } catch {
+      return { ...(await fromGh(repo, number)), writeGate: true }
+    }
+  }
+}
+
 export function registerReviewsIpc(
   ctx: MainContext,
   run: ToolRun,
   remote: Omit<RemoteReviewsDeps, 'writes'> | null = null,
+  /** The Relay Host connection: PR actions go to its write gate in local mode too. */
+  frames: (RelayFrames & RelayFeatures) | null = remote?.frames ?? null,
+  /** The host's http origin in local mode, for the images a host PR read serves. */
+  origin?: () => string | null,
 ): void {
   const writes = !ctx.env.e2e
+  const host = hostLink(ctx, frames, remote?.host)
   if (remote) {
     registerRemoteReviews(ctx, { ...remote, writes })
     return
@@ -318,7 +376,7 @@ export function registerReviewsIpc(
     return t ? { authorization: `token ${t}` } : {}
   }
 
-  handle(ctx, 'reviews.pr', async ({ repo, number }) => {
+  const fromGh = async (repo: string, number: number): Promise<ReviewPr> => {
     const raw = JSON.parse(
       await gh(['pr', 'view', String(number), '-R', repo, '--json', PR_JSON_FIELDS]),
     ) as Raw
@@ -346,9 +404,14 @@ export function registerReviewsIpc(
       ),
     ])
     return { ...pr, body, timeline }
-  })
+  }
+  const media = hostMedia(path.join(ctx.config.dir, REVIEWS_MEDIA_DIR), () => origin?.() ?? null)
+  const readPr = routedPrRead(frames, host, media, fromGh)
+  handle(ctx, 'reviews.pr', ({ repo, number }) => readPr(repo, number))
 
   handle(ctx, 'reviews.comment', async ({ repo, number, body }) => {
+    // A capable host's comments go only through its gate (`reviews.prCommit`), never this way.
+    if (frames?.hostHas(REVIEWS_ACTIONS_FEATURE)) throw fail('use-gate', LEGACY_COMMENT_REFUSED)
     if (!writes) throw fail('dry-run', 'Test instance: the comment was not posted')
     const out = await gh(['pr', 'comment', String(number), '-R', repo, '--body', body])
     return { url: out.trim() }

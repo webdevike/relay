@@ -7,7 +7,13 @@ import { LineFramer, type Frame } from '@evaos/chat-core/line-framer'
 import type { ChatTransport, PromptImage, TransportExit } from '@evaos/chat-core/transport'
 import { resolveSpawnPath } from './shell-path'
 
-type StartOpts = { sessionFile: string | null; cwd: string; args?: readonly string[] }
+type StartOpts = {
+  sessionFile: string | null
+  cwd: string
+  args?: readonly string[]
+  /** Env for this spawn over the inherited one; an undefined value removes the variable. */
+  env?: Readonly<Record<string, string | undefined>>
+}
 
 export interface OmpTransportOptions {
   ompBin: string
@@ -44,6 +50,14 @@ function nodeOnPath(spawnPath: string): boolean {
       return false
     }
   })
+}
+
+/** `over` applied to `env` in place: an undefined value removes the variable. */
+function overrideEnv(env: NodeJS.ProcessEnv, over: StartOpts['env'] = {}): void {
+  for (const [key, value] of Object.entries(over)) {
+    if (value === undefined) delete env[key]
+    else env[key] = value
+  }
 }
 
 /**
@@ -92,6 +106,7 @@ export class OmpStdioTransport implements ChatTransport {
       PATH: spawnPath,
       ...(this.opts.takeExtraEnv?.() ?? {}),
     }
+    overrideEnv(baseEnv, opts.env)
     let bin: string
     let argv: string[]
     let env: NodeJS.ProcessEnv

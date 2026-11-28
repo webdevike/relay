@@ -1,0 +1,398 @@
+/*
+ * The ticket page, after Linear's issue view: a slim top bar with a hairline under it, a centered
+ * main column beside a borderless properties sidebar, and when the sidebar is folded a one-line
+ * status strip under the bar. No cards with shadows; rows are flat, hovers shift the background.
+ * Spacing is Mantine's scale (scripts/lint-spacing.ts).
+ */
+.eva-tk {
+  --eva-tk-page: var(--eva-c-background);
+  --eva-tk-side-w: 300px;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--eva-tk-page);
+  color: var(--eva-c-foreground);
+  container: eva-tk / inline-size;
+}
+[data-mantine-color-scheme='dark'] .eva-tk {
+  --eva-tk-page: color-mix(in srgb, var(--eva-c-background) 88%, black);
+}
+.eva-tk-spacer {
+  flex: 1 1 auto;
+}
+.eva-tk-dim {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tk-dot {
+  flex: none;
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+/* Top bar: breadcrumb, then Open in Linear, the sidebar toggle and prev/next. */
+.eva-tk-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-height: 40px;
+  padding: 0 var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-tk-crumbs {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-width: 0;
+  font-size: var(--eva-fz-body);
+}
+.eva-tk-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.3) calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: var(--eva-radius);
+  color: var(--eva-c-foreground);
+  white-space: nowrap;
+}
+.eva-tk-crumb:hover {
+  background: var(--eva-hover);
+}
+.eva-tk-crumb-col {
+  white-space: nowrap;
+  color: var(--eva-c-foreground);
+}
+.eva-tk-crumb-cur {
+  display: inline-flex;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  white-space: nowrap;
+}
+.eva-tk-crumb-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tk-pos {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The folded sidebar's strip: state, the PR's status, who waits, the PR stepper. */
+.eva-tk-strip {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-md);
+  min-height: 36px;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-label);
+}
+.eva-tk-strip-state,
+.eva-tk-strip-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  white-space: nowrap;
+}
+.eva-tk-strip-line[data-tone='ok'] {
+  color: var(--mantine-color-green-filled);
+}
+.eva-tk-strip-line[data-tone='bad'] {
+  color: var(--mantine-color-red-filled);
+}
+.eva-tk-strip-line[data-tone='dim'] {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tk-strip-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.5);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: var(--eva-radius);
+  color: var(--mantine-color-yellow-filled);
+  font-size: var(--eva-fz-label);
+}
+.eva-tk-strip-wait:hover {
+  background: var(--eva-hover);
+}
+.eva-tk-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Body: one scroll; the main column centered, the sidebar sticky beside it. */
+.eva-tk-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.eva-tk-body {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xl);
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 var(--mantine-spacing-lg);
+  box-sizing: border-box;
+}
+.eva-tk-body[data-side='off'] {
+  max-width: 920px;
+}
+.eva-tk-main {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--mantine-spacing-xs) 0 var(--mantine-spacing-xl);
+}
+.eva-tk-title {
+  margin: var(--mantine-spacing-md) 0 var(--mantine-spacing-lg);
+  font-size: 24px;
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.25;
+  color: var(--eva-c-foreground);
+}
+.eva-tk-unavail {
+  margin: var(--mantine-spacing-md) 0;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-lg);
+  font-size: var(--eva-fz-body);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tk-loading {
+  padding: var(--mantine-spacing-md) 0;
+  font-size: var(--eva-fz-body);
+}
+.eva-tk-hr {
+  margin: var(--mantine-spacing-md) 0 var(--mantine-spacing-lg);
+  border: 0;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-tk-h3 {
+  margin: 0 0 calc(var(--mantine-spacing-xs) * 0.6);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+
+/* Sub-issues and resources: flat rows. */
+.eva-tk-subs {
+  margin-top: var(--mantine-spacing-lg);
+}
+.eva-tk-subrow,
+.eva-tk-resrow {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  width: 100%;
+  min-height: 34px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-body);
+  color: var(--eva-c-foreground);
+}
+.eva-tk-subrow:hover,
+button.eva-tk-resrow:hover {
+  background: var(--eva-hover);
+}
+.eva-tk-subdone {
+  flex: none;
+  color: var(--mantine-primary-color-filled);
+}
+.eva-tk-res {
+  margin-top: var(--mantine-spacing-lg);
+}
+.eva-tk-reshead {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.5);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-tk-resrows {
+  margin-top: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-tk-res-t,
+.eva-tk-rel-t {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tk-agent {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.5);
+  padding: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-tk-agentrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  font-size: var(--eva-fz-body);
+}
+.eva-tk-column {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  font-weight: var(--eva-fw-medium);
+  white-space: nowrap;
+}
+.eva-tk-reason {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  line-height: 1.5;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tk-live {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: 50%;
+  background: var(--mantine-color-yellow-filled);
+  vertical-align: 1px;
+}
+[data-pr='open'] > .eva-tk-prglyph,
+.eva-tk-strip-pr[data-pr='open'] {
+  color: var(--mantine-color-green-filled);
+}
+[data-pr='draft'] > .eva-tk-prglyph {
+  color: var(--eva-c-muted-foreground);
+}
+[data-pr='merged'] > .eva-tk-prglyph,
+.eva-tk-strip-pr[data-pr='merged'] {
+  color: var(--mantine-color-violet-filled);
+}
+[data-pr='closed'] > .eva-tk-prglyph,
+.eva-tk-strip-pr[data-pr='closed'] {
+  color: var(--mantine-color-red-filled);
+}
+
+/* Properties sidebar: no border, no fill; it sits on the page and stays in view. */
+.eva-tk-side {
+  position: sticky;
+  top: 0;
+  flex: none;
+  width: var(--eva-tk-side-w);
+  padding: var(--mantine-spacing-md) 0 var(--mantine-spacing-xl);
+  font-size: var(--eva-fz-body);
+}
+.eva-tk-sect + .eva-tk-sect {
+  margin-top: var(--mantine-spacing-md);
+}
+.eva-tk-sidh {
+  margin: 0 0 calc(var(--mantine-spacing-xs) * 0.5);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-tk-prow {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  width: 100%;
+  min-height: 30px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: var(--eva-radius);
+  color: var(--eva-c-foreground);
+  font-size: var(--eva-fz-body);
+  text-align: left;
+}
+button.eva-tk-prow:hover {
+  background: var(--eva-hover);
+}
+.eva-tk-rel-k {
+  flex: none;
+  font-size: var(--eva-fz-label);
+}
+.eva-tk-tree {
+  padding-left: var(--mantine-spacing-lg);
+}
+.eva-tk-elbow {
+  flex: none;
+  width: 10px;
+  height: 12px;
+  transform: translateY(-5px);
+  border-left: 1px solid var(--eva-c-border);
+  border-bottom: 1px solid var(--eva-c-border);
+  border-bottom-left-radius: 4px;
+}
+.eva-tk-menu-loading {
+  display: grid;
+  place-items: center;
+  padding: var(--mantine-spacing-sm);
+}
+
+/* A PR's page: the Reviews detail fills the rest. */
+.eva-tk-pr {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Held to the page's height, so its tab scrolls inside (the diff list, comments) and the file tree
+   and sidebar stay put; as a column item it would otherwise grow to its content. */
+.eva-tk-pr > .eva-rv-detail {
+  min-height: 0;
+}
+
+/* A narrow pane (the page's own width, not the window's): a slimmer sidebar, then under the main column. */
+@container eva-tk (max-width: 960px) {
+  .eva-tk-body {
+    gap: var(--mantine-spacing-md);
+    padding: 0 var(--mantine-spacing-md);
+  }
+  .eva-tk-side {
+    --eva-tk-side-w: 240px;
+  }
+}
+@container eva-tk (max-width: 640px) {
+  .eva-tk-body {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .eva-tk-side {
+    position: static;
+    width: auto;
+    border-top: 1px solid var(--eva-c-border);
+  }
+}
+
+/* The host gate's approval in a confirm: summary, quoted description text, plan rows. */
+.eva-tk-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.eva-tk-approval-quote {
+  margin: 0;
+  padding-left: var(--mantine-spacing-sm);
+  border-left: 2px solid var(--eva-c-border);
+  white-space: pre-wrap;
+}
+
+.eva-tk-approval-rows {
+  margin: 0;
+  padding-left: var(--mantine-spacing-md);
+}

@@ -19,6 +19,9 @@ const TIMEOUT_MS: Record<string, number> = {
   astraAsk: 120_000,
   prList: 30_000,
   prView: 60_000,
+  prPrepare: 60_000,
+  // A merge is read back from GitHub after gh answers.
+  prCommit: 120_000,
 }
 export const DEFAULT_TIMEOUT_MS = 20_000
 
@@ -51,9 +54,12 @@ export function createHostReviews(
         if (f.t !== 'reviews.res' || f.rid !== rid) return
         clearTimeout(timer)
         off()
-        if (f.ok === true) {
-          const { t: _t, rid: _rid, ok: _ok, ...answer } = f
+        const { t: _t, rid: _rid, ok, ...answer } = f
+        if (ok === true) {
           resolve(answer)
+        } else if (answer.refused !== undefined || answer.outcome !== undefined) {
+          // The write gate's refusal or a failed write's outcome: an answer, not an error.
+          resolve({ ok: false, ...answer })
         } else {
           const msg = typeof f.error === 'string' && f.error !== '' ? f.error : NO_ANSWER
           reject(new RelayCommandError('internal', msg))

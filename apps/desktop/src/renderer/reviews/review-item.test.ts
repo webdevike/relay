@@ -59,11 +59,12 @@ describe('Reviews item links', () => {
     expect(openReviewItem('https://github.com/o/r/pull/3')).toBe(true)
     expect(reviewsStore.getState()).toMatchObject({
       selected: row,
-      ticket: null,
+      ticketAsk: null,
       thread: null,
     })
+    // A Linear issue is no selection: the Reviews page hands it to the ticket page.
     expect(openReviewItem('https://linear.app/w/issue/ENG-1')).toBe(true)
-    expect(reviewsStore.getState()).toMatchObject({ selected: null, ticket: { key: 'ENG-1' } })
+    expect(reviewsStore.getState()).toMatchObject({ selected: null, ticketAsk: { key: 'ENG-1' } })
     expect(openReviewItem('https://example.com')).toBe(false)
   })
 })

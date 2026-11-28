@@ -1,0 +1,338 @@
+// The ticket page's comments as threads, the writes Isaac made on this visit layered over them, who
+// can be mentioned and which assistants make a message private. Pure: no React, no IPC.
+import type { TicketActor, TicketComment, TicketDetail } from '@relay/protocol'
+import { emojify } from '@relay/slack-emoji'
+import type { WriteMode } from './ticket-data'
+
+/** A root comment and its replies (Linear replies point at the root), oldest first. */
+export interface Thread {
+  root: TicketComment
+  replies: TicketComment[]
+}
+
+/**
+ * Comments as threads by root id: a reply whose parent is itself a reply joins that reply's root,
+ * one whose parent is missing (deleted, not synced) stands as its own root. Roots and replies
+ * oldest first; emoji-only replies are replies like any other.
+ */
+export function threadsOf(comments: readonly TicketComment[]): Thread[] {
+  const byId = new Map(comments.map((c) => [c.id, c]))
+  const rootOf = (c: TicketComment): TicketComment => {
+    const seen = new Set<string>()
+    let cur = c
+    while (cur.parentId !== null && !seen.has(cur.id)) {
+      seen.add(cur.id)
+      const parent = byId.get(cur.parentId)
+      if (!parent) break
+      cur = parent
+    }
+    return cur
+  }
+  const threads = new Map<string, Thread>()
+  const sorted = [...comments].sort((a, b) => a.at - b.at)
+  for (const c of sorted) if (rootOf(c) === c) threads.set(c.id, { root: c, replies: [] })
+  for (const c of sorted) {
+    const root = rootOf(c)
+    if (root !== c) threads.get(root.id)?.replies.push(c)
+  }
+  return [...threads.values()]
+}
+
+/** The thread holding comment `id` (a root or a reply), or null when it isn't on the page. */
+export function focusTarget(
+  threads: readonly Thread[],
+  id: string | null,
+): { rootId: string; commentId: string } | null {
+  if (!id) return null
+  for (const t of threads) {
+    if (t.root.id === id || t.replies.some((r) => r.id === id)) {
+      return { rootId: t.root.id, commentId: id }
+    }
+  }
+  return null
+}
+
+const ONE_EMOJI =
+  '(?:\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier})*(?:\\u200D\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier})*)*|\\p{Regional_Indicator}{2})'
+const EMOJI_ONLY = new RegExp(`^${ONE_EMOJI}+$`, 'u')
+
+/** Only emoji (and `:shortcode:`s), nothing else: a 👍 reply. */
+export function isEmojiOnly(text: string): boolean {
+  return EMOJI_ONLY.test(emojify(text).replace(/\s+/g, ''))
+}
+
+/** Writes Isaac made on this visit, shown until the host's ticket has them. */
+export interface LocalEdits {
+  posted: TicketComment[]
+  deleted: string[]
+  edited: Record<string, string>
+  /** Root id: resolved (true) or reopened (false). */
+  resolved: Record<string, boolean>
+  /** `reactionKey`: on or off. */
+  reacted: Record<string, boolean>
+}
+
+export const NO_EDITS: LocalEdits = {
+  posted: [],
+  deleted: [],
+  edited: {},
+  resolved: {},
+  reacted: {},
+}
+
+export const reactionKey = (commentId: string, emoji: string): string => `${commentId}\n${emoji}`
+
+type Reactions = TicketComment['reactions']
+
+/** The reactions with Isaac's own set to `on` for `emoji`. */
+export function setReaction(
+  reactions: Reactions,
+  emoji: string,
+  on: boolean,
+  me: TicketActor,
+): Reactions {
+  const others = (users: TicketActor[]) => users.filter((u) => u.id !== me.id)
+  const has = reactions.some((r) => r.emoji === emoji)
+  const base = has || !on ? reactions : [...reactions, { emoji, users: [] }]
+  return base
+    .map((r) =>
+      r.emoji === emoji ? { ...r, users: on ? [...others(r.users), me] : others(r.users) } : r,
+    )
+    .filter((r) => r.users.length > 0)
+}
+
+function withEdits(c: TicketComment, local: LocalEdits, me: TicketActor | null, now: number) {
+  const body = local.edited[c.id]
+  const resolved = local.resolved[c.id]
+  let out = body === undefined ? c : { ...c, body, editedAt: c.editedAt ?? now }
+  if (resolved !== undefined) out = { ...out, resolvedAt: resolved ? (c.resolvedAt ?? now) : null }
+  if (!me) return out
+  for (const [key, on] of Object.entries(local.reacted)) {
+    const [id, emoji] = key.split('\n') as [string, string]
+    if (id === c.id) out = { ...out, reactions: setReaction(out.reactions, emoji, on, me) }
+  }
+  return out
+}
+
+/** The host's comments with this visit's writes applied: posted ones it hasn't sent yet, deletes, edits, resolves, reactions. */
+export function withLocal(
+  comments: readonly TicketComment[],
+  local: LocalEdits,
+  me: TicketActor | null,
+  now: number,
+): TicketComment[] {
+  const ids = new Set(comments.map((c) => c.id))
+  const gone = new Set(local.deleted)
+  const all = [...comments, ...local.posted.filter((c) => !ids.has(c.id))]
+  // A deleted root takes its replies with it.
+  return all
+    .filter((c) => !gone.has(c.id) && !(c.parentId !== null && gone.has(c.parentId)))
+    .map((c) => withEdits(c, local, me, now))
+}
+
+export type CommentAction =
+  'edit' | 'resolve' | 'unresolve' | 'copyLink' | 'copyMarkdown' | 'newIssue' | 'delete'
+
+/** The "..." menu of a comment: copies always; writes through the gate only; edit and delete on Isaac's own. */
+export function commentActions(
+  c: TicketComment,
+  opts: { meId: string | null; isRoot: boolean; writeMode: WriteMode },
+): CommentAction[] {
+  const out: CommentAction[] = []
+  const gate = opts.writeMode === 'gate'
+  const mine = gate && opts.meId !== null && c.author?.id === opts.meId
+  if (mine) out.push('edit')
+  if (gate && opts.isRoot) out.push(c.resolvedAt === null ? 'resolve' : 'unresolve')
+  out.push('copyLink', 'copyMarkdown')
+  if (gate) out.push('newIssue')
+  if (mine) out.push('delete')
+  return out
+}
+
+/** Someone a comment can @mention; `url` is their Linear profile (empty: unknown, the name stays text). */
+export interface Person {
+  /** The Linear user id, when known. */
+  id?: string
+  name: string
+  handle: string
+  url: string
+  /** Set for the ticket's people (null: no picture), absent for assistants. */
+  avatarUrl?: string | null
+  /** A Relay assistant: a message to her stays private. */
+  assistant?: true
+  /** An assistant's registry id (`astra`): whose private item session gets the ask. */
+  agent?: string
+}
+
+const handleOf = (url: string | undefined, name: string): string =>
+  /\/profiles\/([\w.-]+)/.exec(url ?? '')?.[1] ?? name
+
+/** Everyone on the ticket (assignee, creator, commenters, reactors), once each. */
+export function peopleOf(d: TicketDetail): Person[] {
+  const actors = [
+    d.assignee,
+    d.creator,
+    ...d.comments.flatMap((c) => [c.author, ...c.reactions.flatMap((r) => r.users)]),
+  ]
+  const seen = new Map<string, Person>()
+  for (const a of actors) {
+    if (!a || seen.has(a.id)) continue
+    seen.set(a.id, {
+      id: a.id,
+      name: a.name,
+      handle: handleOf(a.url, a.name),
+      url: a.url ?? '',
+      avatarUrl: a.avatarUrl,
+    })
+  }
+  return [...seen.values()]
+}
+
+/**
+ * Relay's built-in assistants: always private, whether or not this Mac's registry lists them (a thin
+ * client's list can be empty or not loaded yet), so an ask meant for one never becomes a comment.
+ */
+export const ASSISTANTS: readonly Person[] = ['Astra', 'Nova', 'Penny', 'Iris', 'Polaris'].map(
+  (name) => ({ name, handle: name, url: '', assistant: true, agent: name.toLowerCase() }),
+)
+
+/** A configured assistant as the registry lists her (`assistants.list`). */
+export interface RegistryAssistant {
+  id: string
+  title: string
+}
+
+const ONE_WORD = /^[\w.-]+$/
+
+/**
+ * The assistants an @ means: the configured registry's (custom ones included) in its order, offered
+ * as `@Title` when her title is one word, else `@id`; then any built-in one it doesn't list.
+ */
+export function assistantPeople(agents: readonly RegistryAssistant[] | null): readonly Person[] {
+  const configured: Person[] = (agents ?? []).map((a) => ({
+    name: a.title || a.id,
+    handle: ONE_WORD.test(a.title) ? a.title : a.id,
+    url: '',
+    assistant: true,
+    agent: a.id,
+  }))
+  const ids = new Set(configured.map((a) => a.agent))
+  return [...configured, ...ASSISTANTS.filter((a) => !ids.has(a.agent))]
+}
+
+/**
+ * Where `@` starts a mention, as the composer's @ list reads it: at the start or after anything but
+ * a letter, digit or another `@`, so `(@Astra,`, `**@Astra**` and `_@Astra_` mention her and an
+ * address (`astra@example.com`) doesn't.
+ */
+const AT = '(?<![^\\W_]|@)@'
+/** A mention ends before anything but a letter, digit or `-`, or at a `.` that ends the sentence. */
+const END = '(?![^\\W_]|-|\\.[^\\W_])'
+
+const mentions = (text: string, name: string): boolean =>
+  new RegExp(`${AT}${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${END}`, 'i').test(text)
+
+/** The mention being typed right before the caret (what follows its `@`), or null: the @ list's query. */
+export function mentionQuery(beforeCaret: string): string | null {
+  return new RegExp(`${AT}([\\w.-]*)$`).exec(beforeCaret)?.[1] ?? null
+}
+
+/** The assistants `text` mentions, by her handle, name or registry id. */
+export function assistantsIn(text: string, assistants: readonly Person[] = ASSISTANTS): Person[] {
+  return assistants.filter((a) =>
+    [a.handle, a.name, a.agent ?? ''].some((n) => n !== '' && mentions(text, n)),
+  )
+}
+
+/**
+ * Where a message goes: `public` (posted), `private` (an assistant is mentioned: Relay only), or
+ * `mixed` (an assistant and a person: still private, and Isaac is told to write people separately).
+ */
+export function privacyOf(
+  text: string,
+  people: readonly Person[],
+  assistants: readonly Person[] = ASSISTANTS,
+): 'public' | 'private' | 'mixed' {
+  if (assistantsIn(text, assistants).length === 0) return 'public'
+  const person = people.some(
+    (p) => !p.assistant && (mentions(text, p.name) || mentions(text, p.handle)),
+  )
+  return person ? 'mixed' : 'private'
+}
+
+/** The team's `Todo` state by exact name, or null when there is none or more than one (Isaac picks). */
+export function todoState<S extends { id: string; name: string }>(states: readonly S[]): S | null {
+  const todo = states.filter((s) => s.name === 'Todo')
+  return todo.length === 1 ? todo[0]! : null
+}
+
+/** A new issue's title from a comment: its first line, plain, at most 120 characters. */
+export function issueTitleOf(body: string): string {
+  const line = body.split('\n').find((l) => l.trim()) ?? ''
+  return line
+    .replace(/^[#>*\-\s]+/, '')
+    .trim()
+    .slice(0, 120)
+}
+
+/** The ticket as the first message of its private assistant session. */
+export function detailContext(d: TicketDetail): string {
+  const byId = new Map(d.comments.map((c) => [c.id, c]))
+  const name = (a: TicketActor | null): string => a?.name ?? 'Someone'
+  const comments = d.comments.map((c) => {
+    const parent = c.parentId ? byId.get(c.parentId) : undefined
+    const reply = parent ? ` replying to ${name(parent.author)}` : ''
+    const at = new Date(c.at).toISOString().slice(0, 16).replace('T', ' ')
+    return `- ${name(c.author)}${reply}, ${at}: ${c.body.trim()}`
+  })
+  return [
+    `### Linear ticket ${d.key}: ${d.title}`,
+    d.url,
+    `${d.state.name} · assignee ${d.assignee?.name ?? 'none'} · project ${d.project?.name ?? 'none'} · team ${d.team.key}`,
+    '',
+    '#### Description',
+    d.description.trim() || '(none)',
+    '',
+    '#### Comments (oldest first; replies name the comment they answer)',
+    comments.length === 0 ? '(no comments)' : comments.join('\n'),
+  ].join('\n')
+}
+
+/** An inline comment on the description: a root about a quote of it. */
+export const isInline = (c: TicketComment): boolean =>
+  c.documentContentId !== null && Boolean(c.quotedText)
+
+/** An assistant's registry id (`Nova` -> `nova`): which of her sessions gets the ask. */
+export const agentOf = (p: Person): string => p.agent ?? p.handle.toLowerCase()
+
+const oneLine = (text: string, max: number): string =>
+  text.replace(/\s+/g, ' ').replace(/"/g, "'").trim().slice(0, max)
+
+/** The line a private ask about a Linear thread starts with, then the thread it carries. */
+const IN_THREAD = /^\(In the thread ([\w-]+) on "[^"\n]*"\)\n(?:<thread>\n[\s\S]*?\n<\/thread>\n)?/
+
+/**
+ * A private ask in a Linear thread (or inline thread): the line naming the thread, so her reply
+ * shows in it, the thread itself (its quote and comments) for her to read, then the question.
+ */
+export function threadAsk(text: string, thread: Thread): string {
+  const root = thread.root
+  const quote = root.quotedText
+    ? [`On the description text: "${oneLine(root.quotedText, 500)}"`]
+    : []
+  const lines = [root, ...thread.replies].map(
+    (c) => `- ${c.author?.name ?? 'Someone'}: ${c.body.trim()}`,
+  )
+  const about = oneLine(root.quotedText ?? root.body, 80)
+  return `(In the thread ${root.id} on "${about}")\n<thread>\n${[...quote, ...lines].join('\n')}\n</thread>\n${text}`
+}
+
+/** A private ask about description text nobody has commented on yet. */
+export const quoteAsk = (text: string, quote: string): string =>
+  `(About the description text "${oneLine(quote, 500)}")\n${text}`
+
+/** The Linear thread a private ask was asked in (null: none), and the words Isaac typed. */
+export function askedIn(text: string): { rootId: string | null; text: string } {
+  const m = IN_THREAD.exec(text)
+  return m ? { rootId: m[1]!, text: text.slice(m[0].length) } : { rootId: null, text }
+}

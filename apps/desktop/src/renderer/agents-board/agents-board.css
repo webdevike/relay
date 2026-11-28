@@ -1,14 +1,28 @@
 /*
- * The Board page (Linear's board view): status columns with counts, compact bordered cards on
- * a quiet column wash, no shadows, no accent stripes; a hover only shifts the border. Spacing is
- * Mantine's scale (scripts/lint-spacing.ts). The Agents page reuses the page frame, head and side
- * panel classes (`eva-ab`, `eva-ab-head`, `eva-ab-side`, `eva-ab-tv`).
+ * The Board page, after Linear's board: a near-black page, darker column wells, lighter cards with
+ * a hairline border (no shadows, no accent stripes; a hover only shifts the border). Chips are
+ * quiet bordered pills; color appears only where it means something (status, PR state, labels).
+ * Spacing is Mantine's scale (scripts/lint-spacing.ts).
  */
 .eva-ab {
-  --eva-ab-col-min: 232px;
+  --eva-ab-page: var(--eva-c-background);
+  --eva-ab-well: color-mix(in srgb, var(--eva-c-background) 96%, black);
+  --eva-ab-card: var(--eva-c-background);
+  --eva-ab-card-line: var(--eva-c-border);
+  --eva-ab-chip-line: var(--eva-c-border);
+  --eva-ab-col-w: 300px;
   height: 100%;
   min-height: 0;
   display: flex;
+  background: var(--eva-ab-page);
+}
+/* Dark: a near-black page, darker wells, lighter cards (Linear's board). */
+[data-mantine-color-scheme='dark'] .eva-ab {
+  --eva-ab-page: color-mix(in srgb, var(--eva-c-background) 88%, black);
+  --eva-ab-well: color-mix(in srgb, var(--eva-c-background) 68%, black);
+  --eva-ab-card: color-mix(in srgb, var(--eva-c-background) 94%, white);
+  --eva-ab-card-line: color-mix(in srgb, var(--eva-c-background) 84%, white);
+  --eva-ab-chip-line: color-mix(in srgb, var(--eva-c-background) 80%, white);
 }
 .eva-ab-main {
   flex: 1 1 0;
@@ -17,49 +31,97 @@
   display: flex;
   flex-direction: column;
 }
-
-.eva-ab-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
-  padding: var(--mantine-spacing-lg) var(--mantine-spacing-lg) var(--mantine-spacing-md);
+.eva-ab-spacer {
+  flex: 1 1 auto;
 }
-.eva-ab-heading {
+
+/* Title row, then the bar (count, Waiting on you, freshness, search); hairlines under each. */
+.eva-ab-head {
+  flex: none;
   display: flex;
-  align-items: baseline;
-  gap: var(--mantine-spacing-sm);
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  min-height: 44px;
+  padding: 0 var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-c-border);
 }
 .eva-ab-title {
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-semibold);
   line-height: 1.2;
   color: var(--eva-c-foreground);
 }
-.eva-ab-summary {
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-ab-filters {
+.eva-ab-bar {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  min-height: 40px;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-ab-items {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.eva-ab-waittog {
+  display: inline-flex;
+  align-items: center;
   gap: var(--mantine-spacing-xs);
+  height: 24px;
+  padding: 0 var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-ab-chip-line);
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  transition:
+    color var(--eva-dur-fast) ease,
+    border-color var(--eva-dur-fast) ease;
+}
+.eva-ab-waittog:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-ab-waittog[data-on] {
+  color: var(--eva-c-foreground);
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+}
+.eva-ab-waittog:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+.eva-ab-waitn {
+  padding: 0 calc(var(--mantine-spacing-xs) * 1.5);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-accent-background);
+  font-size: var(--eva-fz-caption);
+  font-variant-numeric: tabular-nums;
+}
+.eva-ab-fresh {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  min-width: 0;
+  margin-left: var(--mantine-spacing-xs);
+}
+.eva-ab-freshtext {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .eva-ab-search {
   width: 220px;
 }
-.eva-ab-select {
-  width: 160px;
-}
-.eva-ab-stale {
-  margin-left: var(--mantine-spacing-xs);
-}
-.eva-ab-stale label {
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
+.eva-ab-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
 }
 
 .eva-ab-loading {
@@ -68,106 +130,111 @@
   color: var(--eva-c-muted-foreground);
 }
 
-/* One scroll for the whole board, both ways; the column heads stay on top. */
+/* Columns side by side, the board scrolls sideways; each well scrolls its own cards. */
 .eva-ab-board {
   flex: 1 1 0;
   min-height: 0;
-  overflow: auto;
-  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-lg);
-}
-.eva-ab-cols,
-.eva-ab-lane {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(var(--eva-ab-col-min), 1fr));
+  display: flex;
+  align-items: stretch;
   gap: var(--mantine-spacing-sm);
-  min-width: min-content;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  overflow-x: auto;
+  overflow-y: hidden;
 }
-.eva-ab-pill {
+.eva-ab-col {
   flex: none;
+  width: var(--eva-ab-col-w);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius-lg);
+  background: var(--eva-ab-well);
 }
-.eva-ab-cols {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--eva-c-background);
-  padding-bottom: var(--mantine-spacing-xs);
+.eva-ab-col[data-over] {
+  outline: 1px dashed var(--mantine-primary-color-filled);
+  outline-offset: -2px;
 }
 .eva-ab-colhead {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  height: 40px;
+  padding: 0 var(--mantine-spacing-xs);
+}
+.eva-ab-colname {
   font-size: var(--eva-fz-body);
   font-weight: var(--eva-fw-medium);
   color: var(--eva-c-foreground);
+  white-space: nowrap;
 }
 .eva-ab-count {
-  font-weight: var(--eva-fw-regular);
   font-size: var(--eva-fz-label);
   color: var(--eva-c-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+.eva-ab-colmenu {
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease;
+}
+.eva-ab-col:hover .eva-ab-colmenu,
+.eva-ab-colmenu:focus-visible,
+.eva-ab-colmenu[data-open] {
+  opacity: 1;
+}
+.eva-ab-cards {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  overflow-y: auto;
+}
 
-/* Status colors, paired with each column's own icon shape and name. */
-.eva-ab-colicon {
+/* Status colors, each paired with its own glyph shape and the column's name. */
+.eva-ab-colicon,
+.eva-ab-status {
   flex: none;
   color: var(--eva-c-muted-foreground);
 }
-[data-column='working'] > .eva-ab-colicon {
+[data-column='working'] .eva-ab-colicon,
+.eva-ab-status[data-column='working'] {
   color: var(--mantine-color-yellow-filled);
 }
-[data-column='needs'] > .eva-ab-colicon {
-  color: var(--mantine-color-orange-filled);
+[data-column='needs'] .eva-ab-colicon,
+.eva-ab-status[data-column='needs'] {
+  color: var(--mantine-color-violet-4);
 }
-[data-column='review'] > .eva-ab-colicon {
+[data-column='review'] .eva-ab-colicon,
+.eva-ab-status[data-column='review'] {
   color: var(--mantine-color-green-filled);
 }
-[data-column='qa'] > .eva-ab-colicon {
-  color: var(--mantine-color-violet-filled);
+[data-column='qa'] .eva-ab-colicon,
+.eva-ab-status[data-column='qa'] {
+  color: var(--mantine-color-cyan-filled);
 }
-[data-column='done'] > .eva-ab-colicon {
-  color: var(--mantine-color-blue-filled);
-}
-
-.eva-ab-group + .eva-ab-group {
-  margin-top: var(--mantine-spacing-md);
-}
-.eva-ab-lanehead {
-  position: sticky;
-  left: 0;
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--mantine-spacing-xs);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-}
-.eva-ab-lanetitle {
-  font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-medium);
-  color: var(--eva-c-foreground);
-}
-.eva-ab-cell {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
-  min-height: 48px;
-  padding: var(--mantine-spacing-xs);
-  border-radius: var(--eva-radius);
-  background: var(--eva-c-muted-background);
+[data-column='done'] .eva-ab-colicon,
+.eva-ab-status[data-column='done'] {
+  color: var(--mantine-color-indigo-filled);
 }
 
+/* A card: three tight rows (key, status + title, chips) and its date. */
 .eva-ab-card {
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-  border: 1px solid var(--eva-c-border);
-  border-radius: var(--eva-radius);
-  background: var(--eva-c-background);
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-ab-card-line);
+  border-radius: var(--eva-radius-lg);
+  background: var(--eva-ab-card);
   cursor: pointer;
+  touch-action: manipulation;
   transition: border-color var(--eva-dur-fast) ease;
 }
 .eva-ab-card:hover {
-  border-color: var(--eva-c-muted-foreground);
+  border-color: var(--eva-ab-chip-line);
 }
 .eva-ab-card[data-active] {
   border-color: var(--eva-c-accent);
@@ -176,30 +243,57 @@
   outline: 2px solid var(--eva-c-ring);
   outline-offset: 1px;
 }
-.eva-ab-card[data-stale] .eva-ab-cardtitle {
-  color: var(--eva-c-muted-foreground);
+.eva-ab-card[data-dragging] {
+  opacity: 0.35;
 }
-.eva-ab-cardtop {
+.eva-ab-card[data-overlay] {
+  width: calc(var(--eva-ab-col-w) - var(--mantine-spacing-xs) * 2);
+  cursor: grabbing;
+  border-color: var(--eva-c-accent);
+}
+.eva-ab-r1 {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--mantine-spacing-xs);
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  min-width: 0;
+  height: 20px;
 }
 .eva-ab-key {
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-.eva-ab-age {
   flex: none;
   font-size: var(--eva-fz-label);
   color: var(--eva-c-muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+.eva-ab-parent {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-ab-who {
+  flex: none;
+  display: inline-flex;
+}
+.eva-ab-avatar {
+  flex: none;
+}
+.eva-ab-r2 {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-ab-status {
+  display: inline-flex;
+  padding-top: calc(var(--mantine-spacing-xs) / 2);
+}
 .eva-ab-cardtitle {
   font-size: var(--eva-fz-body);
   font-weight: var(--eva-fw-medium);
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--eva-c-foreground);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -207,244 +301,220 @@
   overflow: hidden;
   overflow-wrap: anywhere;
 }
-.eva-ab-cardmeta {
+.eva-ab-chips {
   display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) * 1.5);
   min-width: 0;
+}
+/* The agent's stage pill (Asking you, Stuck, Waiting on Noah), first among the chips. */
+.eva-ab-stage {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
 }
 .eva-ab-chip {
   display: inline-flex;
   align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  gap: var(--mantine-spacing-xs);
+  max-width: 100%;
+  height: 24px;
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-ab-chip-line);
+  border-radius: var(--eva-radius-round);
   font-size: var(--eva-fz-label);
   color: var(--eva-c-muted-foreground);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.eva-ab-chip-btn {
+  cursor: pointer;
+  transition:
+    color var(--eva-dur-fast) ease,
+    border-color var(--eva-dur-fast) ease;
+}
+.eva-ab-chip-btn:hover {
+  color: var(--eva-c-foreground);
+  border-color: var(--eva-c-muted-foreground);
+}
+.eva-ab-chip-btn:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+.eva-ab-chip-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .eva-ab-chip[data-pr='open'] svg {
   color: var(--mantine-color-green-filled);
 }
 .eva-ab-chip[data-pr='merged'] svg {
-  color: var(--mantine-color-violet-filled);
+  color: var(--mantine-color-violet-4);
 }
 .eva-ab-chip[data-pr='closed'] svg {
   color: var(--mantine-color-red-filled);
 }
-.eva-ab-run {
-  min-width: 0;
-  flex: 1 1 auto;
-  justify-content: flex-end;
+.eva-ab-urgent {
+  color: var(--mantine-color-orange-filled);
 }
-.eva-ab-runname {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/*
- * Side panel: beside the board, which shrinks and stays live. A hairline left border, no shadow;
- * the sash on that border resizes it.
- */
-.eva-ab-side {
-  position: relative;
+.eva-ab-dot {
   flex: none;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--eva-c-border);
-  background: var(--eva-c-background);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
-.eva-ab-sash {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -4px;
-  width: 7px;
-  z-index: 2;
-  cursor: col-resize;
-  outline: none;
-}
-.eva-ab-sash:hover,
-.eva-ab-sash:focus-visible,
-.eva-ab-sash.is-dragging {
-  background: linear-gradient(
-    to right,
-    transparent 3px,
-    var(--eva-c-ring) 3px 4px,
-    transparent 4px
-  );
-}
-.eva-ab-side-collapsed {
-  width: 36px;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-  padding-top: var(--mantine-spacing-sm);
-}
-.eva-ab-side-label {
-  writing-mode: vertical-rl;
+.eva-ab-foot {
   font-size: var(--eva-fz-label);
   color: var(--eva-c-muted-foreground);
-  font-variant-numeric: tabular-nums;
+}
+
+/* Waiting on you: the one loud chip; its check (Mark as handled) shows on hover or focus. */
+.eva-ab-wait {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 24px;
+  border: 1px solid var(--mantine-primary-color-light-hover);
+  border-radius: var(--eva-radius-round);
+  background: var(--mantine-primary-color-light);
+  color: var(--mantine-primary-color-light-color);
+  font-size: var(--eva-fz-label);
+}
+.eva-ab-wait-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--mantine-spacing-xs) 0 var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius-round);
+  font-size: inherit;
+  color: inherit;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-height: 60%;
 }
-
-/* The ticket view: a slim head, then one scroll for agent, ticket and the PR tabs. */
-.eva-ab-tv {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.eva-ab-tv-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) var(--mantine-spacing-xs)
-    var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--eva-c-border);
-}
-.eva-ab-tv-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-.eva-ab-tv-spacer {
-  flex: 1;
-}
-.eva-ab-tv-dim {
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-ab-tv-iconbtn {
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--eva-radius);
-  color: var(--eva-c-muted-foreground);
-  transition: background-color var(--eva-dur-fast) ease;
-}
-.eva-ab-tv-iconbtn:hover {
-  background: var(--eva-hover);
+.eva-ab-wait-open:hover {
   color: var(--eva-c-foreground);
 }
-.eva-ab-tv-note {
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
+.eva-ab-wait-open:focus-visible,
+.eva-ab-wait-done:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
 }
-.eva-ab-tv-title {
-  padding: 0 var(--mantine-spacing-md);
+.eva-ab-wait-who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Out of the layout until the card is hovered or holds focus, so the chip's words get the room. */
+.eva-ab-wait-done {
+  flex: none;
+  display: none;
+  margin-right: calc(var(--mantine-spacing-xs) / 2);
+  color: inherit;
+}
+.eva-ab-card:hover .eva-ab-wait-done,
+.eva-ab-card:focus-within .eva-ab-wait-done {
+  display: inline-flex;
 }
 
-.eva-ab-tv-agent {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--eva-c-border);
+/* Hidden columns: a quiet group right of the columns. */
+.eva-ab-hidden {
+  flex: none;
+  width: 240px;
+  align-self: flex-start;
+  max-height: 100%;
+  overflow-y: auto;
 }
-.eva-ab-tv-agentrow {
+.eva-ab-hghead {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-hghead:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-ab-hrow {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  height: 36px;
+  padding: 0 var(--mantine-spacing-sm) 0 0;
+  border-radius: var(--eva-radius-lg);
+}
+.eva-ab-hrow:hover,
+.eva-ab-hrow[data-over] {
+  background: var(--eva-ab-well);
+}
+.eva-ab-hrow[data-over] {
+  outline: 1px dashed var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+.eva-ab-hopen {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
   min-width: 0;
+  height: 100%;
+  padding: 0 var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius-lg);
 }
-.eva-ab-pcolumn {
-  display: flex;
+.eva-ab-hopen:focus-visible,
+.eva-ab-hshow:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-ab-hshow {
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-medium);
-  color: var(--eva-c-foreground);
-  white-space: nowrap;
-}
-.eva-ab-reason {
-  margin: 0;
-  font-size: var(--eva-fz-label);
-  line-height: 1.5;
-  color: var(--eva-c-muted-foreground);
-}
-.eva-ab-tv-session {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-  padding: calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-sm);
-  border: 1px solid var(--eva-c-border);
+  gap: var(--mantine-spacing-xs);
+  height: 22px;
+  padding: 0 var(--mantine-spacing-xs);
   border-radius: var(--eva-radius);
-  transition: border-color var(--eva-dur-fast) ease;
-}
-.eva-ab-tv-session:hover {
-  border-color: var(--eva-c-muted-foreground);
-}
-.eva-ab-tv-open {
-  flex: none;
+  background: var(--eva-c-accent-background);
   font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
+  color: var(--eva-c-foreground);
+  opacity: 0;
 }
-.eva-ab-tv-session:hover .eva-ab-tv-open {
+.eva-ab-hrow:hover .eva-ab-hshow,
+.eva-ab-hshow:focus-visible {
+  opacity: 1;
+}
+.eva-ab-hpop {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-xs);
+}
+.eva-ab-hcard {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
   color: var(--eva-c-foreground);
 }
-.eva-ab-tv-live {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: calc(var(--mantine-spacing-xs) * 0.6);
-  border-radius: 50%;
-  background: var(--mantine-color-yellow-filled);
-  vertical-align: 1px;
+.eva-ab-hcard:hover,
+.eva-ab-hcard:focus-visible {
+  background: var(--eva-c-accent-background);
 }
-.eva-ab-linkicon {
-  flex: none;
-  color: var(--eva-c-muted-foreground);
-}
-.eva-ab-linktext {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.eva-ab-linklabel {
-  font-size: var(--eva-fz-body);
-  color: var(--eva-c-foreground);
+.eva-ab-hcard-t {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.eva-ab-linksub {
+.eva-ab-hempty {
+  padding: var(--mantine-spacing-xs);
   font-size: var(--eva-fz-label);
   color: var(--eva-c-muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Linked PRs: one tab each, the PR's state in its glyph's color. */
-.eva-ab-tv-prs {
-  border-top: 1px solid var(--eva-c-border);
-  margin-top: var(--mantine-spacing-md);
-}
-.eva-ab-tv-prtabs {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  overflow-x: auto;
-  background: var(--eva-c-background);
-}
-.eva-ab-tv-prtabs .eva-rv-tab {
-  white-space: nowrap;
-}
-[data-pr='open'] > .eva-ab-tv-prglyph {
-  color: var(--mantine-color-green-filled);
-}
-[data-pr='merged'] > .eva-ab-tv-prglyph {
-  color: var(--mantine-color-violet-filled);
-}
-[data-pr='closed'] > .eva-ab-tv-prglyph {
-  color: var(--mantine-color-red-filled);
 }

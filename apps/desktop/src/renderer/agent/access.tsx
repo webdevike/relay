@@ -337,7 +337,7 @@ function controlsOnScreen(): Array<{ target: string; label: string; kind: string
 
 function selectedReviewUrl(): string | null {
   const s = reviewsStore.getState()
-  return s.selected?.url ?? s.ticket?.url ?? s.thread?.url ?? null
+  return s.selected?.url ?? s.thread?.url ?? null
 }
 
 export function describeScreen(): Record<string, unknown> {

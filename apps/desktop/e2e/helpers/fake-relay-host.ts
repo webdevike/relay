@@ -7,8 +7,9 @@
 // projects, references, favorites, trash, SAM 2.1 segments, jobs that finish when a test says so,
 // assets served at `/studio/<id>/<token>` from fixture files), run Meetings (recordings, live
 // lines, key moments, screen snapshots served at `/meetings/shots/<id>/<token>/<n>`), answer
-// Reviews' `reviews.req` from fixtures (a PR, its Guide, images at `/reviews/media/<file>/<token>`),
-// and read every command the app sent. No WebSocket library: the few frame types Relay uses are
+// Reviews' `reviews.req` (the PR actions, or a whole PR and its Guide from fixtures with images at
+// `/reviews/media/<file>/<token>`), and
+// read every command the app sent. No WebSocket library: the few frame types Relay uses are
 // framed here (RFC 6455, text, ping, close).
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
@@ -21,10 +22,25 @@ import { defaultTabs, type PinKind } from '@evaos/chat-core/artifacts'
 import { pinId, splitPins } from '@evaos/chat-core/pins'
 import { FIXTURES_DIR } from './paths'
 
+const TICKETS = path.join(__dirname, '..', 'fixtures', 'tickets')
+const ticketFixture = (name: string): Json =>
+  JsonSchema.parse(JSON.parse(fs.readFileSync(path.join(TICKETS, `${name}.json`), 'utf8')))
+const REVIEWS = path.join(__dirname, '..', 'fixtures', 'reviews')
+const reviewsFixture = (name: string): Json =>
+  JsonSchema.parse(JSON.parse(fs.readFileSync(path.join(REVIEWS, `${name}.json`), 'utf8')))
+/** A PR commit's `result`: a merge is immediate, so it reads back merged. */
+function mergeResult(m: Record<string, unknown>): Record<string, unknown> {
+  return m.kind === 'merge' ? { merge: 'merged' } : {}
+}
+
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 type Json = Record<string, unknown>
 const JsonSchema = z.record(z.string(), z.unknown())
+/** The Linear account a tickets status names (the gate's `viewerId`). */
+const HostViewer = z.object({
+  identity: z.object({ linear: z.object({ viewerId: z.string() }).nullable().optional() }),
+})
 const DevicesSchema = z.record(z.string(), z.object({ secretHex: z.string() }).partial())
 
 const MEDIA = path.join(FIXTURES_DIR, 'agent-widgets/media')
@@ -753,6 +769,208 @@ export class FakeRelayHost {
     if (push) this.broadcast({ t: 'meeting.shot', id, shot })
   }
 
+  /** The synced board (`e2e/fixtures/tickets/board.json`): rev, board and status. */
+  readonly tickets: { rev: number; board: { tickets: Json[]; teams?: Json[] }; status: Json } =
+    (() => {
+      const f = ticketFixture('board')
+      return {
+        rev: Number(f.rev),
+        // Teams too: a drag maps a column to one of the team's states.
+        board: z
+          .object({ tickets: z.array(JsonSchema), teams: z.array(JsonSchema).optional() })
+          .parse(f.board),
+        status: JsonSchema.parse(f.status),
+      }
+    })()
+  /** Every `tickets.*` frame the app sent, in order (an old host must see none). */
+  readonly ticketFrames: Json[] = []
+  /** Every `prepare` and `commit` op (`id`: the rid, `cmd`: the op), in order. */
+  readonly mutations: Received[] = []
+  /** Devices that sent `tickets.subscribe` (pushes go only to them). */
+  private readonly ticketSubs = new Set<Peer>()
+  /** The next `prepare` or `commit` is refused by the gate with this code. */
+  private refusal: string | null = null
+  /** The next `tickets.req` gets no answer (a lost response). */
+  private loseNext = false
+
+  refuseNext(code: string): void {
+    this.refusal = code
+  }
+  loseNextResponse(): void {
+    this.loseNext = true
+  }
+
+  /** Applies a change to the board and pushes it as one `tickets.delta` to subscribed devices. */
+  pushDelta(change: {
+    upserts?: Json[]
+    tombstones?: string[]
+    status?: Json
+    base?: number
+  }): void {
+    const upserts = change.upserts ?? []
+    const tombstones = change.tombstones ?? []
+    const gone = new Set([...tombstones, ...upserts.map((t) => String(t.key))])
+    const base = change.base ?? this.tickets.rev
+    this.tickets.board.tickets = [
+      ...this.tickets.board.tickets.filter((t) => !gone.has(String(t.key))),
+      ...upserts,
+    ]
+    if (change.status) this.tickets.status = change.status
+    this.tickets.rev += 1
+    const frame = { t: 'tickets.delta', rev: this.tickets.rev, base, upserts, tombstones }
+    for (const p of this.ticketSubs)
+      p.send(change.status ? { ...frame, status: change.status } : frame)
+  }
+
+  private ticketsReq(peer: Peer, rid: string, op: Json): void {
+    const write = op.kind === 'prepare' || op.kind === 'commit'
+    if (write) this.mutations.push({ id: rid, cmd: op, status: null })
+    if (this.loseNext) {
+      this.loseNext = false
+      return
+    }
+    // The real gate refuses a write as another account than the one the device saw.
+    const viewer = HostViewer.safeParse(this.tickets.status).data?.identity.linear?.viewerId
+    const wrongAccount = write && op.viewerId !== viewer ? 'identity' : null
+    const refused = write ? (this.refusal ?? wrongAccount) : null
+    this.refusal = this.refusal && refused === this.refusal ? null : this.refusal
+    const answer = refused
+      ? { ok: false, refused: { code: refused, message: `Refused: ${refused}` } }
+      : this.ticketsAnswer(peer, op)
+    peer.send({ t: 'tickets.res', rid, ...answer })
+    if (op.kind === 'subscribe' && op.on === true)
+      peer.send({ t: 'tickets.snapshot', ...this.tickets })
+  }
+
+  private ticketsAnswer(peer: Peer, op: Json): Json {
+    switch (op.kind) {
+      case 'subscribe':
+        if (op.on === true) this.ticketSubs.add(peer)
+        else this.ticketSubs.delete(peer)
+        return { ok: true, ...this.tickets }
+      case 'board':
+        return { ok: true, ...this.tickets }
+      case 'ticket': {
+        const key = String(op.key)
+        if (!fs.existsSync(path.join(TICKETS, `${key}.json`)))
+          return { ok: false, error: `No ${key}` }
+        return { ok: true, ticket: ticketFixture(key) }
+      }
+      case 'seen':
+        return { ok: true, previousSeenAt: null }
+      case 'summary':
+        return { ok: true, summary: { key: op.key, text: 'A synthetic summary.', at: Date.now() } }
+      case 'prepare': {
+        const m = JsonSchema.parse(op.mutation)
+        return {
+          ok: true,
+          approval: {
+            id: `approval-${this.mutations.length}`,
+            expiresAt: Date.now() + 120_000,
+            summary: `Write ${String(m.kind)}`,
+            ...(typeof m.body === 'string' && { text: m.body }),
+            ...(typeof m.quotedText === 'string' && { quote: m.quotedText }),
+          },
+        }
+      }
+      case 'commit':
+        return { ok: true, outcome: { opId: op.opId, state: 'done' } }
+      default:
+        // watch, sync, handled, plan: accepted.
+        return { ok: true }
+    }
+  }
+
+  /** Every `reviews.req` frame the app sent, in order (a host without `reviews.actions` must see no PR action). */
+  readonly reviewFrames: Json[] = []
+  /** Every `reviews.req` op the app sent, in order. */
+  readonly reviewOps: Json[] = []
+  /**
+   * Fixture answers per op kind, or per `<kind>:<key>` for one key's read (the `reviews.res`
+   * fields after `ok`), filled by `serveReviews`; they win over the built-in `pr` answer.
+   */
+  readonly reviews = new Map<string, Json>()
+
+  /** This host's http origin, as the real host's served images are linked. */
+  get origin(): string {
+    return `http://127.0.0.1:${String((this.server.address() as AddressInfo).port)}`
+  }
+
+  /**
+   * Answers `reviews.req` from `<dir>/answers.json` (op kind -> answer, `{{origin}}` standing for
+   * this host's origin) and serves each PNG in `<dir>/media` at `/reviews/media/<file>/e2e-token`,
+   * as the host serves a PR's images. An op kind without an answer is refused as a host error.
+   */
+  serveReviews(dir: string): void {
+    const text = fs
+      .readFileSync(path.join(dir, 'answers.json'), 'utf8')
+      .replaceAll('{{origin}}', this.origin)
+    const answers = z.record(z.string(), JsonSchema).parse(JSON.parse(text))
+    for (const [kind, answer] of Object.entries(answers)) this.reviews.set(kind, answer)
+    for (const file of fs.readdirSync(path.join(dir, 'media'))) {
+      this.studioFiles.set(`/reviews/media/${file}/e2e-token`, {
+        body: fs.readFileSync(path.join(dir, 'media', file)),
+        type: 'image/png',
+      })
+    }
+  }
+
+  /** Every `prPrepare` and `prCommit` op (`id`: the rid, `cmd`: the op), in order. */
+  readonly prMutations: Received[] = []
+  /** The next `prPrepare` or `prCommit` is refused by the gate with this code. */
+  private prRefusal: string | null = null
+
+  refuseNextPr(code: string): void {
+    this.prRefusal = code
+  }
+
+  /** `pr` (the fixture PR with its `actions` facts) and the PR actions; other reviews ops get no answer here. */
+  private reviewsReq(peer: Peer, rid: string, op: Json): void {
+    this.reviewOps.push(op)
+    const write = op.kind === 'prPrepare' || op.kind === 'prCommit'
+    if (write) this.prMutations.push({ id: rid, cmd: op, status: null })
+    // The real gate refuses a write without the gh login the device saw.
+    const unsigned = write && typeof op.login !== 'string' ? 'identity' : null
+    const refused = write ? (this.prRefusal ?? unsigned) : null
+    if (refused) this.prRefusal = null
+    const answer = refused
+      ? { ok: false, refused: { code: refused, message: `Refused: ${refused}` } }
+      : this.reviewsAnswer(op)
+    if (answer) peer.send({ t: 'reviews.res', rid, ...answer })
+  }
+
+  private reviewsAnswer(op: Json): Json | null {
+    // `<kind>:<key>` (e.g. `linear:ENG-9001`) answers one key's read before the kind's own answer.
+    const keyed =
+      op.key === undefined ? undefined : this.reviews.get(`${String(op.kind)}:${String(op.key)}`)
+    const served = keyed ?? this.reviews.get(String(op.kind))
+    if (served) return { ok: true, ...served }
+    if (this.reviews.size > 0 && op.kind !== 'prPrepare' && op.kind !== 'prCommit')
+      return { ok: false, error: 'Not in this fake' }
+    const mutation = JsonSchema.safeParse(op.mutation).data ?? {}
+    switch (op.kind) {
+      case 'pr':
+        return { ok: true, pr: reviewsFixture('pr') }
+      case 'prPrepare':
+        return {
+          ok: true,
+          approval: {
+            id: `pr-approval-${this.prMutations.length}`,
+            expiresAt: Date.now() + 120_000,
+            summary: `Write ${String(mutation.kind)}`,
+            ...(typeof mutation.body === 'string' && { text: mutation.body }),
+          },
+        }
+      case 'prCommit':
+        return {
+          ok: true,
+          outcome: { opId: op.opId, state: 'done', result: mergeResult(mutation) },
+        }
+      default:
+        return null
+    }
+  }
+
   private meetingsReq(peer: Peer, rid: string, op: Json): void {
     this.meetingOps.push(op)
     const id = String(op.id)
@@ -774,48 +992,6 @@ export class FakeRelayHost {
         shots: this.meetings.shots.get(id) ?? [],
       },
     })
-  }
-
-  /**
-   * Reviews (relay packages/protocol/src/reviews.ts): each op kind's answer (the `reviews.res`
-   * fields after `ok`); an op without one is refused as a host error. `serveReviews` fills them.
-   */
-  readonly reviews = new Map<string, Json>()
-  /** Every `reviews.req` op the app sent, in order. */
-  readonly reviewOps: Json[] = []
-
-  /** This host's http origin, as the real host's served images are linked. */
-  get origin(): string {
-    return `http://127.0.0.1:${String((this.server.address() as AddressInfo).port)}`
-  }
-
-  /**
-   * Answers `reviews.req` from `<dir>/answers.json` (op kind -> answer, `{{origin}}` standing for
-   * this host's origin) and serves each PNG in `<dir>/media` at `/reviews/media/<file>/e2e-token`,
-   * as the host serves a PR's images.
-   */
-  serveReviews(dir: string): void {
-    const text = fs
-      .readFileSync(path.join(dir, 'answers.json'), 'utf8')
-      .replaceAll('{{origin}}', this.origin)
-    const answers = z.record(z.string(), JsonSchema).parse(JSON.parse(text))
-    for (const [kind, answer] of Object.entries(answers)) this.reviews.set(kind, answer)
-    for (const file of fs.readdirSync(path.join(dir, 'media'))) {
-      this.studioFiles.set(`/reviews/media/${file}/e2e-token`, {
-        body: fs.readFileSync(path.join(dir, 'media', file)),
-        type: 'image/png',
-      })
-    }
-  }
-
-  private reviewsReq(peer: Peer, rid: string, op: Json): void {
-    this.reviewOps.push(op)
-    const answer = this.reviews.get(String(op.kind))
-    peer.send(
-      answer
-        ? { t: 'reviews.res', rid, ok: true, ...answer }
-        : { t: 'reviews.res', rid, ok: false, error: 'Not in this fake' },
-    )
   }
 
   private studioReq(peer: Peer, rid: string, op: Json): void {
@@ -1480,10 +1656,14 @@ export class FakeRelayHost {
           recordings: this.meetings.recordings,
           digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
         })
+      case 'tickets.req':
+        this.ticketFrames.push(f)
+        return this.ticketsReq(peer, String(f.rid), JsonSchema.parse(f.op))
+      case 'reviews.req':
+        this.reviewFrames.push(f)
+        return this.reviewsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'meetings.req':
         return this.meetingsReq(peer, String(f.rid), JsonSchema.parse(f.op))
-      case 'reviews.req':
-        return this.reviewsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'studio.req':
         return this.studioReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'cmd':

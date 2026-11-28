@@ -21,6 +21,8 @@ export const OpResult = z.object({
   id: z.string().optional(),
   key: z.string().optional(),
   url: z.string().optional(),
+  /** A PR merge; an older record's `queued`/`autoMergeArmed` reads as absent rather than dropping the record. */
+  merge: z.literal("merged").optional().catch(undefined),
   rows: z.array(RowOutcome).optional(),
 });
 export type OpResult = z.infer<typeof OpResult>;

@@ -36,6 +36,64 @@ export const ReviewCheckSchema = z.object({
   url: z.string().nullable(),
 })
 
+/**
+ * Merge, review and check facts for PR actions (relay protocol ReviewPrActions); absent from older
+ * hosts, local reads and when GitHub could not say.
+ */
+export const ReviewPrActionsSchema = z.object({
+  /** gh's login that read these facts; PR actions send it back as `login`. */
+  viewerLogin: z.string().nullable(),
+  /** ADMIN, MAINTAIN, WRITE, TRIAGE, READ; null when GitHub does not say. */
+  viewerPermission: z.string().nullable(),
+  /** MERGEABLE, CONFLICTING, UNKNOWN. */
+  mergeable: z.string(),
+  /** BLOCKED, BEHIND, DIRTY, UNSTABLE, DRAFT, CLEAN, HAS_HOOKS, UNKNOWN. */
+  mergeStateStatus: z.string(),
+  methods: z.object({ merge: z.boolean(), squash: z.boolean(), rebase: z.boolean() }),
+  mergeQueue: z.object({
+    required: z.boolean(),
+    inQueue: z.boolean(),
+    entryState: z.string().nullable(),
+  }),
+  /** The latest review per reviewer. */
+  reviews: z.array(z.object({ login: z.string(), state: z.string(), at: z.number() })),
+  /** Checks with their Actions identity; `attempt` is set for failed Actions runs only. */
+  checks: z.array(
+    z.object({
+      name: z.string(),
+      state: z.string(),
+      url: z.string().nullable(),
+      workflow: z.string().nullable(),
+      runId: z.number().nullable(),
+      runNumber: z.number().nullable(),
+      attempt: z.number().nullable(),
+      headSha: z.string(),
+    }),
+  ),
+})
+export type ReviewPrActions = z.infer<typeof ReviewPrActionsSchema>
+
+/**
+ * One review (line) comment (relay protocol ReviewComment). `line` is its line in the current diff
+ * (null when outdated), `originalLine` the line it was written on; `side` LEFT is the old file. A
+ * reply has `inReplyTo` (its thread root's id).
+ */
+export const ReviewCommentSchema = z.object({
+  id: z.number(),
+  inReplyTo: z.number().nullable(),
+  path: z.string(),
+  line: z.number().nullable(),
+  originalLine: z.number().nullable(),
+  side: z.enum(['LEFT', 'RIGHT']),
+  outdated: z.boolean(),
+  author: z.string(),
+  body: z.string(),
+  at: z.number(),
+  /** Who reacted with each emoji (unicode); absent from older hosts. */
+  reactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
+})
+export type ReviewComment = z.infer<typeof ReviewCommentSchema>
+
 export const ReviewPrSchema = z.object({
   repo: z.string(),
   number: z.number(),
@@ -43,10 +101,14 @@ export const ReviewPrSchema = z.object({
   url: z.string(),
   state: z.string(),
   draft: z.boolean(),
+  /** GitHub's review decision (`REVIEW_REQUIRED`, `APPROVED`, `CHANGES_REQUESTED`), null without one; absent from older hosts. */
+  reviewDecision: z.string().nullable().optional(),
   author: Person,
   createdAt: z.number(),
   updatedAt: z.number(),
   body: z.string(),
+  /** Who reacted to the body with each emoji (unicode); absent from older hosts and local reads. */
+  bodyReactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
   base: z.string(),
   head: z.string(),
   /** The head commit the PR was read at (the Guide is asked for this head); absent from older hosts. */
@@ -77,6 +139,10 @@ export const ReviewPrSchema = z.object({
       body: z.string(),
       state: z.string().nullable(),
       at: z.number(),
+      /** A comment's REST id (reactions go to it); absent on reviews and from older hosts. */
+      id: z.number().optional(),
+      /** Who reacted to a comment with each emoji (unicode); absent from older hosts. */
+      reactions: z.array(z.object({ emoji: z.string(), users: z.array(z.string()) })).optional(),
     }),
   ),
   checks: z.array(ReviewCheckSchema),
@@ -91,10 +157,50 @@ export const ReviewPrSchema = z.object({
   ),
   /** The unified diff (every file) at exactly `baseSha...headSha`. */
   diff: z.string(),
+  /** PR action facts from the host (remote reads); absent otherwise. */
+  actions: ReviewPrActionsSchema.optional(),
+  /** Review (line) comments, oldest first (relay protocol ReviewComment); absent from older hosts and local reads. */
+  reviewComments: z.array(ReviewCommentSchema).optional(),
+  /**
+   * Main read this PR while connected to a host whose write gate takes PR writes (reviews.actions):
+   * Isaac's comments go only through that gate, and without `actions` they are refused (re-read),
+   * never posted the legacy way. Absent: no such host (old host, disconnected, flags off), so the
+   * legacy confirmed `reviews.comment` is the path, as before.
+   */
+  writeGate: z.literal(true).optional(),
 })
 export type ReviewPr = z.infer<typeof ReviewPrSchema>
 
 const PrRef = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/), number: z.number().int() })
+
+/** protocol PrMutation; main checks it against the protocol schema before it goes out. */
+export const PrMutationInputSchema = z.looseObject({
+  kind: z.enum([
+    'merge',
+    'rerun',
+    'requestReview',
+    'react',
+    'comment',
+    'reviewComment',
+    'reviewReply',
+  ]),
+})
+
+/** The host gate's answer to a PR action, or why there is no host to ask. */
+export const PrActionAnswerSchema = z.union([
+  z.object({
+    source: z.literal('host'),
+    ok: z.boolean(),
+    /** One line when the write failed (with `outcome`) or the host could not check GitHub. */
+    error: z.string().optional(),
+    approval: z.looseObject({}).optional(),
+    outcome: z.looseObject({}).optional(),
+    /** The gate said no; nothing was written (protocol TicketsRefusalCode). */
+    refused: z.object({ code: z.string(), message: z.string() }).optional(),
+  }),
+  z.object({ unavailable: z.string() }),
+])
+export type PrActionAnswer = z.infer<typeof PrActionAnswerSchema>
 
 const GuideSide = z.enum(['old', 'new'])
 
@@ -205,8 +311,16 @@ export const AstraItemSchema = z.object({
   /** A question omp is blocked on (Astra's `ask`), answered from the session. */
   waiting: z.string().nullable(),
   error: z.string().nullable(),
+  /** The assistant's registry id when it is not Astra (absent means Astra). */
+  agent: z.string().optional(),
 })
 export type AstraItem = z.infer<typeof AstraItemSchema>
+
+/** A registry assistant id (`astra`, `nova`): each has its own session per item; absent means Astra. */
+export const ItemAssistantSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]*$/)
+  .max(64)
 
 /**
  * The url an item's Astra session is kept under: a Linear ticket by its key alone
@@ -414,36 +528,61 @@ export const reviewsInvoke = {
     output: z.object({ ok: z.literal(true) }),
   },
   /**
-   * Asks Astra about an item in that item's own Astra session: the first ask starts it (her prime,
-   * her thread memory and the item as `context`), later asks continue it. Nothing reaches GitHub,
-   * Linear or Slack. Answers stream as `reviews.astraUpdate`.
+   * A confirmed PR action's approval from the host's write gate (protocol TicketApproval), or the
+   * gate's refusal. Only sent to a host with `reviews.actions`; otherwise `unavailable`. `login`: the
+   * GitHub account the page showed (`actions.viewerLogin`); the host refuses when it acts as another.
+   */
+  'reviews.prPrepare': {
+    input: z
+      .object({ login: z.string().min(1).max(100), mutation: PrMutationInputSchema })
+      .strict(),
+    output: PrActionAnswerSchema,
+  },
+  /** The PR write (protocol TicketOutcome, `result.merge` for a merge), or the refusal; retries reuse `opId`. */
+  'reviews.prCommit': {
+    input: z
+      .object({
+        login: z.string().min(1).max(100),
+        approvalId: z.string().min(1).max(200).optional(),
+        opId: z.string().uuid(),
+        mutation: PrMutationInputSchema,
+      })
+      .strict(),
+    output: PrActionAnswerSchema,
+  },
+  /**
+   * Asks an assistant (`agent`, Astra when absent) about an item in that item's own session with
+   * her: the first ask starts it (her prime, her thread memory and the item as `context`), later
+   * asks continue it. The session only reads (no tools that write, no Linear or GitHub
+   * credentials). Nothing reaches GitHub, Linear or Slack. Answers stream as `reviews.astraUpdate`.
    */
   'reviews.astraAsk': {
     input: z
       .object({
         url: z.string().url(),
-        /** `repo#170`, `ENG-6406`: the session is titled `Astra · <label>`. */
+        /** `repo#170`, `ENG-6406`: the session is titled `<Name> · <label>`. */
         label: z.string().min(1).max(200),
         /** The item as Markdown (title, description, comments, diff); read on the first ask only. */
         context: z.string().max(400_000),
         text: z.string().min(1).max(8_000),
+        agent: ItemAssistantSchema.optional(),
       })
       .strict(),
     output: AstraItemSchema,
   },
-  /** The item's Astra session as it stands; null when there is none yet. */
+  /** The item's session with `agent` (Astra when absent) as it stands; null when there is none yet. */
   'reviews.astraThread': {
-    input: z.object({ url: z.string().url() }).strict(),
+    input: z.object({ url: z.string().url(), agent: ItemAssistantSchema.optional() }).strict(),
     output: AstraItemSchema.nullable(),
   },
   /** Lets the item's omp process go (when idle), so the chat view can take the session over. */
   'reviews.astraRelease': {
-    input: z.object({ url: z.string().url() }).strict(),
+    input: z.object({ url: z.string().url(), agent: ItemAssistantSchema.optional() }).strict(),
     output: z.object({ released: z.boolean() }),
   },
-  /** Stops Astra's running turn on the item (the partial answer stays). */
+  /** Stops the assistant's running turn on the item (the partial answer stays). */
   'reviews.astraStop': {
-    input: z.object({ url: z.string().url() }).strict(),
+    input: z.object({ url: z.string().url(), agent: ItemAssistantSchema.optional() }).strict(),
     output: z.object({ stopped: z.boolean() }),
   },
   /** Marks a PR or ticket handled (hidden from the queue until it changes) or brings it back. */

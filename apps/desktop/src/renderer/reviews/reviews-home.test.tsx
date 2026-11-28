@@ -16,12 +16,60 @@ const DRAFT = { ...ROW, number: 173, title: 'Astra draft', draft: true }
 const LOOPING = { ...ROW, number: 174, title: 'Self-reviewing', draft: true }
 
 let rows: (typeof ROW)[] = [ROW, DRAFT, LOOPING]
+const TICKET = {
+  key: 'ENG-6648',
+  title: 'Row borders',
+  url: 'https://linear.app/ecard/issue/ENG-6648',
+  reason: 'assigned you',
+  actor: 'sam',
+  updatedAt: Date.now() - 60_000,
+  unread: false,
+}
+let tickets: (typeof TICKET)[] = []
 /** What the Mini's ledger says about #173 (the one waiting on Isaac). */
 let approveState: 'ready' | 'sent' = 'ready'
 /** GitHub's live draft flag for #173 (the queue's cached search row says draft). */
 let live173Draft = true
 
-const invoke = vi.fn(async (ch: string, arg?: { number?: number }) => {
+/** The PR read for a row: a local read (no host actions facts). */
+const prOf = (number: number) => ({
+  repo: ROW.repo,
+  number,
+  title: number === 173 ? 'Astra draft' : ROW.title,
+  url: `https://github.com/${ROW.repo}/pull/${number}`,
+  state: 'OPEN',
+  draft: number !== 172,
+  author: { login: 'sam', avatarUrl: null },
+  createdAt: Date.now() - 60_000,
+  updatedAt: Date.now() - 60_000,
+  body: '',
+  base: 'main',
+  head: 'fix',
+  additions: 1,
+  deletions: 0,
+  reviewers: [],
+  assignees: [],
+  labels: [],
+  milestone: null,
+  projects: [],
+  participants: ['sam'],
+  commits: [],
+  timeline: [],
+  checks: [],
+  files: [],
+  diff: '',
+})
+
+/** The PR page's read. */
+const prAnswer = (_ch: string, number: number) => ({ ok: true, value: prOf(number) })
+
+const invoke = vi.fn(async (ch: string, arg?: { number?: number; url?: string }) => {
+  if (ch === 'reviews.pr') return prAnswer(ch, arg?.number ?? 172)
+  if (ch === 'reviews.done') {
+    // Done answers the marks: the PR's, or the ticket's when a ticket was done.
+    const url = arg?.url ?? prOf(172).url
+    return { ok: true, value: { [url]: Date.now() } }
+  }
   if (ch === 'reviews.queue') {
     return {
       ok: true,
@@ -36,7 +84,7 @@ const invoke = vi.fn(async (ch: string, arg?: { number?: number }) => {
       },
     }
   }
-  if (ch === 'reviews.linearQueue') return { ok: true, value: [] }
+  if (ch === 'reviews.linearQueue') return { ok: true, value: tickets }
   if (ch === 'reviews.slackQueue') return { ok: true, value: { rows: [], fetchedAt: Date.now() } }
   if (ch === 'reviews.rowStatus') {
     return {
@@ -107,6 +155,8 @@ vi.mock('../tiling/tiling-store', async (orig) => ({
 
 import { createTabs, placeOf } from '@evaos/shell-core'
 import { tabsStore } from '../tabs/tabs-store'
+import { ticketPlace } from '../tickets/ticket-place'
+import { InboxDone } from './InboxDone'
 import { ReviewsPage } from './ReviewsPage'
 import { reviewPlaceOf } from './review-place'
 import { resetReviewsForTests, reviewsStore } from './reviews-store'
@@ -122,6 +172,7 @@ const wrap = () =>
 
 beforeEach(() => {
   rows = [ROW, DRAFT, LOOPING]
+  tickets = []
   approveState = 'ready'
   live173Draft = true
   invoke.mockClear()
@@ -211,5 +262,68 @@ describe('Reviews home (nothing selected)', () => {
     rows = []
     wrap()
     expect(await screen.findByTestId('reviews-home-empty')).toBeTruthy()
+  })
+})
+
+describe('Reviews page with a pull request picked', () => {
+  it('shows the PR page (Guide, Diff, Comments and the sidebar); Done marks it handled', async () => {
+    wrap()
+    fireEvent.click(await screen.findByTestId('review-row-172'))
+    expect(await screen.findByTestId('review-detail')).toBeInTheDocument()
+    for (const t of ['guide', 'diff', 'comments']) {
+      expect(screen.getByTestId(`review-tab-${t}`)).toBeInTheDocument()
+    }
+    expect(screen.getByTestId('review-rail')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('review-done'))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('reviews.done', {
+        url: prOf(172).url,
+        updatedAt: expect.any(Number),
+        done: true,
+      }),
+    )
+    await waitFor(() => expect(reviewsStore.getState().selected?.number).not.toBe(172))
+  })
+
+  it('keeps Approve on an auto-work draft, sent straight to Astra', async () => {
+    wrap()
+    fireEvent.click(await screen.findByTestId('review-row-173'))
+    fireEvent.click(await screen.findByTestId('review-approve'))
+    await waitFor(() => expect(screen.getByTestId('review-approve')).toHaveTextContent('Approved'))
+  })
+})
+
+describe('Reviews page with a Linear ticket', () => {
+  beforeEach(() => {
+    tickets = [TICKET]
+  })
+
+  it('opens the ticket page (the Board’s) instead of a Reviews ticket view', async () => {
+    wrap()
+    fireEvent.click(await screen.findByTestId('review-ticket-ENG-6648'))
+    expect(openPlace).toHaveBeenLastCalledWith(ticketPlace('ENG-6648'), { newTab: false })
+    expect(reviewsStore.getState().selected).toBeNull()
+    // The Reviews page itself still lists the queue.
+    expect(screen.getByTestId('review-row-172')).toBeInTheDocument()
+  })
+
+  it('Done in the ticket page header is the row’s Done: same reviews.done, row held back', async () => {
+    wrap()
+    await screen.findByTestId('review-ticket-ENG-6648')
+    render(
+      <MantineProvider>
+        <InboxDone ticketKey="ENG-6648" title={TICKET.title} />
+      </MantineProvider>,
+    )
+    fireEvent.click(await screen.findByTestId('review-done'))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('reviews.done', {
+        url: TICKET.url,
+        updatedAt: expect.any(Number),
+        done: true,
+      }),
+    )
+    await waitFor(() => expect(screen.queryByTestId('review-ticket-ENG-6648')).toBeNull())
+    expect(screen.queryByTestId('review-done')).toBeNull()
   })
 })

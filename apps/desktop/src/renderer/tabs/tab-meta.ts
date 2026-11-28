@@ -11,6 +11,7 @@ import {
   workspaceTitle,
 } from '../eva/names-store'
 import { reviewFallbackTitle, reviewIconOf } from '../reviews/review-place'
+import { ticketTabTitle } from '../tickets/ticket-place'
 
 const TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -53,6 +54,16 @@ const ICONS: Record<string, string> = {
   setup: 'IconSettings',
 }
 
+/** Tabs named by a prefix and an id (`review:pr:a/b#1`): the title the id's names give it. */
+const PREFIXED_TITLE: ReadonlyArray<readonly [string, (id: string) => string]> = [
+  ['workspace:', (id) => workspaceTitle(id) ?? id],
+  ['agent:', (id) => agentTitle(id) ?? id],
+  ['board:', (slug) => boardTitle(slug) ?? slug],
+  ['review:', (id) => reviewTitle(id) ?? reviewFallbackTitle(id)],
+  ['ticket:', (id) => ticketTabTitle(`ticket:${id}`)],
+  ['room:', (id) => roomTitle(id) ?? UNTITLED_ROOM],
+]
+
 /** Text only: callers render this as a React child, never as HTML (T-02-35). */
 export function tabTitle(place: Place): string {
   if (place.page === 'chat') {
@@ -60,24 +71,8 @@ export function tabTitle(place: Place): string {
     return (place.chat && place.chat !== 'draft' ? chatTitle(place.chat) : null) ?? 'New chat'
   }
   if (place.page === 'settings') return `Settings: ${place.settingsSection}`
-  if (place.page.startsWith('workspace:')) {
-    const id = place.page.slice('workspace:'.length)
-    return workspaceTitle(id) ?? id
-  }
-  if (place.page.startsWith('agent:')) {
-    const id = place.page.slice('agent:'.length)
-    return agentTitle(id) ?? id
-  }
-  if (place.page.startsWith('board:')) {
-    const slug = place.page.slice('board:'.length)
-    return boardTitle(slug) ?? slug
-  }
-  if (place.page.startsWith('review:')) {
-    const id = place.page.slice('review:'.length)
-    return reviewTitle(id) ?? reviewFallbackTitle(id)
-  }
-  if (place.page.startsWith('room:'))
-    return roomTitle(place.page.slice('room:'.length)) ?? UNTITLED_ROOM
+  const prefixed = PREFIXED_TITLE.find(([prefix]) => place.page.startsWith(prefix))
+  if (prefixed) return prefixed[1](place.page.slice(prefixed[0].length))
   if (place.page === 'meetings' && place.meeting)
     return meetingTitle(place.meeting) ?? place.meeting
   if (place.page === 'canvas' && place.canvas) return canvasTitle(place.canvas) ?? place.canvas
@@ -90,5 +85,6 @@ export function tabIconName(place: Place): string {
   if (place.page.startsWith('board:')) return 'IconLayoutDashboard'
   if (place.page.startsWith('review:')) return reviewIconOf(place.page.slice('review:'.length))
   if (place.page.startsWith('room:')) return 'IconUsersGroup'
+  if (place.page.startsWith('ticket:')) return 'IconTicket'
   return ICONS[place.page] ?? 'IconFile'
 }

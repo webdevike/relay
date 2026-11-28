@@ -160,7 +160,6 @@ export function toAttentionInput(ref: TicketPrRef, raw: RawFacts, login: string)
     viewerIsAuthor: raw.viewerDidAuthor,
     viewerRequested: raw.reviewRequests.nodes.some((r) => r.requestedReviewer?.login === login),
     viewerReviewedHead: raw.reviews.nodes.some((r) => r.author?.login === login && r.commit?.oid === raw.headRefOid && r.state !== "PENDING"),
-    relayAutoMergeDisarmed: false,
   };
 }
 
@@ -201,11 +200,11 @@ export class GithubSync {
 
   private async facts(batch: readonly { ref: TicketPrRef; fingerprint: string }[], login: string): Promise<void> {
     const { data } = await this.graphql(batchQuery(batch.map((b) => b.ref), FACT_FIELDS));
-    batch.forEach(({ ref, fingerprint }, j) => {
+    for (const [j, { ref, fingerprint }] of batch.entries()) {
       const node = nodeOf(data, j);
       const input = node === null ? null : toAttentionInput(ref, node as unknown as RawFacts, login);
       this.store.setPr({ ref, fingerprint: node === null ? null : fingerprint, input, noAccess: node === null });
-    });
+    }
   }
 }
 

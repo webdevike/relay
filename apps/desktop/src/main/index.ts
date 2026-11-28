@@ -10,6 +10,7 @@ import { registerBrowser, registerDesignMode } from './browser'
 import { registerChat } from './chat'
 import { registerEvaIpc } from './eva-ipc'
 import { registerCanvasIpc } from './canvas/canvas-ipc'
+import { registerTicketsIpc } from './tickets'
 import { registerLayoutIpc } from './layout-ipc'
 import { startWorkspaceMirror } from './workspace/mirror'
 import { registerDraftsIpc } from './drafts-ipc'
@@ -251,6 +252,9 @@ function bootstrap(): void {
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
       registerCanvasIpc(ctx, chat.frames)
+      // Synced Linear tickets from the host (only from one that serves them).
+      const offTickets = registerTicketsIpc(ctx, chat.frames)
+      ctx.onBeforeQuit(async () => offTickets())
       registerUsageIpc(ctx, chat.mini)
       registerLinearIpc(ctx, linear)
       registerReviewsIpc(
@@ -264,6 +268,8 @@ function bootstrap(): void {
               sessionFile: (id) => chat.sessionFile(id),
             }
           : null,
+        chat.frames,
+        () => chat.canvas.canvasOrigin(),
       )
       // Rooms on the phone: the Relay Host relays this app's rooms and the phone's commands.
       const rooms = registerRoomsIpc(ctx)

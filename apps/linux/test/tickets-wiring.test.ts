@@ -13,7 +13,8 @@ function wire(cfg: HostConfig | null, env: Record<string, string> = {}) {
   const fetch = vi.fn(() => Promise.reject(new Error("no network in tests")));
   const run = vi.fn(() => Promise.reject(new Error("no gh in tests")));
   const dir = mkdtempSync(join(tmpdir(), "relay-tickets-wiring-"));
-  const wiring = hostTickets(cfg, env, { dir, linearKey: () => "lin_api_test", gh: "gh", run, fetch, log: () => undefined });
+  const summaryWriter = vi.fn(() => Promise.reject(new Error("no claude in tests")));
+  const wiring = hostTickets(cfg, env, { dir, linearKey: () => "lin_api_test", gh: "gh", run, fetch, log: () => undefined, summaryWriter });
   return { wiring, fetch, run };
 }
 

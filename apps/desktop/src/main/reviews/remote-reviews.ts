@@ -13,10 +13,14 @@ import {
   LinearTicketSchema,
   ReviewApproveSchema,
   ReviewGuideSchema,
+  ReviewCommentSchema,
+  ReviewPrActionsSchema,
+  ReviewPrSchema,
   ReviewWorkSchema,
   type AstraItem,
   type LinearIssue,
   type LinearRow,
+  type PrActionAnswer,
   type ReviewPr,
   type ReviewQueue,
   type ReviewRow,
@@ -24,13 +28,21 @@ import {
   type SlackRow,
   type SlackThread,
 } from '@evaos/contract'
+import {
+  PrMutation,
+  REVIEWS_ACTIONS_FEATURE,
+  REVIEWS_ASSISTANTS_FEATURE,
+  ReviewsResult,
+  type ReviewsOp,
+} from '@relay/protocol'
 import type { MainContext } from '../context'
 import { parsePr, type PrFacts } from '../context-popover/gh'
 import { emit, handle } from '../ipc/handle'
 import { cmdFrame } from '../relay/commands'
-import type { RelayFrames } from '../relay/client'
-import { OLD_HOST, type HostReviews } from '../relay/host-reviews'
+import type { RelayFeatures, RelayFrames } from '../relay/client'
+import { OLD_HOST, createHostReviews, type HostReviews } from '../relay/host-reviews'
 import { REVIEWS_MEDIA_DIR, UNAVAILABLE_MEDIA, localizeImages } from './review-media'
+import { storeKey } from './astra-sessions'
 import { rowStatusOf } from './row-status'
 
 const fail = (code: string, message: string): Error => Object.assign(new Error(message), { code })
@@ -92,10 +104,14 @@ const HostPr = z.object({
   url: z.string(),
   state: z.string(),
   draft: z.boolean(),
+  /** Absent from older hosts. */
+  reviewDecision: z.string().nullable().optional(),
   author: z.object({ login: z.string() }),
   createdAt: z.number(),
   updatedAt: z.number(),
   body: z.string(),
+  /** Absent from older hosts; a shape this app can't read is left out (no reaction chips). */
+  bodyReactions: ReviewPrSchema.shape.bodyReactions.catch(undefined),
   base: z.string(),
   head: z.string(),
   /** Absent from older hosts. */
@@ -115,6 +131,8 @@ const HostPr = z.object({
       body: z.string(),
       state: z.string().nullable(),
       at: z.number(),
+      id: z.number().optional().catch(undefined),
+      reactions: ReviewPrSchema.shape.bodyReactions.catch(undefined),
     }),
   ),
   checks: z.array(z.object({ name: z.string(), state: z.string(), url: z.string().nullable() })),
@@ -127,6 +145,10 @@ const HostPr = z.object({
     }),
   ),
   diff: z.string(),
+  /** Absent from older hosts; a shape this app can't read is left out (the actions stay hidden). */
+  actions: ReviewPrActionsSchema.optional().catch(undefined),
+  /** Absent from older hosts; a shape this app can't read is left out (no inline threads). */
+  reviewComments: z.array(ReviewCommentSchema).optional().catch(undefined),
 })
 
 const HostSlackThread = z.object({
@@ -291,7 +313,17 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
   const timeline = pr.timeline.flatMap((t) =>
     t.kind === 'commit'
       ? []
-      : [{ kind: t.kind, author: t.author, body: t.body, state: t.state, at: t.at }],
+      : [
+          {
+            kind: t.kind,
+            author: t.author,
+            body: t.body,
+            state: t.state,
+            at: t.at,
+            ...(t.id === undefined ? {} : { id: t.id }),
+            ...(t.reactions === undefined ? {} : { reactions: t.reactions }),
+          },
+        ],
   )
   const commits = pr.timeline.flatMap((t) =>
     t.kind === 'commit'
@@ -304,6 +336,7 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
     title: pr.title,
     url: pr.url,
     state: pr.state,
+    ...(pr.reviewDecision === undefined ? {} : { reviewDecision: pr.reviewDecision }),
     draft: pr.draft,
     author: { login: pr.author.login, avatarUrl: null },
     createdAt: pr.createdAt,
@@ -328,6 +361,9 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
     checks: pr.checks,
     files: pr.files,
     diff: pr.diff,
+    ...(pr.actions === undefined ? {} : { actions: pr.actions }),
+    ...(pr.bodyReactions === undefined ? {} : { bodyReactions: pr.bodyReactions }),
+    ...(pr.reviewComments === undefined ? {} : { reviewComments: pr.reviewComments }),
   }
 }
 
@@ -375,13 +411,115 @@ export function hostLinearIssue(host: HostReviews) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The PR read through the host: remote mode always, local mode when the host takes PR writes
+// ---------------------------------------------------------------------------------------------
+
+/** Markdown with the host's served images (`/reviews/media/<file>/<token>`) fetched once into `mediaDir`, served as `/reviews/media/<file>`. */
+export function hostMedia(mediaDir: string, origin: () => string | null) {
+  return async (md: string): Promise<string> => {
+    const at = origin()
+    if (at === null || !md.includes('/reviews/media/')) return md
+    const prefix = `${at}/reviews/media/`
+    return localizeImages(absoluteMedia(md, at), mediaDir, [
+      { match: (u) => u.startsWith(prefix), headers: () => Promise.resolve({}) },
+    ])
+  }
+}
+
+/**
+ * The PR as the host read it: one snapshot (body, timeline, diff, actions facts and line comments at
+ * one head), its images made local. From a host with REVIEWS_ACTIONS_FEATURE it is marked
+ * `writeGate`: comments go only through that host's gate, and are refused (not downgraded) when
+ * the read has no `actions`. Any other host's actions facts are dropped, so this app sends it no write.
+ */
+export function hostPrRead(
+  host: Pick<HostReviews, 'req'>,
+  frames: RelayFeatures,
+  local: (md: string) => Promise<string>,
+) {
+  return async (repo: string, number: number): Promise<ReviewPr> => {
+    const { actions, ...rest } = toPr(
+      HostPr.parse((await host.req({ kind: 'pr', repo, number })).pr),
+    )
+    const pr = frames.hostHas(REVIEWS_ACTIONS_FEATURE)
+      ? { ...rest, writeGate: true as const, ...(actions ? { actions } : {}) }
+      : rest
+    const [body, timeline, reviewComments] = await Promise.all([
+      local(pr.body),
+      Promise.all(pr.timeline.map(async (t) => ({ ...t, body: await local(t.body) }))),
+      pr.reviewComments &&
+        Promise.all(pr.reviewComments.map(async (c) => ({ ...c, body: await local(c.body) }))),
+    ])
+    return { ...pr, body, timeline, ...(reviewComments ? { reviewComments } : {}) }
+  }
+}
+
+/** The legacy `reviews.comment` while the host takes PR writes: the page read before it did. */
+export const LEGACY_COMMENT_REFUSED =
+  'Comments on this pull request go through Relay Host now. Reload it and post again.'
+
+// ---------------------------------------------------------------------------------------------
+// PR actions: the host's write gate, in local and remote mode alike
+// ---------------------------------------------------------------------------------------------
+
+export const PR_ACTIONS_UNAVAILABLE = 'Merging from Relay needs a newer host with writes on'
+
+const GateAnswer = ReviewsResult.pick({ error: true, refused: true, approval: true, outcome: true })
+
+/** `login`: the GitHub account the page showed (`actions.viewerLogin`); the host refuses another. */
+export interface PrActions {
+  prepare(req: { login: string; mutation: unknown }): Promise<PrActionAnswer>
+  commit(req: {
+    login: string
+    approvalId?: string
+    opId: string
+    mutation: unknown
+  }): Promise<PrActionAnswer>
+}
+
+/**
+ * Merge now, re-run, request review, reactions and PR comments as Isaac: only the host's
+ * MutationGate writes them, so they go to the host whichever mode this Mac runs in, and only to a
+ * host that lists REVIEWS_ACTIONS_FEATURE (an old host closes the socket on an unknown op).
+ */
+export function prActions(frames: RelayFeatures, host: Pick<HostReviews, 'req'>): PrActions {
+  const ask = async (op: ReviewsOp): Promise<PrActionAnswer> => {
+    if (!frames.hostHas(REVIEWS_ACTIONS_FEATURE)) return { unavailable: PR_ACTIONS_UNAVAILABLE }
+    const a = await host.req(op)
+    return { source: 'host', ok: a.ok !== false, ...GateAnswer.parse(a) }
+  }
+  return {
+    prepare: async ({ login, mutation }) =>
+      ask({ kind: 'prPrepare', login, mutation: PrMutation.parse(mutation) }),
+    commit: async ({ login, approvalId, opId, mutation }) =>
+      ask({
+        kind: 'prCommit',
+        login,
+        opId,
+        mutation: PrMutation.parse(mutation),
+        ...(approvalId === undefined ? {} : { approvalId }),
+      }),
+  }
+}
+
+export function registerPrActions(
+  ctx: MainContext,
+  frames: RelayFrames & RelayFeatures,
+  host: HostReviews = createHostReviews(frames),
+): void {
+  const actions = prActions(frames, host)
+  handle(ctx, 'reviews.prPrepare', (req) => actions.prepare(req))
+  handle(ctx, 'reviews.prCommit', (req) => actions.commit(req))
+}
+
+// ---------------------------------------------------------------------------------------------
 // The page's handlers
 // ---------------------------------------------------------------------------------------------
 
 export interface RemoteReviewsDeps {
   host: HostReviews
-  /** The connection's frames: Stop sends `agent.abort` for an item's live session. */
-  frames: RelayFrames
+  /** The connection's frames: Stop sends `agent.abort` for an item's live session; its features gate `agent`. */
+  frames: RelayFrames & RelayFeatures
   /** The host's http origin, for its served images; null while not connected. */
   origin(): string | null
   /** The mirror's file of omp session `id`, for "Open in chat". */
@@ -394,14 +532,7 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   const { host } = d
   const mediaDir = path.join(ctx.config.dir, REVIEWS_MEDIA_DIR)
 
-  const local = async (md: string): Promise<string> => {
-    const origin = d.origin()
-    if (origin === null || !md.includes('/reviews/media/')) return md
-    const prefix = `${origin}/reviews/media/`
-    return localizeImages(absoluteMedia(md, origin), mediaDir, [
-      { match: (u) => u.startsWith(prefix), headers: () => Promise.resolve({}) },
-    ])
-  }
+  const local = hostMedia(mediaDir, () => d.origin())
   /** One host image path as a local `/reviews/media/<file>`; null when it can't be fetched. */
   const localSrc = async (src: string): Promise<string | null> => {
     const out = /^!\[\]\((.*)\)$/.exec(await local(`![](${src})`))?.[1] ?? null
@@ -440,20 +571,31 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return p
   }
 
-  // Astra: item url -> session file, kept across restarts; live session ids for Stop.
+  // Item sessions: store key (`storeKey`, Astra's the bare url) -> session file, kept across
+  // restarts; live session ids for Stop.
   const files = (): Record<string, string> =>
     ctx.config.readJson<Record<string, string>>(ASTRA_FILES, {})
   const liveIds = new Map<string, string>()
   const toAstra = (a: HostAstra): AstraItem => {
-    if (a.sessionId !== null) liveIds.set(a.url, a.sessionId)
-    else liveIds.delete(a.url)
+    const key = storeKey(a.agent ?? 'astra', a.url)
+    if (a.sessionId !== null) liveIds.set(key, a.sessionId)
+    else liveIds.delete(key)
     const found = a.sessionId !== null ? d.sessionFile(a.sessionId) : null
     const known = files()
-    if (found !== null && known[a.url] !== found) {
-      ctx.config.writeJson(ASTRA_FILES, { ...known, [a.url]: found })
+    if (found !== null && known[key] !== found) {
+      ctx.config.writeJson(ASTRA_FILES, { ...known, [key]: found })
     }
     const { sessionId: _id, ...rest } = a
-    return { ...rest, file: found ?? known[a.url] ?? null }
+    return { ...rest, file: found ?? known[key] ?? null }
+  }
+  /**
+   * The `agent` a host op carries: nothing for Astra on a host without REVIEWS_ASSISTANTS_FEATURE
+   * (an older host refuses the field); null when the host can't run that assistant's sessions.
+   */
+  const agentField = (agent: string | undefined): { agent?: string } | null => {
+    if (agent === undefined) return {}
+    if (d.frames.hostHas(REVIEWS_ASSISTANTS_FEATURE)) return { agent }
+    return agent === 'astra' ? {} : null
   }
 
   host.onPush((f) => {
@@ -504,14 +646,8 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return toQueue(q, l, Date.now())
   })
 
-  handle(ctx, 'reviews.pr', async ({ repo, number }) => {
-    const pr = toPr(HostPr.parse((await host.req({ kind: 'pr', repo, number })).pr))
-    const [body, timeline] = await Promise.all([
-      local(pr.body),
-      Promise.all(pr.timeline.map(async (t) => ({ ...t, body: await local(t.body) }))),
-    ])
-    return { ...pr, body, timeline }
-  })
+  const readPr = hostPrRead(host, d.frames, local)
+  handle(ctx, 'reviews.pr', ({ repo, number }) => readPr(repo, number))
 
   handle(ctx, 'reviews.guide', async ({ repo, number, headSha, baseSha }) =>
     ReviewGuideSchema.parse(
@@ -520,6 +656,8 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   )
 
   handle(ctx, 'reviews.comment', async ({ repo, number, body }) => {
+    // A capable host's comments go only through its gate (`reviews.prCommit`), never this way.
+    if (d.frames.hostHas(REVIEWS_ACTIONS_FEATURE)) throw fail('use-gate', LEGACY_COMMENT_REFUSED)
     if (!d.writes) throw fail('dry-run', 'Test instance: the comment was not posted')
     const a = await host.req({ kind: 'comment', repo, number, body })
     return { url: typeof a.url === 'string' ? a.url : '' }
@@ -632,16 +770,21 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return { status: 'sent' as const, command }
   })
 
-  handle(ctx, 'reviews.astraAsk', async ({ url, text }) => {
+  handle(ctx, 'reviews.astraAsk', async ({ url, text, agent }) => {
     const ref = refOf(url, latest?.queue.items ?? [])
     if (ref === null)
       throw fail('not-an-item', 'Astra can only be asked about a PR, a ticket or a Slack thread')
-    const a = await host.req({ kind: 'astraAsk', url, ref, text })
+    const field = agentField(agent)
+    if (field === null)
+      throw fail('host-update', `Asking ${agent ?? ''} needs Relay Host updated on the Mini`)
+    const a = await host.req({ kind: 'astraAsk', url, ref, text, ...field })
     return toAstra(HostAstra.parse(a.astra))
   })
 
-  handle(ctx, 'reviews.astraThread', async ({ url }) => {
-    const a = await host.req({ kind: 'astra', url })
+  handle(ctx, 'reviews.astraThread', async ({ url, agent }) => {
+    const field = agentField(agent)
+    if (field === null) return null
+    const a = await host.req({ kind: 'astra', url, ...field })
     return a.astra === null || a.astra === undefined ? null : toAstra(HostAstra.parse(a.astra))
   })
 
@@ -649,10 +792,12 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   // no process on this Mac to let go of.
   handle(ctx, 'reviews.astraRelease', () => ({ released: true }))
 
-  handle(ctx, 'reviews.astraStop', async ({ url }) => {
-    let id = liveIds.get(url)
+  handle(ctx, 'reviews.astraStop', async ({ url, agent }) => {
+    const field = agentField(agent)
+    if (field === null) return { stopped: false }
+    let id = liveIds.get(storeKey(agent ?? 'astra', url))
     if (id === undefined) {
-      const a = await host.req({ kind: 'astra', url })
+      const a = await host.req({ kind: 'astra', url, ...field })
       const item = HostAstra.safeParse(a.astra)
       id = item.success ? (item.data.sessionId ?? undefined) : undefined
     }

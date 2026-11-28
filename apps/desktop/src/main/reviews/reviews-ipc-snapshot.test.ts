@@ -8,7 +8,7 @@ import type { MainContext } from '../context'
 import type { ToolRun } from '../context-popover/pr-source'
 import { createConfigStore } from '../config-store'
 import type * as GuideModule from './guide'
-import { registerReviewsIpc } from './reviews-ipc'
+import { PR_JSON_FIELDS, registerReviewsIpc, toPr } from './reviews-ipc'
 
 const handlers = new Map<string, (args: unknown) => Promise<unknown>>()
 vi.mock('../ipc/handle', () => ({
@@ -91,6 +91,15 @@ beforeEach(() => {
 afterEach(() => {
   handlers.clear()
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+describe('the local PR read', () => {
+  it("carries GitHub's review decision (gh says empty without one)", () => {
+    expect(PR_JSON_FIELDS.split(',')).toContain('reviewDecision')
+    const decided = toPr('o/r', { ...raw(A), reviewDecision: 'REVIEW_REQUIRED' }, '')
+    expect(decided.reviewDecision).toBe('REVIEW_REQUIRED')
+    expect(toPr('o/r', { ...raw(A), reviewDecision: '' }, '').reviewDecision).toBeNull()
+  })
 })
 
 describe('reviews PR and Guide read one base...head snapshot', () => {

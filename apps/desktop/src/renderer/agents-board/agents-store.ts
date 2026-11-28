@@ -1,9 +1,16 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { AgentBoard } from '@evaos/contract'
+import type { AgentBoard, AgentColumn } from '@evaos/contract'
 import { invoke, on } from '../ipc'
-import { bindPref, parseBool, parseOneOf, parseString } from '../ui-prefs'
-import { DEFAULT_FILTERS, type BoardFilters, type GroupBy } from './board-view'
+import { bindPref } from '../ui-prefs'
+import {
+  DEFAULT_FILTERS,
+  DEFAULT_HIDDEN,
+  parseHidden,
+  waitingId,
+  type BoardFilters,
+  type CardWaiting,
+} from './board-view'
 
 /**
  * The Board page's state. Main builds every board; this store asks for one when the page
@@ -13,19 +20,25 @@ import { DEFAULT_FILTERS, type BoardFilters, type GroupBy } from './board-view'
 export interface AgentsBoardState {
   board: AgentBoard | null
   error: string | null
-  /** The card whose side panel is open. */
+  /** The card last opened (its page), marked on the board when Isaac comes back. */
   selected: string | null
-  /** The panel is folded to a strip beside the board; opening a card unfolds it. */
-  collapsed: boolean
   filters: BoardFilters
+  /** Columns folded into the Hidden columns group, in board order. */
+  hidden: AgentColumn[]
+  /** Waiting mentions Isaac marked handled here, hidden before the host's next board says so. */
+  handled: ReadonlySet<string>
+  /** A Refresh was asked: the button rests until then (the host coalesces syncs anyway). */
+  syncRestUntil: number
 }
 
 export const agentsBoardStore = createStore<AgentsBoardState>(() => ({
   board: null,
   error: null,
   selected: null,
-  collapsed: false,
   filters: DEFAULT_FILTERS,
+  hidden: [...DEFAULT_HIDDEN],
+  handled: new Set(),
+  syncRestUntil: 0,
 }))
 
 export function useAgentsBoard<T>(selector: (s: AgentsBoardState) => T): T {
@@ -33,6 +46,7 @@ export function useAgentsBoard<T>(selector: (s: AgentsBoardState) => T): T {
 }
 
 const POLL_MS = 30_000
+export const SYNC_REST_MS = 30_000
 
 let latest = 0
 
@@ -71,44 +85,64 @@ export function setBoardFilters(patch: Partial<BoardFilters>): void {
 }
 
 export function selectCard(id: string | null): void {
-  agentsBoardStore.setState({ selected: id, collapsed: false })
+  agentsBoardStore.setState({ selected: id })
 }
 
-export function collapsePanel(collapsed: boolean): void {
-  agentsBoardStore.setState({ collapsed })
+export function hideColumn(col: AgentColumn): void {
+  agentsBoardStore.setState((s) => ({ hidden: parseHidden([...s.hidden, col]) ?? s.hidden }))
 }
 
-// The panel fold and the filters are the user's choices: kept in layout.json. The search words
-// are a draft and start empty.
-const GROUPS: readonly GroupBy[] = ['none', 'agent', 'workspace']
-type SavedFilters = Omit<BoardFilters, 'query'>
-const parseFilters = (raw: unknown): SavedFilters | null => {
-  if (typeof raw !== 'object' || raw === null) return null
-  const r = raw as Record<string, unknown>
-  return {
-    agent: parseString(r['agent']),
-    workspace: parseString(r['workspace']),
-    showStale: parseBool(r['showStale']) ?? DEFAULT_FILTERS.showStale,
-    group: parseOneOf(GROUPS)(r['group']) ?? DEFAULT_FILTERS.group,
-  }
+export function showColumn(col: AgentColumn): void {
+  agentsBoardStore.setState((s) => ({ hidden: s.hidden.filter((c) => c !== col) }))
 }
-bindPref(agentsBoardStore, 'agents.collapsed', {
-  select: (s) => s.collapsed,
-  apply: (collapsed) => ({ collapsed }),
-  parse: parseBool,
-})
-bindPref<AgentsBoardState, SavedFilters>(agentsBoardStore, 'agents.filters', {
-  select: ({ filters: { agent, workspace, showStale, group } }) => ({
-    agent,
-    workspace,
-    showStale,
-    group,
-  }),
-  apply: (f) => ({ filters: { ...agentsBoardStore.getState().filters, ...f } }),
-  parse: parseFilters,
-  same: (a, b) =>
-    a.agent === b.agent &&
-    a.workspace === b.workspace &&
-    a.showStale === b.showStale &&
-    a.group === b.group,
+
+let restTimer: number | undefined
+
+/** Refresh: asks the host to sync now, then rests the button for SYNC_REST_MS. */
+export async function syncTickets(): Promise<string | null> {
+  if (Date.now() < agentsBoardStore.getState().syncRestUntil) return null
+  agentsBoardStore.setState({ syncRestUntil: Date.now() + SYNC_REST_MS })
+  window.clearTimeout(restTimer)
+  restTimer = window.setTimeout(() => agentsBoardStore.setState({ syncRestUntil: 0 }), SYNC_REST_MS)
+  const r = await invoke('tickets.sync', {})
+  if (!r.ok) return r.error.message
+  return r.value.source === 'host' ? null : r.value.message
+}
+
+/**
+ * Mark as handled (Relay-only, on the host): every waiting mention on that item up to this one;
+ * `undo` brings it back. The chip hides at once; null when the host took it, else why not.
+ */
+export async function setWaitingHandled(w: CardWaiting, undo: boolean): Promise<string | null> {
+  const id = waitingId(w)
+  const mark = (on: boolean): void =>
+    agentsBoardStore.setState((s) => {
+      const handled = new Set(s.handled)
+      if (on) handled.add(id)
+      else handled.delete(id)
+      return { handled }
+    })
+  mark(!undo)
+  const r = await invoke('tickets.handled', {
+    target: {
+      kind: 'mention',
+      provider: w.provider,
+      itemId: w.itemId,
+      throughCommentId: w.commentId,
+    },
+    undo,
+  })
+  const error = !r.ok ? r.error.message : r.value.source === 'host' ? null : r.value.message
+  if (error !== null) mark(undo)
+  else void refreshAgentsBoard()
+  return error
+}
+
+// The hidden columns are the user's choice: kept in layout.json. The search words and the waiting
+// toggle are a moment's question and start empty.
+bindPref<AgentsBoardState, AgentColumn[]>(agentsBoardStore, 'agents.hiddenColumns', {
+  select: (s) => s.hidden,
+  apply: (hidden) => ({ hidden }),
+  parse: parseHidden,
+  same: (a, b) => a.length === b.length && a.every((c, i) => c === b[i]),
 })

@@ -1,0 +1,106 @@
+{
+  "key": "ENG-9101",
+  "id": "issue-9101",
+  "documentContentId": "doc-issue-9101",
+  "title": "Ticket activity sample",
+  "url": "https://linear.example.test/issue/ENG-9101",
+  "state": {
+    "id": "state-progress",
+    "name": "In Progress",
+    "type": "started",
+    "color": "#f2c94c"
+  },
+  "team": {
+    "id": "team-eng",
+    "key": "ENG"
+  },
+  "priority": 2,
+  "prioritySortOrder": 10.0,
+  "assignee": {
+    "id": "user-isaac",
+    "name": "Test Owner",
+    "avatarUrl": null
+  },
+  "creator": {
+    "id": "user-pal",
+    "name": "Sample Teammate",
+    "avatarUrl": null
+  },
+  "labels": [
+    {
+      "id": "label-bridge",
+      "name": "Bridge",
+      "color": "#5e6ad2"
+    }
+  ],
+  "project": {
+    "id": "project-board",
+    "name": "Sample board",
+    "targetDate": "2026-12-18"
+  },
+  "milestone": null,
+  "parent": null,
+  "children": [],
+  "relations": [],
+  "prs": [],
+  "dueDate": null,
+  "startedAt": 1764000000000,
+  "createdAt": 1763900000000,
+  "updatedAt": 1764100000000,
+  "subscribed": true,
+  "prFacts": [],
+  "attention": {
+    "waiting": [],
+    "needsYou": null
+  },
+  "description": "The flow, as drawn:\n\n![Flow](/drops/ticket-desc/tok \"w=140\")",
+  "comments": [
+    {
+      "id": "c-pal",
+      "parentId": null,
+      "documentContentId": null,
+      "quotedText": null,
+      "author": {
+        "id": "user-pal",
+        "name": "Sample Teammate",
+        "avatarUrl": null
+      },
+      "body": "Here is the screen:\n\n![Screen](/drops/ticket-comment/tok \"w=90\")",
+      "at": 1764100000000,
+      "editedAt": null,
+      "resolvedAt": null,
+      "resolvingUser": null,
+      "reactions": [
+        {
+          "emoji": "+1",
+          "users": [
+            {
+              "id": "user-pal",
+              "name": "Sample Teammate",
+              "avatarUrl": null
+            }
+          ]
+        }
+      ],
+      "url": "https://linear.example.test/issue/ENG-9101#comment-c-pal"
+    },
+    {
+      "id": "c-mine",
+      "parentId": "c-pal",
+      "documentContentId": null,
+      "quotedText": null,
+      "author": {
+        "id": "user-isaac",
+        "name": "Test Owner",
+        "avatarUrl": null
+      },
+      "body": "Looks right :tada:",
+      "at": 1764100100000,
+      "editedAt": null,
+      "resolvedAt": null,
+      "resolvingUser": null,
+      "reactions": [],
+      "url": "https://linear.example.test/issue/ENG-9101#comment-c-mine"
+    }
+  ]
+}

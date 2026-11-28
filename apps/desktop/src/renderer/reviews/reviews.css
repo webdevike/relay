@@ -806,18 +806,6 @@
 }
 
 /* Linear tickets */
-.eva-rv-ldot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  flex: none;
-  border-radius: 50%;
-}
-.eva-rv-lstate {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-}
 .eva-rv-raillink {
   display: flex;
   align-items: center;
@@ -876,14 +864,6 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--mantine-spacing-xs) * 0.4);
-}
-.eva-rv-linline {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  padding: var(--mantine-spacing-xs);
-  border: 1px solid var(--eva-c-border);
-  border-radius: var(--eva-radius);
 }
 .eva-rv-replybox {
   position: relative;
@@ -1163,26 +1143,6 @@ button.eva-rv-sfile {
   cursor: pointer;
 }
 
-/*
- * Panel variant (the Agents board's ticket view): no rail, no inner scrolls; the Detail and the
- * ticket flow in the panel's one scroll.
- */
-.eva-rv-detail[data-variant='panel'] {
-  flex: none;
-}
-.eva-rv-detail[data-variant='panel'] .eva-rv-topbar {
-  border-bottom: 0;
-}
-.eva-rv-detail[data-variant='panel'] .eva-rv-head {
-  padding-top: 0;
-}
-.eva-rv-detail[data-variant='panel'] .eva-rv-main,
-.eva-rv-detail[data-variant='panel'] .eva-rv-content,
-.eva-rv-detail[data-variant='panel'] .eva-rv-scroll {
-  flex: none;
-  min-height: auto;
-  overflow: visible;
-}
 .eva-rv-files[data-compact] {
   height: auto;
 }
@@ -1195,109 +1155,167 @@ button.eva-rv-sfile {
 .eva-rv-files[data-compact] .eva-rv-filediffs {
   overflow: visible;
 }
-.eva-rv-reviewers {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-sm);
-  font-size: var(--eva-fz-label);
-}
-.eva-rv-reviewer {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-}
 
-/* The ticket in the panel: title, a row of properties, the clamped description, the comments. */
-.eva-rv-lpanel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-sm);
-  padding: var(--mantine-spacing-md) var(--mantine-spacing-md) 0;
-}
-.eva-rv-lpanel-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.3;
-  overflow-wrap: break-word;
-}
-.eva-rv-lprops {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
-  font-size: var(--eva-fz-label);
-}
-.eva-rv-lprop {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  color: var(--eva-c-foreground);
-}
-.eva-rv-lstatus {
-  font-size: var(--eva-fz-label);
-  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.8);
-  border-radius: var(--eva-radius);
-  transition: background-color var(--eva-dur-fast) ease;
-}
-.eva-rv-lstatus:hover {
-  background: var(--eva-hover);
-}
+/* A Linear ticket's priority glyph (tickets/LinearStatus.tsx). */
 .eva-rv-lprio {
   color: var(--eva-c-muted-foreground);
 }
 .eva-rv-lprio[data-priority='Urgent'] {
   color: var(--eva-c-danger);
 }
-.eva-rv-lstates-loading {
-  display: grid;
-  place-items: center;
-  padding: var(--mantine-spacing-sm);
+.eva-rv-detail[data-narrow] .eva-rv-body,
+.eva-rv-detail[data-narrow] .eva-rv-comment {
+  overflow-wrap: anywhere;
 }
-.eva-rv-clamp-body {
-  max-height: 240px;
-  overflow: hidden;
+
+/* PR page: the sidebar (status, merge box, reviewers, checks, tickets, details) and its folded strip. */
+.eva-rv-detail {
+  position: relative;
 }
-.eva-rv-clamp[data-overflows]:not([data-open]) .eva-rv-clamp-body {
-  mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent);
+.eva-rv-side {
+  width: 280px;
 }
-.eva-rv-clamp[data-open] .eva-rv-clamp-body {
-  max-height: none;
+/* A narrow pane: the opened sidebar sits over the tab, its full height. */
+.eva-rv-detail[data-narrow] .eva-rv-main {
+  position: relative;
 }
-.eva-rv-lpanel-more {
-  align-self: flex-start;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
+.eva-rv-detail[data-narrow] .eva-rv-side {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: min(280px, 100%);
+  background: var(--eva-c-background);
+  box-shadow: var(--eva-shadow);
+  z-index: 2;
+}
+.eva-rv-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-sm);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-md);
+  border-top: 1px solid var(--eva-c-border);
   font-size: var(--eva-fz-label);
+}
+.eva-rv-strip-line {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-rv-strip-line[data-tone='ok'] {
+  color: var(--eva-c-success);
+}
+.eva-rv-strip-line[data-tone='bad'] {
+  color: var(--eva-c-danger);
+}
+.eva-rv-strip-line[data-tone='dim'] {
   color: var(--eva-c-muted-foreground);
-  cursor: pointer;
 }
-.eva-rv-lpanel-more:hover {
-  color: var(--eva-c-foreground);
+.eva-rv-conflicts {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  color: var(--eva-c-danger);
+  font-size: var(--eva-fz-label);
 }
-.eva-rv-lpanel-comments {
+.eva-rv-merge {
   display: flex;
   flex-direction: column;
-  gap: var(--mantine-spacing-sm);
-  padding-top: var(--mantine-spacing-sm);
-  border-top: 1px solid var(--eva-c-border);
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
 }
-.eva-rv-lpanel-head {
-  margin: 0;
+.eva-rv-merge-note {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
   font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-medium);
-  color: var(--eva-c-foreground);
 }
-.eva-rv-detail[data-variant='panel'],
-.eva-rv-detail[data-variant='panel'] .eva-rv-content {
+.eva-rv-merge-note[data-tone='ok'] {
+  color: var(--eva-c-success);
+}
+.eva-rv-merge-note[data-tone='bad'] {
+  color: var(--eva-c-danger);
+}
+.eva-rv-merge-acts {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-rv-merge-facts,
+.eva-rv-details {
+  display: grid;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  margin: 0 0 var(--mantine-spacing-sm);
+}
+.eva-rv-merge-facts > div,
+.eva-rv-details > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-merge-facts dd,
+.eva-rv-details dd {
+  margin: 0;
+}
+.eva-rv-details {
+  font-size: var(--eva-fz-label);
+  margin: 0;
+}
+.eva-rv-checks {
+  display: flex;
+  flex-direction: column;
+}
+.eva-rv-check {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-height: 26px;
   min-width: 0;
+  font-size: var(--eva-fz-label);
 }
-.eva-rv-detail[data-variant='panel'] .eva-rv-body,
-.eva-rv-detail[data-variant='panel'] .eva-rv-comment,
-.eva-rv-lpanel .eva-rv-body,
-.eva-rv-lpanel .eva-rv-lcomment-body {
+/* The run's name is a button: it takes the row's size, not Mantine's button size. */
+.eva-rv-check .eva-rv-ellipsis {
+  font-size: inherit;
+}
+.eva-rv-picker {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-picker-row {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-rv-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.6);
+  border: 1px solid var(--eva-c-border);
+  border-radius: 999px;
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-reaction[data-mine] {
+  border-color: var(--eva-c-accent);
+  background: var(--eva-c-accent-background);
+}
+.eva-rv-reaction-pick {
+  padding: calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius-sm);
+  font-size: 16px;
+}
+.eva-rv-reaction-pick:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-rthread {
+  border-bottom: 1px solid var(--eva-c-border);
+  padding-top: var(--mantine-spacing-xs);
+}
+.eva-rv-rthread-where {
+  color: var(--eva-c-muted-foreground);
   overflow-wrap: anywhere;
+}
+.eva-rv-rthread .eva-rv-comment {
+  border-bottom: 0;
 }

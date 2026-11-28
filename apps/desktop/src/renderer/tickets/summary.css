@@ -1,0 +1,74 @@
+.eva-tk-sum {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  /* Room before the description, as the title leaves before the card. */
+  margin-bottom: var(--mantine-spacing-lg);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--eva-surface);
+}
+
+.eva-tk-sum-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  color: var(--eva-text-dim);
+}
+
+.eva-tk-sum-text {
+  margin: 0;
+  color: var(--eva-text);
+  line-height: 1.5;
+}
+
+.eva-tk-sum-muted,
+.eva-tk-sum-foot {
+  font-size: var(--mantine-font-size-xs);
+  color: var(--eva-text-dim);
+}
+
+.eva-tk-sum-link {
+  font-size: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.eva-tk-sum-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+
+.eva-tk-sum-rowtext {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--eva-text);
+}
+
+.eva-tk-sum-at {
+  color: var(--mantine-primary-color-filled);
+  flex-shrink: 0;
+}
+
+.eva-tk-sum-needs {
+  padding-top: var(--mantine-spacing-xs);
+  border-top: 1px solid var(--eva-border);
+}
+
+.eva-tk-sum-needs-i {
+  color: var(--mantine-color-orange-6);
+  flex-shrink: 0;
+}
+
+.eva-tk-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+}

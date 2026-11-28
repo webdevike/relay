@@ -175,12 +175,29 @@ describe("TicketsService bounds and reads", () => {
 });
 
 describe("TicketsService ops", () => {
-  it("answers summary, plan and replan as not available yet", async () => {
+  it("answers plan and replan as not available yet", async () => {
     const h = started();
     await h.settled();
-    expect(await h.service.handle("desk", { kind: "summary", key: "ENG-1" })).toEqual({ ok: false, error: "Not available yet" });
     expect(await h.service.handle("desk", { kind: "plan", rows: [] })).toEqual({ ok: false, error: "Not available yet" });
     expect(await h.service.handle("desk", { kind: "replan", projectId: "project-1" })).toEqual({ ok: false, error: "Not available yet" });
+  });
+
+  it("summarizes a synced ticket once per snapshot; without Claude it answers an error", async () => {
+    const text = "The ticket adds a board. It is in progress and the next step is review.";
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const writer = vi.fn((_: string) => Promise.resolve(text));
+    const h = ticketsHarness({ linear, summaryWriter: writer });
+    h.service.start();
+    await h.settled();
+    const answer = await h.service.handle("desk", { kind: "summary", key: "ENG-1" });
+    expect(answer).toEqual({ ok: true, summary: { key: "ENG-1", text, at: T0 } });
+    await h.service.handle("desk", { kind: "summary", key: "ENG-1" });
+    expect(writer).toHaveBeenCalledTimes(1);
+    expect(await h.service.handle("desk", { kind: "summary", key: "ENG-9" })).toEqual({ ok: false, error: "ENG-9 is not on the board" });
+    const bare = started();
+    await bare.settled();
+    expect(await bare.service.handle("desk", { kind: "summary", key: "ENG-1" })).toEqual({ ok: false, error: "Claude is not available on this host" });
   });
 
   it("seen answers the visit before and stores now", async () => {
@@ -208,7 +225,8 @@ describe("TicketsService ops", () => {
     await h.settled();
     const page = await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
     expect(page.ticket).toMatchObject({ key: "ENG-1", description: "A made-up ticket for host tests.", documentContentId: "doc-template" });
-    expect(page.ticket?.comments[0]).toMatchObject({ id: "comment-1", reactions: [{ emoji: "+1", users: [{ id: "user-other" }] }] });
+    expect(page.ticket?.comments[0]).toMatchObject({ id: "comment-1", author: { id: "user-other", url: "https://linear.app/acme/profiles/robin" }, reactions: [{ emoji: "+1", users: [{ id: "user-other" }] }] });
+    expect(page.ticket?.assignee).not.toHaveProperty("url");
     h.linear.members.clear();
     const gone = await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
     expect(gone.ok).toBe(false);
@@ -353,5 +371,42 @@ describe("TicketsService writes as the account the device saw", () => {
     const newer = ticketsHarness({ dir: h.dir, linear: h.linear });
     const board = await newer.service.handle("desk", { kind: "board" });
     expect(board.board?.tickets).toEqual([]);
+  });
+});
+
+describe("TicketsService PR writes as the gh account the device saw", () => {
+  const H = "a".repeat(40);
+  const MERGE = { kind: "merge" as const, repo: "o/r", number: 1, method: "squash" as const, intent: "merge" as const, expectHead: H, expectBase: "main", expectOutcome: "merge" as const };
+  function prHost(): TicketsHarness {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const h = ticketsHarness({ linear, writes: true, ghWrites: true });
+    h.service.start();
+    return h;
+  }
+  const graphqlCalls = (h: TicketsHarness, from: number) => h.gh.envs.slice(from).filter((c) => c.argv.includes("graphql"));
+
+  it("runs every gh call of the op with the one token it pinned", async () => {
+    const h = prHost();
+    await h.settled();
+    const from = h.gh.envs.length;
+    // The fake gh has no such PR: the check refuses, but only after reading as the pinned token.
+    expect((await h.service.preparePr("desk", MERGE, "pat-example")).refused?.code).toBe("invalid");
+    const calls = h.gh.envs.slice(from);
+    expect(calls[0]?.argv).toEqual(["gh", "auth", "token"]);
+    expect(calls.slice(1).map((c) => c.token)).toEqual(calls.slice(1).map(() => "gho_test"));
+    expect(graphqlCalls(h, from)).toHaveLength(1);
+  });
+
+  it("refuses another login, a signed-out gh and a gh signed in as someone else, without reading the PR", async () => {
+    const h = prHost();
+    await h.settled();
+    const from = h.gh.envs.length;
+    expect((await h.service.commitPr("desk", { opId: OP_ID, mutation: MERGE }, "someone-else")).refused?.code).toBe("identity");
+    h.gh.login = "someone-else";
+    expect((await h.service.commitPr("desk", { opId: OP_ID, mutation: MERGE }, "pat-example")).refused?.code).toBe("identity");
+    h.gh.token = null;
+    expect((await h.service.preparePr("desk", MERGE, "pat-example")).refused?.code).toBe("identity");
+    expect(graphqlCalls(h, from)).toEqual([]);
   });
 });

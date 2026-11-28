@@ -20,9 +20,11 @@ vi.mock('../window', () => ({ isAppUrl: () => true }))
 import { rewriteImages } from '@relay/protocol/markdown-images'
 import { createConfigStore } from '../config-store'
 import type { MainContext } from '../context'
-import type { RelayFrames } from '../relay/client'
+import { REVIEWS_ACTIONS_FEATURE, REVIEWS_ASSISTANTS_FEATURE } from '@relay/protocol'
+import type { RelayFeatures, RelayFrames } from '../relay/client'
 import type { HostAnswer, HostOp, HostReviews } from '../relay/host-reviews'
 import {
+  LEGACY_COMMENT_REFUSED,
   absoluteMedia,
   hostLinearIssue,
   hostPrFacts,
@@ -99,18 +101,21 @@ let dir: string
 let host: FakeHost
 let sent: Array<Record<string, unknown>>
 let emitted: Array<[string, unknown]>
+let features: Set<string>
 beforeEach(() => {
   ipc.handlers.clear()
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'remote-reviews-'))
   host = new FakeHost()
   sent = []
   emitted = []
-  const frames: RelayFrames = {
+  features = new Set()
+  const frames: RelayFrames & RelayFeatures = {
     onFrame: () => () => undefined,
     sendFrame: (f) => {
       sent.push(f)
       return true
     },
+    hostHas: (feature) => features.has(feature),
   }
   const ctx = {
     config: createConfigStore(dir),
@@ -176,8 +181,8 @@ describe('mappings', () => {
     )
   })
 
-  it('moves commits out of the PR timeline', () => {
-    const pr = toPr({
+  it('moves commits out of the PR timeline and keeps GitHub’s review decision', () => {
+    const read = {
       repo: 'o/r',
       number: 1,
       title: 't',
@@ -196,18 +201,22 @@ describe('mappings', () => {
       assignees: [],
       labels: [],
       timeline: [
-        { kind: 'commit', author: 'dana', body: 'first', state: 'abc1234', at: 1 },
-        { kind: 'comment', author: 'sam', body: 'hi', state: null, at: 2 },
+        { kind: 'commit' as const, author: 'dana', body: 'first', state: 'abc1234', at: 1 },
+        { kind: 'comment' as const, author: 'sam', body: 'hi', state: null, at: 2 },
       ],
       checks: [],
       files: [],
       diff: '',
-    })
+    }
+    const pr = toPr({ ...read, reviewDecision: 'REVIEW_REQUIRED' })
     expect(pr.commits).toEqual([{ oid: 'abc1234', headline: 'first', author: 'dana', at: 1 }])
     expect(pr.timeline).toEqual([
       { kind: 'comment', author: 'sam', body: 'hi', state: null, at: 2 },
     ])
     expect(pr).toMatchObject({ milestone: null, projects: [], participants: ['dana', 'sam'] })
+    expect(pr.reviewDecision).toBe('REVIEW_REQUIRED')
+    // An older host's read has none, so the page keeps today's wording.
+    expect('reviewDecision' in toPr(read)).toBe(false)
   })
 })
 
@@ -323,6 +332,72 @@ describe('the page through the host', () => {
     expect(r.value).toMatchObject({
       body: expect.stringMatching(/^see !\[shot\]\(\/reviews\/media\/[0-9a-f]{40}\.png\)$/),
     })
+  })
+
+  it('marks a capable host’s read writeGate (with or without actions facts); an old host’s facts are dropped', async () => {
+    const actions = {
+      viewerLogin: 'webdevike',
+      viewerPermission: 'WRITE',
+      mergeable: 'MERGEABLE',
+      mergeStateStatus: 'CLEAN',
+      methods: { merge: true, squash: true, rebase: false },
+      mergeQueue: { required: false, inQueue: false, entryState: null },
+      reviews: [],
+      checks: [],
+    }
+    const pr = (over: Record<string, unknown>) => ({
+      pr: {
+        repo: 'o/r',
+        number: 1,
+        title: 't',
+        url: 'u',
+        state: 'OPEN',
+        draft: false,
+        author: { login: 'd' },
+        createdAt: 1,
+        updatedAt: 2,
+        body: '',
+        base: 'main',
+        head: 'h',
+        headSha: 'x',
+        additions: 0,
+        deletions: 0,
+        reviewers: [],
+        assignees: [],
+        labels: [],
+        timeline: [],
+        checks: [],
+        files: [],
+        diff: '',
+        ...over,
+      },
+    })
+    const read = async () =>
+      (await call('reviews.pr', { repo: 'o/r', number: 1 })).value as Record<string, unknown>
+    host.answers.pr = () => pr({ actions })
+    expect(await read()).not.toHaveProperty('writeGate')
+    expect(await read()).not.toHaveProperty('actions')
+    features.add(REVIEWS_ACTIONS_FEATURE)
+    expect(await read()).toMatchObject({ writeGate: true, actions: { viewerLogin: 'webdevike' } })
+    host.answers.pr = () => pr({})
+    const bare = await read()
+    expect(bare).toMatchObject({ writeGate: true })
+    expect(bare).not.toHaveProperty('actions')
+  })
+
+  it('refuses the legacy comment while the host takes PR writes; an older host still gets it', async () => {
+    host.answers.comment = () => ({ url: 'https://github.com/o/r/pull/1#c' })
+    features.add(REVIEWS_ACTIONS_FEATURE)
+    expect(await call('reviews.comment', { repo: 'o/r', number: 1, body: 'hi' })).toMatchObject({
+      ok: false,
+      error: { code: 'use-gate', message: LEGACY_COMMENT_REFUSED },
+    })
+    expect(host.ops).toEqual([])
+    features.clear()
+    expect(await call('reviews.comment', { repo: 'o/r', number: 1, body: 'hi' })).toMatchObject({
+      ok: true,
+    })
+    expect(host.ops.map((o) => o.kind)).toEqual(['comment'])
   })
 
   it('loads images the host rewrote from reference and entity-escaped forms: inline host paths, fetched and served locally', async () => {
@@ -446,6 +521,45 @@ describe('the page through the host', () => {
       'reviews.astraUpdate',
       expect.objectContaining({ file: '/mirror/2026_s1.jsonl', working: false }),
     ])
+  })
+
+  it('sends `agent` only to a host that runs other assistants, and keeps each one’s session apart', async () => {
+    host.answers.queue = () => ({ queue })
+    host.answers.prList = () => ({ prs: { items: [], total: 0 } })
+    await call('reviews.queue', { refresh: false })
+    host.answers.astraAsk = (op) => ({
+      astra: {
+        url: op.url,
+        title: 'Nova · #ui-ux',
+        sessionId: 'n1',
+        turns: [],
+        working: true,
+        waiting: null,
+        error: null,
+        agent: op.agent,
+      },
+    })
+    host.answers.astra = () => ({ astra: null })
+    const ask = { url: SLACK, label: '#ui-ux', context: '', text: 'hi', agent: 'nova' }
+    // An older host: Nova is refused here, Astra goes without the field, nothing unknown is sent.
+    expect((await call('reviews.astraAsk', ask)).ok).toBe(false)
+    expect(await call('reviews.astraThread', { url: SLACK, agent: 'nova' })).toMatchObject({
+      value: null,
+    })
+    expect(host.ops.filter((op) => 'agent' in op)).toEqual([])
+    await call('reviews.astraThread', { url: SLACK, agent: 'astra' })
+    expect(host.ops.at(-1)).toEqual({ kind: 'astra', url: SLACK })
+
+    features.add(REVIEWS_ASSISTANTS_FEATURE)
+    const asked = await call('reviews.astraAsk', ask)
+    expect(host.ops.at(-1)).toMatchObject({ kind: 'astraAsk', url: SLACK, agent: 'nova' })
+    expect(asked.value).toMatchObject({ agent: 'nova', file: null })
+    // Nova's live session is hers: Astra's Stop on the same item does not reach it.
+    expect((await call('reviews.astraStop', { url: SLACK })).value).toEqual({ stopped: false })
+    expect((await call('reviews.astraStop', { url: SLACK, agent: 'nova' })).value).toEqual({
+      stopped: true,
+    })
+    expect(sent.at(-1)).toMatchObject({ cmd: { kind: 'agent.abort', sessionId: 'n1' } })
   })
 
   it('Done goes to the host’s marks', async () => {

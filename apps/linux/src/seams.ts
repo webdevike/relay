@@ -394,8 +394,8 @@ export interface StudioRelaying {
  * every device through the service's own broadcast.
  */
 export interface ReviewsRelaying {
-  /** Never rejects: a failure is `{ ok: false, error }`. */
-  handle(op: ReviewsOp): Promise<Omit<ReviewsResult, "rid">>;
+  /** Never rejects: a failure is `{ ok: false, error }`. `deviceId`: the device that asked (PR actions bind to it). */
+  handle(op: ReviewsOp, deviceId: string): Promise<Omit<ReviewsResult, "rid">>;
   /** A downloaded image iff `token` is its token; null otherwise. */
   openMedia(name: string, token: string): DropBlob | null;
   observe(change: AgentProviderChange): void;

@@ -43,7 +43,6 @@ export interface PrAttentionInput {
   readonly viewerIsAuthor: boolean;
   readonly viewerRequested: boolean;
   readonly viewerReviewedHead: boolean;
-  readonly relayAutoMergeDisarmed: boolean;
 }
 /** Keys: mentions `${provider}|${itemId}`, needs `${itemId}|${reasonKind}` -> evidence. */
 export interface HandledState {
@@ -280,17 +279,6 @@ function waitingOf(input: AttentionInput): WaitingMention[] {
 
 const needsKey = (itemId: string, kind: NeedsYouKind): string => `${itemId}|${kind}`;
 
-function autoMergeOffReason(p: PrAttentionInput): NeedsYou | null {
-  if (!p.relayAutoMergeDisarmed || p.facts.state !== "open") return null;
-  const n = p.facts.number;
-  return {
-    kind: "autoMergeOff",
-    text: "Auto-merge turned off: new commits since you approved",
-    action: { kind: "openPr", label: `Open PR #${n}`, pr: prRef(p.facts) },
-    evidence: p.facts.headSha,
-  };
-}
-
 function mergeReason(p: PrAttentionInput): NeedsYou | null {
   const f = p.facts;
   const ready =
@@ -333,7 +321,7 @@ function waitingReason(waiting: readonly WaitingMention[]): NeedsYou | null {
 function needsYouOf(input: AttentionInput, waiting: readonly WaitingMention[]): NeedsYou | null {
   const reasons = [
     waitingReason(waiting),
-    ...[autoMergeOffReason, mergeReason, reviewReason].flatMap((rule) => input.prs.map(rule)),
+    ...[mergeReason, reviewReason].flatMap((rule) => input.prs.map(rule)),
   ];
   return (
     reasons.find(

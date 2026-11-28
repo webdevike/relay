@@ -76,7 +76,6 @@ function pr(over: Partial<PrAttentionInput> = {}): PrAttentionInput {
     viewerIsAuthor: false,
     viewerRequested: false,
     viewerReviewedHead: false,
-    relayAutoMergeDisarmed: false,
     ...over,
   };
 }
@@ -382,10 +381,6 @@ describe("needs you", () => {
     facts: facts({ decision: "APPROVED", mergeState: "CLEAN" }),
   });
   const requested = pr({ viewerRequested: true, facts: facts({ number: 13, headSha: "def456" }) });
-  const disarmed = pr({
-    relayAutoMergeDisarmed: true,
-    facts: facts({ number: 14, headSha: "fff000" }),
-  });
 
   const cases: Array<{
     name: string;
@@ -394,17 +389,8 @@ describe("needs you", () => {
   }> = [
     {
       name: "waiting wins",
-      over: { comments: [comment("c1")], prs: [disarmed, mergeable, requested] },
+      over: { comments: [comment("c1")], prs: [mergeable, requested] },
       want: { kind: "waiting", text: "Waiting on your reply", evidence: "c1" },
-    },
-    {
-      name: "auto-merge off next",
-      over: { prs: [mergeable, requested, disarmed] },
-      want: {
-        kind: "autoMergeOff",
-        text: "Auto-merge turned off: new commits since you approved",
-        evidence: "fff000",
-      },
     },
     {
       name: "merge next",

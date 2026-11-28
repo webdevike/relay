@@ -7,13 +7,17 @@
 // `tickets.status`) go through `onPush`, which the server sends only to sockets that subscribed.
 
 import { createHash } from "node:crypto";
-import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { homedir } from "node:os";
+import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
+import { githubExecutor, StaleGithubCredential } from "../reviews/github-writes";
+import { PrGate, type GithubPin, type PrCommitRequest } from "../reviews/pr-gate";
 import { linearGql, type Fetch, type LinearGql } from "../reviews/linear";
 import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
+import { AnchorStore } from "./anchors";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { providerBudgets, RateLimited, type Budgets } from "./budget";
 import { HostError, ProviderRejected, publicError, StaleCredential } from "./errors";
@@ -23,6 +27,7 @@ import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from
 import { LinearSync, type LinearViewer } from "./linear-sync";
 import { linearExecutor } from "./linear-writes";
 import { boundComments, boundTeams, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
+import { SummaryCache, type SummarySnapshot, type SummaryWriter } from "./summary";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
 
 export type TicketsPush = Extract<ServerMessage, { t: "tickets.snapshot" | "tickets.delta" | "tickets.status" }>;
@@ -54,9 +59,19 @@ export interface TicketsServiceDeps {
   readonly sync?: Pick<TicketsSyncOptions, "clock" | "timing">;
   /** Test seam; default: MutationGate over linearExecutor. */
   readonly gate?: TicketsGate;
+  /** Writes ticket summaries (`claudeWriter`); absent: `summary` answers an error. */
+  readonly summaryWriter?: SummaryWriter;
+  /** gh for PR writes (reviews `prPrepare`/`prCommit`); absent: the gate refuses them. */
+  readonly ghWrites?: GhWrites;
+}
+
+export interface GhWrites {
+  readonly run: ToolRun;
+  readonly gh: string;
 }
 
 const UNAVAILABLE: Answer = { ok: false, error: "Not available yet" };
+const PR_WRITES_OFF: Answer = { ok: false, refused: { code: "writesOff", message: "Writing to GitHub is off on this host" } };
 const NO_ATTENTION: Attention = { waiting: [], needsYou: null };
 const clip = (s: string | null): string | null => (s === null ? null : s.slice(0, 2000));
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -70,6 +85,8 @@ const MAX_DETAIL_COMMENTS_BYTES = 768 * 1024;
 export const MAX_DETAIL_FRAME_BYTES = 1024 * 1024;
 /** The largest envelope around a page (`rid` at its 64-character maximum). */
 const DETAIL_ENVELOPE = { t: "tickets.res", rid: "r".repeat(64), ok: true } as const;
+/** `gh auth token` reads gh's own config: no network. */
+const GH_TOKEN_TIMEOUT_MS = 10_000;
 
 export class TicketsService implements TicketsRelaying {
   readonly writes: boolean;
@@ -78,10 +95,14 @@ export class TicketsService implements TicketsRelaying {
   private readonly store: TicketsStore;
   private readonly handled: HandledStore;
   private readonly seen: SeenStore;
+  private readonly anchors: AnchorStore;
   private readonly linear: LinearSync;
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
+  /** GitHub PR writes (reviews `prPrepare`/`prCommit`); null without `ghWrites`. */
+  private readonly prGate: PrGate | null;
   private readonly actor: TicketsSyncActor;
+  private readonly summaries: SummaryCache | null;
   private linearNames: readonly string[] = [];
   private errors: TicketsStatus["errors"] = { linear: null, github: null };
   /** The account changed (or was never confirmed this run): writes wait for a full cycle. */
@@ -100,7 +121,9 @@ export class TicketsService implements TicketsRelaying {
     this.writes = deps.writes;
     this.store = new TicketsStore(deps.dir, deps.now);
     this.handled = new HandledStore(deps.dir);
+    this.summaries = deps.summaryWriter === undefined ? null : new SummaryCache(deps.dir, deps.summaryWriter, deps.now);
     this.seen = new SeenStore(deps.dir);
+    this.anchors = new AnchorStore(deps.dir, deps.now);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
     this.github = new GithubSync(deps.ghGraphql, this.store);
     this.gate =
@@ -113,6 +136,10 @@ export class TicketsService implements TicketsRelaying {
         now: deps.now,
         log: deps.log,
       });
+    this.prGate =
+      deps.ghWrites === undefined
+        ? null
+        : new PrGate({ dir: deps.dir, writesEnabled: () => deps.writes, pin: () => this.ghPin(), current: (pin) => this.ghCurrent(pin), now: deps.now, log: deps.log });
     this.actor = ticketsSyncActor({
       steps: {
         identify: () => this.identify(),
@@ -161,7 +188,7 @@ export class TicketsService implements TicketsRelaying {
       handled: (o) => this.markHandled(o),
       prepare: (o) => this.gate.prepare({ deviceId }, o.mutation, o.viewerId),
       commit: (o) => this.commit(deviceId, o),
-      summary: () => UNAVAILABLE,
+      summary: (o) => this.summary(o.key),
       plan: () => UNAVAILABLE,
       replan: () => UNAVAILABLE,
     };
@@ -197,6 +224,20 @@ export class TicketsService implements TicketsRelaying {
     return { tickets: this.store.board(), teams: boundTeams(this.store.sync.teams) };
   }
 
+  private async summary(key: string): Promise<Answer> {
+    if (this.summaries === null) return { ok: false, error: "Claude is not available on this host" };
+    const snapshot = this.summarySnapshot(key);
+    if (snapshot === undefined) return { ok: false, error: `${key} is not on the board` };
+    const s = await this.summaries.read(snapshot, () => this.summarySnapshot(key));
+    const summary = { key, text: s.text, at: s.at };
+    return s.error === null ? { ok: true, summary } : { ok: false, error: s.error.slice(0, 2000), summary };
+  }
+
+  private summarySnapshot(key: string): SummarySnapshot | undefined {
+    const entry = this.store.issue(key);
+    return entry && { entry, prs: prInputs(this.store, entry.ticket.prs).map((p) => p.facts) };
+  }
+
   private async detail(key: string): Promise<Answer> {
     let entry: IssueEntry | null;
     try {
@@ -226,7 +267,8 @@ export class TicketsService implements TicketsRelaying {
    */
   private detailFrame(entry: IssueEntry): TicketDetail {
     const description = clipBytes(entry.ticket.description, MAX_DETAIL_DESCRIPTION_BYTES);
-    const bounded = boundComments(entry.comments.slice(-MAX_TICKET_COMMENTS), MAX_DETAIL_COMMENT_BYTES, MAX_DETAIL_COMMENTS_BYTES).comments;
+    // Inline comments made in Relay carry where their quote sat (anchors.json), counted in the bounds.
+    const bounded = this.anchors.attach(boundComments(entry.comments.slice(-MAX_TICKET_COMMENTS), MAX_DETAIL_COMMENT_BYTES, MAX_DETAIL_COMMENTS_BYTES).comments);
     const facts = this.facts(entry);
     let waiting = facts.attention.waiting;
     while (waiting.length > 0 && jsonBytes(waiting) > MAX_DETAIL_FRAME_BYTES / 8) waiting = waiting.slice(0, Math.floor(waiting.length / 2));
@@ -265,7 +307,26 @@ export class TicketsService implements TicketsRelaying {
 
   private async commit(deviceId: string, op: Op<"commit">): Promise<Answer> {
     const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.viewerId);
+    // An inline comment made here keeps where its quote sat (Relay-only); a lost answer may still
+    // have landed under the opId, Linear's id for it.
+    const m = op.mutation;
+    if (m.kind === "comment" && m.anchor !== undefined && answer.outcome !== undefined && answer.outcome.state !== "failed") {
+      this.anchors.set(answer.outcome.result?.id ?? op.opId, m.anchor);
+    }
     // The board shows the write once Linear has it: one coalesced cycle.
+    if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
+    return answer;
+  }
+
+  /** A confirmed PR write's approval (reviews `prPrepare`); `login`: the GitHub account the device showed. */
+  preparePr(deviceId: string, mutation: PrMutation, login: string): Promise<Answer> {
+    return this.prGate === null ? Promise.resolve(PR_WRITES_OFF) : this.prGate.prepare(deviceId, mutation, login);
+  }
+
+  /** A PR write (reviews `prCommit`); the board's PR facts follow in one coalesced cycle. */
+  async commitPr(deviceId: string, req: PrCommitRequest, login: string): Promise<Answer> {
+    if (this.prGate === null) return PR_WRITES_OFF;
+    const answer = await this.prGate.commit(deviceId, req, login);
     if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
     return answer;
   }
@@ -354,6 +415,50 @@ export class TicketsService implements TicketsRelaying {
     return pin.generation === this.generation && pin.viewerId === viewerId && key !== null && sha256(key) === this.keyHash;
   }
 
+  /** gh's credential now (`gh auth token`, no network); null when gh is signed out. */
+  private async ghToken(w: GhWrites): Promise<string | null> {
+    const res = await w.run([w.gh, "auth", "token"], { cwd: homedir(), timeoutMs: GH_TOKEN_TIMEOUT_MS });
+    const token = res.code === 0 && !res.timedOut ? res.stdout.trim() : "";
+    return token === "" ? null : token;
+  }
+
+  /**
+   * The verified GitHub account with gh pinned to the credential it has now: every gh call of the op
+   * (check, write, reconcile) runs with exactly that token, and it must still sign in as the verified
+   * login. Null when there is none (gh signed out, or signed in as someone else since the last sync).
+   */
+  private async ghPin(): Promise<GithubPin | null> {
+    const w = this.deps.ghWrites;
+    const login = this.verified ? (this.store.sync.identity?.github?.login ?? null) : null;
+    if (w === undefined || login === null) return null;
+    const token = await this.ghToken(w);
+    if (token === null) return null;
+    const run: ToolRun = (argv, options) => w.run(argv, { ...options, env: { ...options.env, GH_TOKEN: token } });
+    const budget = this.deps.budgets.github;
+    const live = (await ghCall(run, w.gh, budget, ["api", "user", "--jq", ".login"])).trim();
+    if (live.toLowerCase() !== login.toLowerCase()) {
+      // gh now signs in as another account: confirm it again before anything is written.
+      this.actor.send({ type: "sync.now" });
+      return null;
+    }
+    // The guard runs right before each gh write: a credential or account change after any read stops it.
+    const guard = async (): Promise<void> => {
+      if (!(await this.ghCurrent(pin))) throw new StaleGithubCredential();
+    };
+    const github = githubExecutor({ run, gh: w.gh, graphql: ghGraphql(run, w.gh, budget), budget, login: () => login, guard });
+    const pin: GithubPin = { login, generation: this.generation, credential: sha256(token), github };
+    return pin;
+  }
+
+  /** Whether a pinned PR write may still go out: same generation, same verified login, same gh credential. */
+  private async ghCurrent(pin: GithubPin): Promise<boolean> {
+    const w = this.deps.ghWrites;
+    const login = this.verified ? (this.store.sync.identity?.github?.login ?? null) : null;
+    if (w === undefined || pin.generation !== this.generation || login !== pin.login) return false;
+    const token = await this.ghToken(w);
+    return token !== null && sha256(token) === pin.credential;
+  }
+
   // ---- Sync steps ----
 
   /** Resolves who the host's key acts as, reading the key once; a new key or account voids pending writes. */
@@ -374,6 +479,7 @@ export class TicketsService implements TicketsRelaying {
       this.verified = false;
       this.generation += 1;
       this.gate.invalidate("the host's Linear or GitHub account changed");
+      this.prGate?.invalidate("the host's Linear or GitHub account changed");
       return { kind: "changed" };
     }
     this.store.setSync({ identity: resolved.identity });
@@ -439,6 +545,8 @@ export interface HostTicketsOptions {
   readonly budgets: Budgets;
   readonly writes: boolean;
   readonly log: (line: string) => void;
+  /** `claudeWriter` for ticket summaries. */
+  readonly summaryWriter: SummaryWriter;
 }
 
 /** gh signed out (as opposed to failing): its login is then nobody's. */
@@ -467,6 +575,8 @@ export function hostTicketsService(o: HostTicketsOptions): TicketsService {
     },
     budgets: o.budgets,
     writes: o.writes,
+    ghWrites: { run: o.run, gh: o.gh },
+    summaryWriter: o.summaryWriter,
     now: () => Date.now(),
     log: o.log,
   });

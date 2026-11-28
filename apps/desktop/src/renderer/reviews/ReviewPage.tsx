@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { notifications } from '@mantine/notifications'
-import type { LinearTicket, ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
+import type { ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { setReviewTitle } from '../eva/names-store'
 import { invoke } from '../ipc'
 import { useReplacePlace } from '../pages/place-host'
 import { backOr } from '../navigation/nav-history'
-import { LinearDetail } from './LinearDetail'
+import { ticketPlace } from '../tickets/ticket-place'
 import { SlackDetail } from './SlackDetail'
-import { Detail, markDone } from './ReviewsPage'
+import { markDone } from './ReviewsPage'
+import { PrView } from './PrView'
 import { reviewIdOf, reviewRefOfPlace, reviewTitleOf, type ReviewRef } from './review-place'
 import {
   loadQueue,
@@ -90,6 +91,12 @@ export function ReviewPage({ place }: { place: Place }) {
       void loadPr({ repo: prRepo, number: prNumber })
   }, [prRepo, prNumber, loadPr])
 
+  // A Linear issue's review place (an older tab, a `relay://` review link) is its ticket page now.
+  const ticketKey = ref?.kind === 'linear' ? ref.key : null
+  useEffect(() => {
+    if (ticketKey !== null) leave(ticketPlace(ticketKey))
+  }, [ticketKey, leave])
+
   const back = (): void => leave(placeOf('reviews'))
   // The arrow is the window's Back; Done leaves for the Reviews page as before.
   const goBack = (): void => backOr(back)
@@ -97,11 +104,6 @@ export function ReviewPage({ place }: { place: Place }) {
   const donePr = async (row: ReviewRow, p: ReviewPr): Promise<void> => {
     if (!(await markDone(p.url, Math.max(row.updatedAt, p.updatedAt)))) return
     notifications.show({ message: `Done: ${p.title}`, color: 'green' })
-    back()
-  }
-  const doneTicket = async (row: { updatedAt: number }, t: LinearTicket): Promise<void> => {
-    if (!(await markDone(t.url, Math.max(row.updatedAt, Date.now())))) return
-    notifications.show({ message: `Done: ${t.key} ${t.title}`, color: 'green' })
     back()
   }
   const doneThread = async (row: SlackRow): Promise<void> => {
@@ -127,21 +129,10 @@ export function ReviewPage({ place }: { place: Place }) {
         onDone={() => void doneThread(item.row)}
       />
     )
-  } else if (item?.kind === 'linear') {
-    const row = item.row
-    body = (
-      <LinearDetail
-        key={row.key}
-        row={row}
-        now={now}
-        onBack={goBack}
-        onDone={(t) => void doneTicket(row, t)}
-      />
-    )
   } else if (item?.kind === 'pr' && pr) {
     const row = item.row
     body = (
-      <Detail
+      <PrView
         pr={pr.pr}
         fetchedAt={pr.at}
         now={now}
