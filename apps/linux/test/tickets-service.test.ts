@@ -71,20 +71,26 @@ describe("TicketsService bounds and reads", () => {
     expect((await h.service.handle("desk", { kind: "board" })).rev).toBe(rev);
   });
 
-  it("keeps signed attachment links' credentials out of ticket pages and the cache", async () => {
+  it("serves provider and signed media as unavailable: neither the page nor the cache holds the URL", async () => {
     const linear = new FakeLinear();
     linear.add("ENG-1", T0 - MIN);
-    const signed = "https://storage.example.com/u/shot.png?X-Amz-Signature=deadbeef&X-Amz-Credential=AKIA1";
+    const jwt = "https://private-user-images.githubusercontent.com/1/shot.png?jwt=eyJhbGciOi.secret.sig";
+    const amz = "https://storage.example.com/u/shot.png?X-Amz-Signature=deadbeef&X-Amz-Credential=AKIA1";
+    const upload = "https://uploads.linear.app/a/b/c.png";
     const plain = "https://example.com/docs?page=2";
-    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), description: `![shot](${signed}) see ${plain}` });
+    const description = `![shot](${jwt} "A \\"quoted\\" title") <img width="300" src="${amz}"> ![up](${upload}) see ${plain}`;
+    const comment = { id: "c-1", body: `Look: ![x](<${jwt}>)`, url: "https://linear.app/acme/issue/ENG-1#c-1", createdAt: new Date(T0 - MIN).toISOString(), editedAt: null, resolvedAt: null, quotedText: `![q](${jwt})`, documentContentId: null, parent: null, user: null, resolvingUser: null, reactionData: [] };
+    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), description, comments: { nodes: [comment] } });
     const h = ticketsHarness({ linear });
     h.service.start();
     await h.settled();
-    const page = (await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })).ticket;
-    expect(page?.description).toBe(`![shot](https://storage.example.com/u/shot.png) see ${plain}`);
+    const page = JSON.stringify((await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })).ticket);
     const stored = readFileSync(join(h.dir, "tickets.json"), "utf8");
-    expect(stored).not.toContain("deadbeef");
-    expect(stored).toContain(plain);
+    for (const text of [page, stored]) {
+      for (const secret of ["eyJhbGciOi", "deadbeef", "private-user-images", "storage.example.com", "uploads.linear.app"]) expect(text).not.toContain(secret);
+      expect(text).toContain("/reviews/media/unavailable");
+      expect(text).toContain(plain);
+    }
   });
 });
 

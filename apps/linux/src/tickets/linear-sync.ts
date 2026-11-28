@@ -12,6 +12,7 @@
 import { TERMINAL_TICKET_STATE_TYPES, type Ticket, type TicketComment, type TicketPrRef, type TicketStateType } from "@relay/protocol";
 import { z } from "zod";
 import type { LinearGql } from "../reviews/linear";
+import { isGithubUpload, isLinearUpload, UNAVAILABLE_MEDIA } from "../reviews/media";
 import { MENTION_NOTICES, type LinearNotice } from "./attention";
 import { HostError } from "./errors";
 import type { IssueEntry, TicketsStore } from "./store";
@@ -196,19 +197,19 @@ function reactionsOf(data: unknown): TicketComment["reactions"] {
   }));
 }
 
-/** A query parameter that carries a credential (a signed storage or CDN link). */
-const SIGNED_PARAM = /[?&](x-amz-(signature|credential|security-token)|x-goog-(signature|credential)|signature|sig|token|access_token|expires)=/i;
+/** A query parameter that carries a credential: GitHub's private-image `jwt`, signed storage or CDN links. */
+const SIGNED_PARAM = /[?&;](jwt|x-amz-(signature|credential|security-token)|x-goog-(signature|credential)|signature|sig|token|access_token|expires)=/i;
 const URL_IN_TEXT = /https?:\/\/[^\s<>"'()[\]]+/g;
 
 /**
- * Text with every signed link cut before its query: the credential never leaves the host and the
- * link stays (Linear's own uploads need the host's key, which never leaves it either).
+ * Ticket text (description, comment, quote) with provider media made safe, as Reviews' media
+ * localizer answers a source it can't serve: an upload only the host's credentials open (GitHub's
+ * user-attachments and private-user-images, Linear's uploads) or any signed link points at
+ * UNAVAILABLE_MEDIA, in Markdown images (titles kept), `<img>` tags and plain links alike, so neither
+ * the URL nor its signature leaves the host.
  */
-export function withoutSignedUrls(text: string): string {
-  return text.replace(URL_IN_TEXT, (url) => {
-    const q = url.indexOf("?");
-    return q !== -1 && SIGNED_PARAM.test(url.slice(q)) ? url.slice(0, q) : url;
-  });
+export function safeTicketText(text: string): string {
+  return text.replace(URL_IN_TEXT, (url) => (isGithubUpload(url) || isLinearUpload(url) || SIGNED_PARAM.test(url) ? UNAVAILABLE_MEDIA : url));
 }
 
 export function toComment(c: CommentNode): TicketComment {
@@ -216,9 +217,9 @@ export function toComment(c: CommentNode): TicketComment {
     id: c.id,
     parentId: c.parent?.id ?? null,
     documentContentId: c.documentContentId ?? null,
-    quotedText: c.quotedText === null || c.quotedText === undefined ? null : withoutSignedUrls(c.quotedText).slice(0, 20_000),
+    quotedText: c.quotedText === null || c.quotedText === undefined ? null : safeTicketText(c.quotedText).slice(0, 20_000),
     author: actor(c.user),
-    body: withoutSignedUrls(c.body).slice(0, 20_000),
+    body: safeTicketText(c.body).slice(0, 20_000),
     at: ms(c.createdAt) ?? 0,
     editedAt: ms(c.editedAt),
     resolvedAt: ms(c.resolvedAt),
@@ -238,7 +239,7 @@ export function toEntry(i: IssueNode, viewerId: string | null): IssueEntry {
     id: i.id,
     documentContentId: i.documentContent?.id ?? null,
     title: i.title,
-    description: withoutSignedUrls(i.description ?? "").slice(0, 100_000),
+    description: safeTicketText(i.description ?? "").slice(0, 100_000),
     url: i.url,
     state: { ...i.state, type },
     team: i.team,
