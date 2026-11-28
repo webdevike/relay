@@ -263,7 +263,19 @@ export const TicketBoardFacts = Ticket.omit({ description: true }).extend({
 });
 export type TicketBoardFacts = z.infer<typeof TicketBoardFacts>;
 
-export const TicketsBoard = z.object({ tickets: z.array(TicketBoardFacts).max(MAX_TICKETS) });
+/** A team's workflow states in Linear's order, for mapping a Board column to a state (drag-to-move). */
+export const TicketTeam = z.object({
+  id: Id,
+  key: z.string().min(1).max(40),
+  states: z.array(TicketState.extend({ position: z.number().finite() })).max(60),
+});
+export type TicketTeam = z.infer<typeof TicketTeam>;
+
+export const TicketsBoard = z.object({
+  tickets: z.array(TicketBoardFacts).max(MAX_TICKETS),
+  /** The synced tickets' teams; sent with `board` answers and snapshots, not deltas. Absent: unknown. */
+  teams: z.array(TicketTeam).max(20).optional(),
+});
 export type TicketsBoard = z.infer<typeof TicketsBoard>;
 
 /** The ticket page: board facts plus description and every comment (oldest first). */

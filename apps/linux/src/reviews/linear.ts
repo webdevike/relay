@@ -12,6 +12,8 @@ import type { LinearTicket, ReviewItem } from "@relay/protocol";
 import { z } from "zod";
 import { sameToken } from "../drops/serve";
 import type { DropBlob } from "../seams";
+import type { ProviderBudget } from "../tickets/budget";
+import { ProviderRejected } from "../tickets/gate";
 import { isLinearUpload, localizeImages, MEDIA_LIMITS, type MediaLimits } from "./media";
 
 const ms = (iso: string | null | undefined): number => {
@@ -132,7 +134,9 @@ export function toRows(data: z.infer<typeof QueueData>): LinearRow[] {
     }
     const lastMine = Math.max(
       0,
-      ...(issue.comments?.nodes ?? []).filter((c) => c.user?.id === data.viewer.id).map((c) => ms(c.createdAt)),
+      ...(issue.comments?.nodes ?? [])
+        .filter((c) => c.user?.id === data.viewer.id)
+        .map((c) => ms(c.createdAt)),
     );
     // He has commented since this ask (and so since every older one): it is answered.
     if (lastMine >= at) continue;
@@ -193,7 +197,9 @@ const Ticket = z.object({
       ),
     }),
     attachments: z.object({
-      nodes: z.array(z.object({ title: z.string(), url: z.string(), sourceType: z.string().nullable() })),
+      nodes: z.array(
+        z.object({ title: z.string(), url: z.string(), sourceType: z.string().nullable() }),
+      ),
     }),
     comments: z.object({
       nodes: z.array(
@@ -235,7 +241,12 @@ const TICKET_QUERY = `query($id: String!) {
   }
 }`;
 
-const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
+const MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
 const MEDIA_NAME = /^[0-9a-f]{40}\.(png|jpg|gif|webp)$/;
 
 const CommentMade = z.object({
@@ -259,7 +270,9 @@ const UploadMade = z.object({
 });
 
 /** A ticket's status changes as activity lines, oldest first; other history (labels, assignees ...) is left out. */
-export function toActivity(nodes: z.infer<typeof Ticket>["issue"]["history"]["nodes"]): LinearTicket["activity"] {
+export function toActivity(
+  nodes: z.infer<typeof Ticket>["issue"]["history"]["nodes"],
+): LinearTicket["activity"] {
   return nodes
     .flatMap((n) => {
       const to = n.toState?.name;
@@ -305,7 +318,12 @@ export class ReviewMedia {
     if (!MEDIA_NAME.test(name) || !sameToken(this.token(name), token)) return null;
     const file = join(this.dir, name);
     try {
-      return { path: file, mimeType: MIME[name.slice(name.lastIndexOf("."))] ?? "application/octet-stream", name, size: statSync(file).size };
+      return {
+        path: file,
+        mimeType: MIME[name.slice(name.lastIndexOf("."))] ?? "application/octet-stream",
+        name,
+        size: statSync(file).size,
+      };
     } catch {
       return null;
     }
@@ -315,38 +333,90 @@ export class ReviewMedia {
 /** The part of `fetch` Linear's reads use (a test seam). */
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
-export class Linear {
-  constructor(
-    private readonly key: () => string | null,
-    private readonly media: ReviewMedia,
-    private readonly fetchFn: Fetch,
-  ) {}
+/** One Linear GraphQL call: the answer's `data`; throws on an error answer. */
+export type LinearGql = (query: string, variables?: Record<string, unknown>) => Promise<unknown>;
 
-  private async gql(query: string, variables: Record<string, unknown> = {}): Promise<unknown> {
-    const token = this.key();
-    if (!token) throw new Error("No Linear API key (LINEAR_API_KEY or secrets/linear.env)");
-    const res = await this.fetchFn("https://api.linear.app/graphql", {
+/** Linear does not take the key (none, revoked or wrong): the host acts as nobody, nothing is written. */
+export class LinearUnauthorized extends ProviderRejected {}
+
+const GqlAnswer = z.object({
+  data: z.unknown().optional(),
+  errors: z
+    .array(z.object({ message: z.string(), extensions: z.object({ code: z.string().optional() }).passthrough().optional() }))
+    .optional(),
+});
+
+type GqlError = NonNullable<z.infer<typeof GqlAnswer>["errors"]>[number];
+
+/** Throws what Linear's first GraphQL error means: a limit, a refused key, or a refusal. */
+function throwGqlError(status: number, first: GqlError, budget: ProviderBudget | null): never {
+  const code = first.extensions?.code;
+  if (code === "RATELIMITED" && budget !== null) budget.limited();
+  if (status === 401 || code === "AUTHENTICATION_ERROR") throw new LinearUnauthorized(first.message);
+  throw new ProviderRejected(first.message);
+}
+
+/**
+ * An answer's data, or the error it means: Linear said no (GraphQL `errors`, a 4xx) throws
+ * `ProviderRejected` (nothing was written); a limit throws `RateLimited`; a 5xx a plain Error.
+ */
+function dataOf(status: number, body: unknown, budget: ProviderBudget | null): unknown {
+  const parsed = GqlAnswer.safeParse(body);
+  const first = parsed.success ? parsed.data.errors?.[0] : undefined;
+  if (first !== undefined) throwGqlError(status, first, budget);
+  if (status === 401) throw new LinearUnauthorized("Linear did not take the key");
+  if (status >= 400 && status < 500) throw new ProviderRejected(`Linear answered ${String(status)}`);
+  if (status >= 300 || !parsed.success) throw new Error(`Linear answered ${String(status)}`);
+  return parsed.data.data;
+}
+
+/**
+ * Linear's GraphQL with the host's key, through `budget` when given (shared by Reviews and the
+ * tickets sync): a spent budget, a 429 or Linear's RATELIMITED error throw `RateLimited`.
+ */
+export function linearGql(key: () => string | null, fetchFn: Fetch, budget: ProviderBudget | null = null): LinearGql {
+  return async (query, variables = {}) => {
+    const token = key();
+    if (!token) throw new LinearUnauthorized("No Linear API key (LINEAR_API_KEY or secrets/linear.env)");
+    budget?.take();
+    const res = await fetchFn("https://api.linear.app/graphql", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: token },
       body: JSON.stringify({ query, variables }),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`Linear answered ${String(res.status)}`);
-    const body = z
-      .object({
-        data: z.unknown().optional(),
-        errors: z.array(z.object({ message: z.string() })).optional(),
-      })
-      .parse(await res.json());
-    const first = body.errors?.[0];
-    if (first !== undefined) throw new Error(first.message);
-    return body.data;
+    budget?.observe(res.status, res.headers);
+    return dataOf(res.status, await res.json().catch(() => null), budget);
+  };
+}
+
+export class Linear {
+  /** Linear's GraphQL as this client calls it (budgeted when the host shares a budget). */
+  readonly gql: LinearGql;
+
+  constructor(
+    private readonly key: () => string | null,
+    private readonly media: ReviewMedia,
+    private readonly fetchFn: Fetch,
+    budget: ProviderBudget | null = null,
+  ) {
+    this.gql = linearGql(key, fetchFn, budget);
   }
 
   /** Linear's uploads (and any `<img>` tag) pointed at the host's copy, downloaded with the key. */
   private withLocalImages(md: string): Promise<string> {
     const key = this.key();
-    return localizeImages(md, this.media, [{ match: isLinearUpload, headers: () => Promise.resolve(key ? { authorization: key } : {}) }], this.fetchFn);
+    return localizeImages(
+      md,
+      this.media,
+      [
+        {
+          match: isLinearUpload,
+          headers: () => Promise.resolve(key ? { authorization: key } : {}),
+        },
+      ],
+      this.fetchFn,
+    );
   }
 
   async queue(): Promise<LinearRow[]> {
@@ -363,7 +433,10 @@ export class Linear {
       url: u.url ?? `${workspace}/profiles/${u.displayName}`,
     });
     const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const mine = new RegExp(`(^|[^\\w])@${esc(viewer.displayName)}\\b|${esc(person(viewer).url)}(?![\\w-])`, "i");
+    const mine = new RegExp(
+      `(^|[^\\w])@${esc(viewer.displayName)}\\b|${esc(person(viewer).url)}(?![\\w-])`,
+      "i",
+    );
     const comments = await Promise.all(
       [...i.comments.nodes]
         .sort((a, b) => ms(a.createdAt) - ms(b.createdAt))
@@ -396,9 +469,20 @@ export class Linear {
       labels: i.labels.nodes,
       project: i.project?.name ?? null,
       team: i.team.name,
-      parent: i.parent ? { key: i.parent.identifier, title: i.parent.title, url: i.parent.url } : null,
-      children: i.children.nodes.map((c) => ({ key: c.identifier, title: c.title, url: c.url, state: c.state.name })),
-      links: i.attachments.nodes.map((a) => ({ title: a.title, url: a.url, kind: a.sourceType ?? "link" })),
+      parent: i.parent
+        ? { key: i.parent.identifier, title: i.parent.title, url: i.parent.url }
+        : null,
+      children: i.children.nodes.map((c) => ({
+        key: c.identifier,
+        title: c.title,
+        url: c.url,
+        state: c.state.name,
+      })),
+      links: i.attachments.nodes.map((a) => ({
+        title: a.title,
+        url: a.url,
+        kind: a.sourceType ?? "link",
+      })),
       comments,
       activity: toActivity(i.history.nodes),
       people: [...people.values()],
@@ -409,28 +493,44 @@ export class Linear {
   /** Posts exactly `body` (a reply under `parentId` when set); answers where it landed. */
   async comment(issueId: string, parentId: string | null, body: string): Promise<string> {
     const data = CommentMade.parse(
-      await this.gql(`mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { url } } }`, {
-        input: { issueId, body, ...(parentId ? { parentId } : {}) },
-      }),
+      await this.gql(
+        `mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { url } } }`,
+        {
+          input: { issueId, body, ...(parentId ? { parentId } : {}) },
+        },
+      ),
     );
-    if (!data.commentCreate.success || !data.commentCreate.comment) throw new Error("Linear did not take the comment");
+    if (!data.commentCreate.success || !data.commentCreate.comment)
+      throw new Error("Linear did not take the comment");
     return data.commentCreate.comment.url;
   }
 
   /** Uploads an image to Linear's storage (a signed PUT); answers the asset url a comment embeds. */
   async upload(name: string, mime: string, bytes: Uint8Array): Promise<string> {
     const data = UploadMade.parse(
-      await this.gql(`mutation($contentType: String!, $filename: String!, $size: Int!) { fileUpload(contentType: $contentType, filename: $filename, size: $size) { success uploadFile { uploadUrl assetUrl headers { key value } } } }`, {
-        contentType: mime,
-        filename: name,
-        size: bytes.byteLength,
-      }),
+      await this.gql(
+        `mutation($contentType: String!, $filename: String!, $size: Int!) { fileUpload(contentType: $contentType, filename: $filename, size: $size) { success uploadFile { uploadUrl assetUrl headers { key value } } } }`,
+        {
+          contentType: mime,
+          filename: name,
+          size: bytes.byteLength,
+        },
+      ),
     );
     const file = data.fileUpload.uploadFile;
-    if (!data.fileUpload.success || file === null) throw new Error("Linear did not take the upload");
-    const headers: Record<string, string> = { "content-type": mime, "cache-control": "public, max-age=31536000" };
+    if (!data.fileUpload.success || file === null)
+      throw new Error("Linear did not take the upload");
+    const headers: Record<string, string> = {
+      "content-type": mime,
+      "cache-control": "public, max-age=31536000",
+    };
     for (const h of file.headers) headers[h.key] = h.value;
-    const res = await this.fetchFn(file.uploadUrl, { method: "PUT", headers, body: bytes, signal: AbortSignal.timeout(60_000) });
+    const res = await this.fetchFn(file.uploadUrl, {
+      method: "PUT",
+      headers,
+      body: bytes,
+      signal: AbortSignal.timeout(60_000),
+    });
     if (!res.ok) throw new Error(`Linear's storage answered ${String(res.status)}`);
     return file.assetUrl;
   }

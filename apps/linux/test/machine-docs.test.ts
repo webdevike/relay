@@ -16,11 +16,13 @@ import {
 import { callRequestMachine } from "../src/callme/callRequest.machine";
 import { deepgramCallMachine } from "../src/call/deepgramCall.machine";
 import { keyMomentsMachine } from "../src/meetings/key-moments.machine";
+import { ticketsSyncMachine } from "../src/tickets/sync.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   { file: "call-request", title: "Call me when it's done (host)", machine: callRequestMachine },
   { file: "deepgram-call", title: "Deepgram Voice Agent call (host)", machine: deepgramCallMachine },
   { file: "key-moments", title: "Key moments of a live call (host)", machine: keyMomentsMachine },
+  { file: "tickets-sync", title: "Tickets sync (host)", machine: ticketsSyncMachine },
 ];
 
 const DOCS = new URL("../../../docs/state-machines/", import.meta.url).pathname;

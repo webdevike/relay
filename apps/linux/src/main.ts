@@ -140,6 +140,7 @@ import {
   loadHostConfig,
   relayCli,
   relayConfigDir,
+  ticketsFeatures,
   resolveHuman,
   setHuman,
   toolPath,
@@ -174,6 +175,8 @@ import { liveRender } from "./query/openui";
 import { QueryService } from "./query/service";
 import { queryTools } from "./query/tools";
 import { ReviewsService } from "./reviews/service";
+import { providerBudgets } from "./tickets/budget";
+import { hostTicketsService } from "./tickets/service";
 import { FilePresence } from "./files/presence";
 import { ControlRelay } from "./control/relay";
 import { roomsControlRequest, roomsOutput } from "./control/rooms-cli";
@@ -945,6 +948,8 @@ function serve(
   // Reviews is Isaac's eCard queue, answered by his assistant Astra; a host without that assistant
   // (and without features.reviews) has no Reviews.
   const reviewsWrites = process.env["RELAY_REVIEWS_DRY_RUN"] !== "1";
+  // One request budget per provider, shared by Reviews and the tickets sync.
+  const budgets = providerBudgets(() => Date.now());
   const reviews = !featureOn(config, "reviews", assistant?.thread("astra") !== undefined)
     ? null
     : new ReviewsService({
@@ -969,6 +974,22 @@ function serve(
           server.broadcastExcept(message, null);
         },
         clock: systemClock,
+        log,
+        budgets,
+      });
+  // Synced Linear tickets for the Board: explicit opt-in (host.json features.tickets, ticketsWrites).
+  const ticketsOn = ticketsFeatures(config);
+  const ticketsDir = join(relayConfigDir(), "tickets");
+  const tickets = !ticketsOn.sync
+    ? null
+    : hostTicketsService({
+        dir: ticketsDir,
+        linearKey: () => linearKey(agentHome),
+        gh: resolveGh(),
+        run: bunRun,
+        fetch: globalThis.fetch,
+        budgets,
+        writes: ticketsOn.writes,
         log,
       });
   const meetings = meetingsService({
@@ -1102,6 +1123,7 @@ function serve(
       sessionFiles: new SessionFiles(),
       studio,
       reviews,
+      tickets,
       query,
       files,
       meetings,
@@ -1189,6 +1211,12 @@ function serve(
   catchup?.start();
   studio?.start();
   meetings?.start();
+  tickets?.start();
+  log(
+    tickets === null
+      ? "tickets sync off (host.json features.tickets is not true)"
+      : `tickets in ${ticketsDir}${ticketsOn.writes ? ", writes on" : " (read-only: features.ticketsWrites off or RELAY_REVIEWS_DRY_RUN=1)"}`,
+  );
   log(
     reviews === null
       ? "reviews disabled (no astra assistant and no features.reviews)"
@@ -1220,6 +1248,7 @@ function serve(
     subagentMirrors.stop();
     studio?.stop();
     reviews?.stop();
+    tickets?.stop();
     meetings?.stop();
     skills.stop();
     server.stop();

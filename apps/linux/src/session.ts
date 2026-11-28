@@ -26,6 +26,8 @@ import {
   ASSISTANT_WORK_FEATURE,
   WORKSPACE_FEATURE,
   CANVAS_FILES_FEATURE,
+  TICKETS_FEATURE,
+  TICKETS_WRITES_FEATURE,
   STATS_FEATURE,
   toHex,
   type AgentApproval,
@@ -78,6 +80,7 @@ import {
   type MeetingsRelaying,
   type PushRegistry,
   type ReviewsRelaying,
+  type TicketsRelaying,
   type StudioRelaying,
   type TextInjecting,
   type VncAccess,
@@ -158,6 +161,8 @@ export interface SessionDeps {
   readonly shareWorkspace?: (message: ServerMessage, from: ClientSession) => void;
   /** The boards folder for desktops on other Macs (`canvas/files.ts`); absent or null refuses `canvas.file.req` and leaves CANVAS_FILES_FEATURE out of `welcome.features`. */
   readonly canvasFiles?: CanvasFilesRelaying | null;
+  /** Isaac's synced Linear tickets (host.json `features.tickets`); absent or null refuses `tickets.req` and leaves TICKETS_FEATURE out of `welcome.features`. */
+  readonly tickets?: TicketsRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -245,6 +250,8 @@ export class ClientSession {
   private workspaceWanted = false;
   /** Set by `canvas.files.watch`: this desktop gets `canvas.files.changed`. */
   private canvasFilesWanted = false;
+  /** Set by `tickets.req subscribe {on}`: this device gets `tickets.snapshot`/`delta`/`status`. */
+  private ticketsWanted = false;
 
   constructor(
     private readonly sink: FrameSink,
@@ -318,6 +325,11 @@ export class ClientSession {
   /** Whether this socket follows the host's boards (`canvas.files.watch`). */
   wantsCanvasFiles(): boolean {
     return this.phase.kind === "authenticated" && this.canvasFilesWanted;
+  }
+
+  /** Whether this socket subscribed to the tickets board (`tickets.req subscribe {on: true}`). */
+  wantsTickets(): boolean {
+    return this.phase.kind === "authenticated" && this.ticketsWanted;
   }
 
   /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
@@ -1016,6 +1028,9 @@ export class ClientSession {
         });
         break;
       }
+      case "tickets.req":
+        this.ticketsReq(deviceId, message);
+        break;
       case "meetings.list":
         this.sink.send({
           t: "meetings.state",
@@ -1452,6 +1467,26 @@ export class ClientSession {
     return this.deps.agents;
   }
 
+  /** One `tickets.req`, answered for this device; `subscribe` also (un)subscribes this socket to pushes. */
+  private ticketsReq(deviceId: string, message: Extract<ClientMessage, { t: "tickets.req" }>): void {
+    const tickets = this.deps.tickets ?? null;
+    if (tickets === null) {
+      this.sink.send({ t: "tickets.res", rid: message.rid, ok: false, error: "This host does not sync tickets." });
+      return;
+    }
+    if (message.op.kind === "subscribe") this.ticketsWanted = message.op.on;
+    void tickets.handle(deviceId, message.op).then((result) => {
+      if (!this.closed) this.sink.send({ t: "tickets.res", rid: message.rid, ...result });
+    });
+  }
+
+  /** TICKETS_FEATURE when the host syncs tickets; TICKETS_WRITES_FEATURE when its gate is open too. */
+  private ticketsFeatures(): string[] {
+    const tickets = this.deps.tickets ?? null;
+    if (tickets === null) return [];
+    return tickets.writes ? [TICKETS_FEATURE, TICKETS_WRITES_FEATURE] : [TICKETS_FEATURE];
+  }
+
   private drops(): DropBox {
     if (this.deps.drops === null)
       throw new AckFailure({ code: "drop_unavailable", message: "no drop box on this host" });
@@ -1478,6 +1513,7 @@ export class ClientSession {
       ...(this.deps.assistant?.work === undefined ? [] : [ASSISTANT_WORK_FEATURE]),
       ...((this.deps.workspace ?? null) === null ? [] : [WORKSPACE_FEATURE]),
       ...((this.deps.canvasFiles ?? null) === null ? [] : [CANVAS_FILES_FEATURE]),
+      ...this.ticketsFeatures(),
     ];
     this.sink.send({
       t: "welcome",

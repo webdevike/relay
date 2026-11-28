@@ -802,6 +802,25 @@ Slack prompt, the Linear queries, the Guide prompt or the Astra seed goes in bot
 from here. A test host with its own `XDG_CONFIG_HOME` also moves `gh`'s login (`~/.config/gh`): run it with
 `GH_CONFIG_DIR=$HOME/.config/gh`.
 
+## Tickets (`tickets.req`, `tickets.snapshot`, `tickets.delta`, `tickets.status`)
+
+Isaac's Linear issues and their PRs for Relay Desktop's Board, synced by the host (`src/tickets/`, wire spec
+`packages/protocol/src/tickets.ts`). Off unless host.json opts in: `"features": { "tickets": true }` starts the sync
+and advertises `tickets` in `welcome.features`; `"ticketsWrites": true` as well (and no `RELAY_REVIEWS_DRY_RUN=1`)
+opens the MutationGate and advertises `tickets.writes`. Without either nothing changes for any device.
+
+- Accounts: the host's own Linear key (`LINEAR_API_KEY` or `secrets/linear.env`) and `gh`'s login, resolved each
+  cycle and published in `tickets.status`. Another account wipes `tickets/`'s cache, drops pending approvals and
+  refuses writes until a full cycle as the new one.
+- Sync (`docs/state-machines/tickets-sync.md`): every 120 s +-10%; Linear issues assigned to, followed by or
+  mentioning Isaac, 25 per page and at most 8 pages a cycle (30 days back on the first pass), watched keys, the
+  last 100 notifications and team states; a membership pass every 30 minutes tombstones what left. GitHub: one
+  batched probe per 20 linked PRs, full facts only when a PR's fingerprint changed.
+- Budget: one token bucket per provider shared with Reviews; 429/`Retry-After`, Linear's rate-limit headers and
+  GitHub's primary and secondary limits back off.
+- Store: `$XDG_CONFIG_HOME/relay/tickets/` (`tickets.json` v1, capped at 500 issues and 200 PRs; `handled.json`,
+  `seen.json`, `ops.json`). Pushes go only to sockets that sent `subscribe {on: true}`.
+
 ## Differences from the Mac app
 
 - No tray/menu UI; the terminal is the UI.
