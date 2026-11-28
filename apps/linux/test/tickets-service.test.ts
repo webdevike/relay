@@ -85,7 +85,8 @@ describe("TicketsService ops", () => {
     await h.settled();
     const page = await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
     expect(page.ticket).toMatchObject({ key: "ENG-1", description: "A made-up ticket for host tests.", documentContentId: "doc-template" });
-    expect(page.ticket?.comments[0]).toMatchObject({ id: "comment-1", reactions: [{ emoji: "+1", users: [{ id: "user-other" }] }] });
+    expect(page.ticket?.comments[0]).toMatchObject({ id: "comment-1", author: { id: "user-other", url: "https://linear.app/acme/profiles/robin" }, reactions: [{ emoji: "+1", users: [{ id: "user-other" }] }] });
+    expect(page.ticket?.assignee).not.toHaveProperty("url");
     h.linear.members.clear();
     const gone = await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
     expect(gone.ok).toBe(false);
