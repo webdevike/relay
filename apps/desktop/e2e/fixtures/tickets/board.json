@@ -165,6 +165,22 @@
           "needsYou": null
         }
       }
+    ],
+    "teams": [
+      {
+        "id": "team-eng",
+        "key": "ENG",
+        "states": [
+          { "id": "state-backlog", "name": "Backlog", "type": "backlog", "color": "#bec2c8", "position": 0 },
+          { "id": "state-todo", "name": "Todo", "type": "unstarted", "color": "#e2e2e2", "position": 1 },
+          { "id": "state-progress", "name": "In Progress", "type": "started", "color": "#f2c94c", "position": 2 },
+          { "id": "state-design-review", "name": "Design Review", "type": "started", "color": "#bb87fc", "position": 3 },
+          { "id": "state-in-review", "name": "In Review", "type": "started", "color": "#0f783c", "position": 4 },
+          { "id": "state-in-qa", "name": "In QA", "type": "started", "color": "#26b5ce", "position": 5 },
+          { "id": "state-done", "name": "Done", "type": "completed", "color": "#5e6ad2", "position": 6 },
+          { "id": "state-canceled", "name": "Canceled", "type": "canceled", "color": "#95a2b3", "position": 7 }
+        ]
+      }
     ]
   },
   "status": {

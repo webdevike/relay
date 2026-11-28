@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { LinearIssue } from '@evaos/contract'
+import { TicketBoardFacts, type TicketPrFacts } from '@relay/protocol'
 import type { PrFacts } from '../context-popover/gh'
 import { parseItem, type Item } from '../context-popover/items'
 import {
   DAY_MS,
+  DRAG_BLOCK,
   buildBoard,
   keysNamed,
   pickRun,
   placeRun,
+  placeSynced,
   placeTicket,
+  watchKeys,
   type AutoWork,
   type BoardInput,
   type Run,
@@ -46,7 +50,7 @@ const run = (over: Partial<Run> = {}): Run => ({
   agent: 'Astra',
   at: NOW - 60_000,
   session: null,
-  open: null,
+  open: { kind: 'chat', file: '/s/x.jsonl' },
   ...over,
 })
 
@@ -61,6 +65,60 @@ const facts = (over: Partial<TicketFacts> = {}): TicketFacts => ({
   unstarted: false,
   ...over,
 })
+
+const prFacts = (over: Partial<TicketPrFacts> = {}): TicketPrFacts => ({
+  repo: 'o/r',
+  number: 7,
+  title: 'A PR',
+  url: 'https://github.com/o/r/pull/7',
+  author: 'dev',
+  state: 'open',
+  draft: false,
+  checks: { state: 'pass', passed: 1, failed: 0, pending: 0 },
+  decision: null,
+  mergeState: null,
+  headSha: 'abc',
+  updatedAt: NOW,
+  ...over,
+})
+
+/** A synced issue as the host's board has it. */
+const ticket = (key: string, s: { state?: string; type?: string }): TicketBoardFacts =>
+  TicketBoardFacts.parse({
+    key,
+    id: `issue-${key}`,
+    documentContentId: null,
+    title: `Ticket ${key}`,
+    url: `https://linear.app/x/issue/${key}`,
+    state: {
+      id: `state-${s.state ?? 'Todo'}`,
+      name: s.state ?? 'Todo',
+      type: s.type ?? 'unstarted',
+      color: '#fff',
+    },
+    team: { id: 'team-eng', key: 'ENG' },
+    priority: 2,
+    prioritySortOrder: 1,
+    assignee: { id: 'u-isaac', name: 'Isaac', avatarUrl: null },
+    creator: null,
+    labels: [{ id: 'l', name: 'Bug', color: '#f00' }],
+    project: null,
+    milestone: null,
+    parent: null,
+    children: [
+      { id: 'c1', key: 'ENG-1', title: 'a', done: true },
+      { id: 'c2', key: 'ENG-2', title: 'b', done: false },
+    ],
+    relations: [],
+    prs: [],
+    dueDate: null,
+    startedAt: null,
+    createdAt: NOW - DAY_MS,
+    updatedAt: NOW - 60_000,
+    subscribed: true,
+    prFacts: [],
+    attention: { waiting: [], needsYou: null },
+  })
 
 describe('placeTicket', () => {
   it('puts a ticket Linear finished in Done, whatever else is true', () => {
@@ -260,6 +318,7 @@ describe('buildBoard', () => {
     pr: () => null,
     linear: () => null,
     linearStarted: [],
+    tickets: null,
     ...over,
   })
 
@@ -268,7 +327,15 @@ describe('buildBoard', () => {
     const ticket = cards.find((c) => c.key === 'ENG-6832')!
     // Fix254Review names the PR auto-work watches (#254), so it is working on this ticket.
     expect(ticket).toMatchObject({ column: 'working', session: 'Fix254Review', agent: 'Astra' })
-    expect(ticket.links.map((l) => l.kind)).toEqual(['linear', 'pr', 'pr', 'ledger'])
+    // Every run opens something, so both runs on it are links.
+    expect(ticket.links.map((l) => l.kind)).toEqual([
+      'linear',
+      'pr',
+      'pr',
+      'session',
+      'session',
+      'ledger',
+    ])
     expect(ticket.pr).toMatchObject({ repo: 'o/react', number: 254, state: null })
     const own = cards.filter((c) => c.key === null).map((c) => c.title)
     expect(own).toEqual(['AgentKanban'])
@@ -350,5 +417,196 @@ describe('buildBoard', () => {
       column: 'needs',
       linear: { state: 'In Review' },
     })
+  })
+
+  describe('with the host’s synced tickets', () => {
+    const synced = (
+      tickets: TicketBoardFacts[],
+      writes = true,
+    ): Pick<BoardInput, 'tickets' | 'linear' | 'linearStarted'> => ({
+      tickets: { tickets, writes },
+      linear: () => null,
+      linearStarted: [],
+    })
+    const both = synced([
+      ticket('ENG-6832', { state: 'Todo', type: 'unstarted' }),
+      ticket('ENG-8000', { state: 'In Progress', type: 'started' }),
+    ])
+
+    it('makes one card per key: an agent card gets the facts, an issue with no work is a ticket card', () => {
+      const cards = buildBoard(input(both))
+      expect(cards.filter((c) => c.key === 'ENG-6832')).toHaveLength(1)
+      const agent = cards.find((c) => c.key === 'ENG-6832')!
+      expect(agent).toMatchObject({
+        id: 'item:ENG-6832',
+        kind: 'item',
+        ticket: { id: 'issue-ENG-6832', state: { name: 'Todo' } },
+        linear: { state: 'Todo', stateType: 'unstarted' },
+      })
+      expect(cards.find((c) => c.key === 'ENG-8000')).toMatchObject({
+        id: 'ticket:ENG-8000',
+        kind: 'ticket',
+        column: 'working',
+        title: 'Ticket ENG-8000',
+        stale: false,
+        ticket: { team: { key: 'ENG' }, sub: { done: 1, total: 2 } },
+      })
+    })
+
+    it('keeps an agent-driven card in its run’s column and blocks dragging it', () => {
+      const agent = buildBoard(input(both)).find((c) => c.key === 'ENG-6832')!
+      // Linear says Todo; Fix254Review runs on it, so the column follows the run.
+      expect(agent.column).toBe('working')
+      expect(agent.dragBlock).toBe('Astra is working on this; the column follows her run')
+    })
+
+    it('gives an agent card in Needs its reason as Needs you, unless the host has one', () => {
+      const idle = buildBoard(input({ ...both, runs: [] })).find((c) => c.key === 'ENG-6832')!
+      expect(idle).toMatchObject({ column: 'needs', dragBlock: null })
+      expect(idle.ticket?.needsYou).toMatchObject({
+        kind: 'agent',
+        text: 'OK the draft',
+        action: { kind: 'open' },
+      })
+      expect(idle.ticket?.needsYou?.evidence).toMatch(/^agent:[0-9a-f]{16}$/)
+      const host = ticket('ENG-6832', { state: 'Todo', type: 'unstarted' })
+      host.attention.needsYou = {
+        kind: 'merge',
+        text: 'Merge PR #254',
+        action: { kind: 'merge', label: 'Merge', pr: { repo: 'o/react', number: 254 } },
+        evidence: 'sha:approved',
+      }
+      const merge = buildBoard(input({ ...synced([host]), runs: [] })).find(
+        (c) => c.key === 'ENG-6832',
+      )!
+      expect(merge.ticket?.needsYou).toMatchObject({ kind: 'merge', evidence: 'sha:approved' })
+    })
+
+    it('carries waiting mentions, PR facts and labels onto the card', () => {
+      const t = ticket('ENG-8000', { state: 'In Progress', type: 'started' })
+      t.attention.waiting = [
+        {
+          provider: 'github',
+          itemId: 'o/r#9',
+          rootId: 'c1',
+          commentId: 'c2',
+          author: { id: 'u', name: 'Steve', avatarUrl: null },
+          at: NOW,
+          excerpt: '@isaac look',
+          count: 2,
+          anchor: {
+            kind: 'pr-review-line',
+            pr: { repo: 'o/r', number: 9 },
+            path: 'a.ts',
+            line: 3,
+            side: 'RIGHT',
+          },
+        },
+      ]
+      t.prFacts = [prFacts({ number: 9, draft: true })]
+      const card = buildBoard(input(synced([t]))).find((c) => c.key === 'ENG-8000')!
+      expect(card.ticket?.waiting).toMatchObject({
+        author: { name: 'Steve' },
+        count: 2,
+        anchor: { kind: 'pr-review-line', pr: { number: 9 }, path: 'a.ts', side: 'RIGHT' },
+      })
+      expect(card.ticket?.labels).toEqual([{ name: 'Bug', color: '#f00' }])
+      expect(card.ticket?.prs).toEqual([
+        expect.objectContaining({ number: 9, state: 'draft', checks: 'pass' }),
+      ])
+      expect(card.pr).toMatchObject({ number: 9, state: 'draft' })
+      // A draft PR doesn't put it in review.
+      expect(card.column).toBe('working')
+      expect(card.links.map((l) => l.kind)).toEqual(['linear', 'pr'])
+    })
+
+    it('watches only the Linear keys on cards the host doesn’t hold', () => {
+      expect(watchKeys(buildBoard(input(both)))).toEqual(['ENG-5000'])
+      expect(watchKeys(buildBoard(input(synced([])))).sort()).toEqual(['ENG-5000', 'ENG-6832'])
+    })
+
+    it('opens tickets, ledger-only items and runs of their own by kind', () => {
+      const runs = [
+        run({ id: 'helper:k', title: 'AgentKanban' }),
+        run({
+          id: 's',
+          kind: 'session',
+          title: 'Chat',
+          open: { kind: 'chat', file: '/s/c.jsonl' },
+        }),
+        run({ id: 'h', kind: 'harness', title: 'Pane', open: { kind: 'jobs' } }),
+        run({
+          id: 'c',
+          kind: 'canvas',
+          title: 'Room',
+          open: { kind: 'url', url: 'https://x.test' },
+        }),
+      ]
+      const cards = buildBoard(input({ ...both, runs }))
+      const target = (pred: (c: (typeof cards)[number]) => boolean) => cards.find(pred)?.openTarget
+      expect(target((c) => c.key === 'ENG-6832')).toEqual({ kind: 'ticket', key: 'ENG-6832' })
+      expect(target((c) => c.key === 'ENG-8000')).toEqual({ kind: 'ticket', key: 'ENG-8000' })
+      expect(target((c) => c.key === 'relay-rooms')).toEqual({ kind: 'item', id: 'relay-rooms' })
+      expect(target((c) => c.kind === 'helper')).toEqual({
+        kind: 'link',
+        open: { kind: 'chat', file: '/s/x.jsonl' },
+      })
+      expect(target((c) => c.kind === 'session')).toEqual({
+        kind: 'link',
+        open: { kind: 'chat', file: '/s/c.jsonl' },
+      })
+      expect(target((c) => c.kind === 'harness')).toEqual({ kind: 'link', open: { kind: 'jobs' } })
+      expect(target((c) => c.kind === 'canvas')).toEqual({
+        kind: 'link',
+        open: { kind: 'url', url: 'https://x.test' },
+      })
+    })
+
+    it('says why a card can’t be dragged', () => {
+      const off = buildBoard(input(synced([ticket('ENG-8000', {})], false)))
+      expect(off.find((c) => c.key === 'ENG-8000')?.dragBlock).toBe(DRAG_BLOCK.writesOff)
+      expect(off.find((c) => c.key === 'relay-rooms')?.dragBlock).toBe(DRAG_BLOCK.noIssue)
+      expect(off.find((c) => c.kind === 'helper')?.dragBlock).toBe(DRAG_BLOCK.noIssue)
+      const open = buildBoard(input(both))
+      expect(open.find((c) => c.key === 'ENG-8000')?.dragBlock).toBeNull()
+      const fallback = buildBoard(input())
+      expect(fallback.every((c) => c.dragBlock === DRAG_BLOCK.fallback)).toBe(true)
+      expect(fallback.every((c) => c.ticket === null && c.kind !== 'ticket')).toBe(true)
+    })
+
+    it('leaves out ticket cards Linear finished more than a week ago', () => {
+      const old = ticket('ENG-8001', { state: 'Done', type: 'completed' })
+      old.updatedAt = NOW - 8 * DAY_MS
+      const fresh = ticket('ENG-8002', { state: 'Done', type: 'completed' })
+      const keys = buildBoard(input(synced([old, fresh]))).map((c) => c.key)
+      expect(keys).not.toContain('ENG-8001')
+      expect(keys).toContain('ENG-8002')
+    })
+  })
+})
+
+describe('placeSynced', () => {
+  const place = (name: string, type: string, prs: TicketPrFacts[] = []) => {
+    const t = ticket('ENG-1', { state: name, type })
+    return placeSynced({ ...t, prFacts: prs }).column
+  }
+
+  it('places a synced issue with no agent work by its Linear state', () => {
+    expect(place('Done', 'completed')).toBe('done')
+    expect(place('Canceled', 'canceled')).toBe('done')
+    expect(place('In QA', 'started')).toBe('qa')
+    expect(place('In Review', 'started')).toBe('review')
+    expect(place('Design Review', 'started')).toBe('needs')
+    expect(place('In Progress', 'started')).toBe('working')
+    expect(place('Todo', 'unstarted')).toBe('queued')
+    expect(place('Backlog', 'backlog')).toBe('queued')
+    expect(place('Triage', 'triage')).toBe('queued')
+  })
+
+  it('puts an issue with an open, non-draft PR in review', () => {
+    expect(place('In Progress', 'started', [prFacts()])).toBe('review')
+    expect(place('Todo', 'unstarted', [prFacts({ draft: true })])).toBe('queued')
+    expect(place('In Progress', 'started', [prFacts({ state: 'merged' })])).toBe('working')
+    expect(place('Done', 'completed', [prFacts()])).toBe('done')
   })
 })

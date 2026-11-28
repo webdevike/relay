@@ -1,7 +1,8 @@
 // The Agents board's cards and the column each one belongs in. Pure over what the readers found:
 // work item ledgers, an assistant's auto-work state, the runs (host activity items and the
-// sessions an assistant registered), PR facts and Linear states. Every rule names the fact it
-// read, so a card can say why it sits where it does.
+// sessions an assistant registered), PR facts, Linear states and the host's synced tickets. Every
+// rule names the fact it read, so a card can say why it sits where it does.
+import { createHash } from 'node:crypto'
 import {
   ItemKeySchema,
   type AgentBoard,
@@ -11,8 +12,17 @@ import {
   type AgentOpen,
   type AgentPill,
   type AgentPr,
+  type CardTicket,
   type LinearIssue,
 } from '@evaos/contract'
+import type {
+  AttentionAnchor,
+  NeedsYou,
+  TicketActor,
+  TicketBoardFacts,
+  TicketPrFacts,
+  WaitingMention,
+} from '@relay/protocol'
 import type { PrFacts } from '../context-popover/gh'
 import { sessionId } from '@evaos/chat-core/session-id'
 import { itemFinished, itemReady, type Item } from '../context-popover/items'
@@ -67,7 +77,8 @@ export interface Run {
   at: number
   /** Its omp session id, when it is a session (to match an auto-work kickoff's transcript). */
   session: string | null
-  open: AgentOpen | null
+  /** What opening it shows: its chat, transcript or pane. */
+  open: AgentOpen
 }
 
 export interface Placement {
@@ -334,6 +345,13 @@ const ms = (iso: string | undefined): number | null => {
   return Number.isNaN(t) ? null : t
 }
 
+/** The host's synced Linear board; null when the board falls back to local Linear states. */
+export interface SyncedTickets {
+  tickets: readonly TicketBoardFacts[]
+  /** The host advertises `tickets.writes`. */
+  writes: boolean
+}
+
 export interface BoardInput {
   now: number
   items: readonly Item[]
@@ -343,15 +361,23 @@ export interface BoardInput {
   owners: ReadonlyMap<string, string>
   /** Cached PR facts; null until gh answered. Only asked for cards that are not stale. */
   pr: (repo: string, number: number) => PrFacts | null
-  /** Cached Linear issue by key; null when unknown or not fetched yet. */
+  /** Cached Linear issue by key; null when unknown or not fetched yet (fallback only). */
   linear: (key: string) => LinearIssue | null
-  /** Isaac's In Progress Linear tickets (the ones auto-work would pick up). */
+  /** Isaac's In Progress Linear tickets (the ones auto-work would pick up; fallback only). */
   linearStarted: readonly LinearIssue[]
+  tickets: SyncedTickets | null
 }
 
 const ENG_KEY = /^[A-Z][A-Z0-9]*-\d+$/
+const WEB_URL = /^https?:\/\//
 
-/** Every ticket key the board shows a card for (one a card can carry: ItemKeySchema's shape). */
+export const DRAG_BLOCK = {
+  fallback: 'Moving cards needs Linear sync on the host',
+  noIssue: 'No Linear issue',
+  writesOff: 'Writes are off on the host',
+} as const
+
+/** Every ticket key the board shows an agent card for (one a card can carry: ItemKeySchema's shape). */
 export function ticketKeys(
   input: Pick<BoardInput, 'items' | 'autoWork' | 'linearStarted'>,
 ): Set<string> {
@@ -374,31 +400,180 @@ export function linearKeys(cards: readonly AgentCard[]): string[] {
     .map((c) => c.key!)
 }
 
-/** The board: one card per ticket or work item (its runs folded in), one per run of its own. */
-export function buildBoard(input: BoardInput): AgentBoard['cards'] {
-  const { now } = input
-  const keys = ticketKeys(input)
-  const items = new Map(input.items.map((i) => [i.key, i]))
-  const started = new Set(input.linearStarted.map((l) => l.identifier))
-  const auto = new Map<string, { a: AutoWork; watch: Watch | null; kickoff: Kickoff | null }>()
-  for (const a of input.autoWork) {
+/** The Linear keys on agent cards the host's board doesn't hold yet (to `tickets.watch`). */
+export function watchKeys(cards: readonly AgentCard[]): string[] {
+  const synced = new Set(cards.filter((c) => c.ticket !== null).map((c) => c.key))
+  return linearKeys(cards).filter((k) => !synced.has(k))
+}
+
+// A synced issue with no agent work: §2.4 of the board plan.
+
+const namedState = (t: Pick<TicketBoardFacts, 'state'>, name: string): boolean =>
+  t.state.name.trim().toLowerCase() === name
+
+/** Where a synced Linear issue with no agent work belongs. */
+export function placeSynced(t: Pick<TicketBoardFacts, 'state' | 'prFacts'>): Placement {
+  const { name, type } = t.state
+  const at = (column: AgentColumn, tone: AgentPill['tone']): Placement => ({
+    column,
+    pill: { label: name, tone },
+    reason: `${name} in Linear`,
+  })
+  if (type === 'completed') return at('done', 'success')
+  if (type === 'canceled') return at('done', 'default')
+  if (namedState(t, 'in qa')) return at('qa', 'info')
+  if (namedState(t, 'in review')) return at('review', 'info')
+  const pr = t.prFacts.find((p) => p.state === 'open' && !p.draft)
+  if (pr) return { ...at('review', 'info'), reason: `PR #${pr.number} is open` }
+  if (namedState(t, 'design review')) return at('needs', 'warning')
+  if (type === 'started') return at('working', 'info')
+  return at('queued', 'default')
+}
+
+const cut = (s: string, n: number): string => (s.length > n ? s.slice(0, n) : s)
+const person = (a: TicketActor): { name: string; avatarUrl: string | null } => ({
+  name: cut(a.name, 200),
+  avatarUrl: a.avatarUrl,
+})
+
+function cardPr(p: TicketPrFacts): CardTicket['prs'][number] {
+  return {
+    repo: p.repo,
+    number: p.number,
+    url: p.url,
+    title: cut(p.title, 400),
+    state: p.state === 'open' && p.draft ? 'draft' : p.state,
+    checks: p.checks.state,
+    decision: p.decision,
+  }
+}
+
+function anchorOf(a: AttentionAnchor): NonNullable<CardTicket['waiting']>['anchor'] {
+  const line =
+    a.kind === 'pr-review-line'
+      ? { path: a.path, line: a.line, side: a.side }
+      : { path: null, line: null, side: null }
+  return { kind: a.kind, pr: 'pr' in a ? a.pr : null, ...line }
+}
+
+function waitingOf(w: WaitingMention | undefined): CardTicket['waiting'] {
+  if (!w) return null
+  const { provider, itemId, rootId, commentId, at, excerpt, count } = w
+  const author = person(w.author)
+  return {
+    provider,
+    itemId,
+    rootId,
+    commentId,
+    author,
+    at,
+    excerpt,
+    count,
+    anchor: anchorOf(w.anchor),
+  }
+}
+
+/** The host's Needs you, else the agent card's own Needs reason (evidence: the reason's hash). */
+function needsYouOf(n: NeedsYou | null, agentReason: string | null): CardTicket['needsYou'] {
+  if (n) {
+    const action = { kind: n.action.kind, label: cut(n.action.label, 200), pr: n.action.pr ?? null }
+    return { kind: n.kind, text: cut(n.text, 200), action, evidence: n.evidence }
+  }
+  if (!agentReason) return null
+  const hash = createHash('sha256').update(agentReason).digest('hex').slice(0, 16)
+  return {
+    kind: 'agent',
+    text: cut(agentReason, 200),
+    action: { kind: 'open', label: 'Open', pr: null },
+    evidence: `agent:${hash}`,
+  }
+}
+
+/** A card's ticket facts from the host's board; `agentReason`: the agent card's Needs reason. */
+export function cardTicket(t: TicketBoardFacts, agentReason: string | null): CardTicket {
+  const { project: p, milestone: m, parent, children } = t
+  const done = children.filter((c) => c.done).length
+  return {
+    id: t.id,
+    state: {
+      id: t.state.id,
+      name: cut(t.state.name, 80),
+      type: t.state.type,
+      color: t.state.color,
+    },
+    team: { id: t.team.id, key: cut(t.team.key, 20) },
+    priority: t.priority,
+    project: p && { id: p.id, name: cut(p.name, 200) },
+    milestone: m && { id: m.id, name: cut(m.name, 200), targetDate: m.targetDate },
+    labels: t.labels.slice(0, 10).map((l) => ({ name: cut(l.name, 80), color: l.color })),
+    parent: parent && { key: parent.key, title: cut(parent.title, 400) },
+    sub: children.length === 0 ? null : { done, total: children.length },
+    assignee: t.assignee && person(t.assignee),
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    prs: t.prFacts.map(cardPr),
+    waiting: waitingOf(t.attention.waiting[0]),
+    needsYou: needsYouOf(t.attention.needsYou, agentReason),
+  }
+}
+
+// The board.
+
+type PrRef = { repo: string; number: number; url: string }
+type AutoEntry = { a: AutoWork; watch: Watch | null; kickoff: Kickoff | null }
+type Issue = Pick<LinearIssue, 'title' | 'url' | 'state' | 'stateType' | 'updatedAt'>
+
+interface Ctx {
+  input: BoardInput
+  items: ReadonlyMap<string, Item>
+  auto: ReadonlyMap<string, AutoEntry>
+  started: ReadonlySet<string>
+  prsOf: ReadonlyMap<string, PrRef[]>
+  runsOf: ReadonlyMap<string, Run[]>
+  synced: ReadonlyMap<string, TicketBoardFacts>
+}
+
+function autoByKey(autoWork: readonly AutoWork[]): Map<string, AutoEntry> {
+  const auto = new Map<string, AutoEntry>()
+  for (const a of autoWork) {
     for (const k of new Set([...Object.keys(a.tickets), ...Object.keys(a.started), ...a.flagged])) {
-      if (auto.has(k)) continue
-      auto.set(k, { a, watch: a.tickets[k] ?? null, kickoff: a.started[k] ?? null })
+      if (!auto.has(k))
+        auto.set(k, { a, watch: a.tickets[k] ?? null, kickoff: a.started[k] ?? null })
     }
   }
+  return auto
+}
 
-  // Each ticket's PRs (the one auto-work watches first), for matching runs by PR number.
-  const prsOf = new Map<string, Array<{ repo: string; number: number; url: string }>>()
+/** Each ticket's PRs (the one auto-work watches first), for matching runs by PR number. */
+function prsByKey(
+  keys: ReadonlySet<string>,
+  auto: ReadonlyMap<string, AutoEntry>,
+  items: ReadonlyMap<string, Item>,
+): Map<string, PrRef[]> {
+  const prsOf = new Map<string, PrRef[]>()
   for (const key of keys) {
     const refs = [prFromUrl(auto.get(key)?.watch?.pr), items.get(key)?.pr ?? null].filter(
-      (r): r is { repo: string; number: number; url: string } => r !== null,
+      (r): r is PrRef => r !== null,
     )
     prsOf.set(
       key,
       refs.filter((r, i) => refs.findIndex((x) => x.url === r.url) === i),
     )
   }
+  return prsOf
+}
+
+interface RunIndex {
+  keys: ReadonlySet<string>
+  byPrNumber: ReadonlyMap<number, string[]>
+  kickoffSessions: ReadonlyMap<string, string>
+}
+
+function runIndex(
+  keys: ReadonlySet<string>,
+  prsOf: ReadonlyMap<string, PrRef[]>,
+  auto: ReadonlyMap<string, AutoEntry>,
+): RunIndex {
   const byPrNumber = new Map<number, string[]>()
   for (const [key, refs] of prsOf) {
     for (const r of refs) byPrNumber.set(r.number, [...(byPrNumber.get(r.number) ?? []), key])
@@ -407,168 +582,325 @@ export function buildBoard(input: BoardInput): AgentBoard['cards'] {
   for (const [key, x] of auto) {
     if (x.kickoff?.sessionFile) kickoffSessions.set(sessionId(x.kickoff.sessionFile), key)
   }
+  return { keys, byPrNumber, kickoffSessions }
+}
 
-  // Runs go to the ticket their title, transcript or PR number names; the rest are cards of their own.
+/** The tickets a run works on: named in its title, its transcript an auto-work kickoff, or its PR. */
+function runOwners(r: Run, ix: RunIndex): string[] {
+  const named = keysNamed(r.title, ix.keys)
+  if (named.length > 0) return named
+  const kicked = r.session === null ? undefined : ix.kickoffSessions.get(r.session)
+  if (kicked) return [kicked]
+  let owners: string[] = []
+  for (const m of r.title.matchAll(/(?<!\d)(\d{3,6})(?!\d)/g)) {
+    const hit = ix.byPrNumber.get(Number(m[1]))
+    if (hit?.length === 1) owners = hit
+  }
+  return owners
+}
+
+/** Runs go to the ticket they work on; the rest are cards of their own. */
+function assignRuns(
+  runs: readonly Run[],
+  ix: RunIndex,
+): { runsOf: Map<string, Run[]>; loose: Run[] } {
   const runsOf = new Map<string, Run[]>()
   const loose: Run[] = []
-  for (const r of input.runs) {
-    let owners = keysNamed(r.title, keys)
-    if (owners.length === 0 && r.session && kickoffSessions.has(r.session)) {
-      owners = [kickoffSessions.get(r.session)!]
-    }
-    if (owners.length === 0) {
-      for (const m of r.title.matchAll(/(?<!\d)(\d{3,6})(?!\d)/g)) {
-        const hit = byPrNumber.get(Number(m[1]))
-        if (hit && hit.length === 1) owners = hit
-      }
-    }
-    if (owners.length === 0) {
-      // Registered sessions that sit idle belong to a ticket or to nobody's board.
-      if (r.status !== 'open') loose.push(r)
-      continue
-    }
+  for (const r of runs) {
+    const owners = runOwners(r, ix)
+    // Registered sessions that sit idle belong to a ticket or to nobody's board.
+    if (owners.length === 0 && r.status !== 'open') loose.push(r)
     for (const k of owners) runsOf.set(k, [...(runsOf.get(k) ?? []), r])
   }
+  return { runsOf, loose }
+}
 
-  const cards: AgentCard[] = []
-  for (const key of keys) {
-    const item = items.get(key) ?? null
-    const x = auto.get(key)
-    const watch = x?.watch ?? null
-    const kickoff = x?.kickoff ?? null
-    const runs = runsOf.get(key) ?? []
-    const run = pickRun(runs)
-    const refs = prsOf.get(key) ?? []
-    const lin = ENG_KEY.test(key) ? input.linear(key) : null
-    const startedLin = input.linearStarted.find((l) => l.identifier === key) ?? null
-    const issue = lin ?? startedLin
-    const times = [
-      item?.updatedMs ?? null,
-      ms(watch?.phaseAt),
-      ms(kickoff?.endedAt) ?? ms(kickoff?.at),
-      run?.at ?? null,
-      issue?.updatedAt ?? null,
-    ].filter((t): t is number => t !== null)
-    const activityAt = times.length > 0 ? Math.max(...times) : null
-    const running = run?.status === 'working' || run?.status === 'waiting'
-    const stale = !running && (activityAt === null || now - activityAt > STALE_MS)
-    const primary = refs[0] ?? null
-    const prFacts = primary && !stale ? input.pr(primary.repo, primary.number) : null
-    const unstarted = (x?.a.flagged.includes(key) ?? false) || started.has(key)
-    const place = placeTicket({
-      key,
-      item,
-      watch,
-      kickoff,
-      pr: prFacts,
-      linear: issue,
-      run,
-      unstarted: unstarted && item === null && watch === null,
-    })
-    if (place.column === 'done' && (activityAt === null || now - activityAt > DONE_MS)) continue
-    const linearUrl = item?.linear ?? kickoff?.url ?? issue?.url ?? null
-    const links: AgentLink[] = []
-    if (linearUrl && /^https?:\/\//.test(linearUrl)) {
-      links.push({
-        kind: 'linear',
-        label: key,
-        sub: issue?.state ?? null,
-        open: { kind: 'url', url: linearUrl },
-      })
-    }
-    for (const r of refs) {
-      links.push({
-        kind: 'pr',
-        label: `${r.repo}#${r.number}`,
-        sub: null,
-        open: { kind: 'url', url: r.url },
-      })
-    }
-    for (const r of runs
-      .slice()
-      .sort((a, b) => b.at - a.at)
-      .slice(0, 4)) {
-      if (r.open) links.push({ kind: 'session', label: r.title, sub: r.intent, open: r.open })
-    }
-    if (runs.length === 0 && kickoff?.sessionFile?.endsWith('.jsonl')) {
-      links.push({
-        kind: 'session',
-        label: `${key} auto-work`,
-        sub: kickoff.note ?? null,
-        open: { kind: 'chat', file: kickoff.sessionFile },
-      })
-    }
-    if (item) {
-      links.push({
-        kind: 'ledger',
-        label: `work/items/${key}.md`,
-        sub: item.stage,
-        open: { kind: 'files', path: item.file },
-      })
-      if (item.worktree) {
-        links.push({
-          kind: 'worktree',
-          label: item.worktree.split('/').slice(-2).join('/'),
-          sub: item.branch,
-          open: { kind: 'files', path: item.worktree },
-        })
-      }
-    }
-    cards.push({
-      id: `item:${key}`,
-      kind: 'item',
-      key,
-      title: item?.title ?? kickoff?.title ?? issue?.title ?? key,
-      column: place.column,
-      pill: place.pill,
-      reason: place.reason,
-      workspace: item?.workspace ?? null,
-      agent: run?.agent ?? x?.a.agent ?? input.owners.get(key) ?? null,
-      session: run?.title ?? (kickoff?.sessionFile ? `${key} auto-work` : null),
-      intent: run?.intent ?? null,
-      stage: item?.stage ?? null,
-      move: item?.move ?? null,
-      next: item?.next ?? null,
-      phase: watch && watch.phase !== 'unwatched' ? watch.phase : null,
-      pr: primary ? agentPr(primary, prFacts) : null,
-      linear: issue
-        ? { key, url: issue.url || null, state: issue.state, stateType: issue.stateType }
-        : null,
-      activityAt,
-      stale,
-      links: links.slice(0, 12),
-    })
+/** A key's Linear issue: the host's synced one, else (fallback) the local Linear states. */
+function issueOf(key: string, ctx: Ctx): Issue | null {
+  const t = ctx.synced.get(key)
+  if (t) {
+    const { title, url, updatedAt } = t
+    return { title, url, updatedAt, state: t.state.name, stateType: t.state.type }
   }
+  const lin = ENG_KEY.test(key) ? ctx.input.linear(key) : null
+  return lin ?? ctx.input.linearStarted.find((l) => l.identifier === key) ?? null
+}
 
-  for (const r of loose) {
-    const place = placeRun(r)
-    if (place.column === 'done' && now - r.at > DONE_MS) continue
-    const link: AgentLink | null = r.open
-      ? { kind: 'session', label: r.title, sub: r.intent, open: r.open }
-      : null
-    cards.push({
-      id: `run:${r.id}`,
-      kind: r.kind,
-      key: null,
-      title: r.title || 'Untitled run',
-      column: place.column,
-      pill: place.pill,
-      reason: place.reason,
-      workspace: null,
-      agent: r.agent,
-      session: r.title || null,
-      intent: r.intent,
-      stage: null,
-      move: null,
-      next: null,
-      phase: null,
-      pr: null,
-      linear: null,
-      activityAt: r.at,
-      stale: false,
-      links: link ? [link] : [],
-    })
+const isLive = (run: Run | null): boolean => run?.status === 'working' || run?.status === 'waiting'
+
+interface ItemFacts {
+  facts: TicketFacts
+  auto: NoAuto | AutoEntry
+  runs: Run[]
+  refs: PrRef[]
+  issue: Issue | null
+  activityAt: number | null
+  stale: boolean
+}
+type NoAuto = { a: null; watch: null; kickoff: null }
+const NO_AUTO: NoAuto = { a: null, watch: null, kickoff: null }
+
+/** Epoch ms of the newest thing that happened on a ticket: ledger, phase, kickoff, run, Linear. */
+function activityOf(
+  f: Pick<TicketFacts, 'item' | 'watch' | 'kickoff' | 'run'>,
+  issue: Issue | null,
+): number | null {
+  const { item, watch, kickoff, run } = f
+  const kickoffAt = ms(kickoff?.endedAt) ?? ms(kickoff?.at)
+  const times = [item?.updatedMs, ms(watch?.phaseAt), kickoffAt, run?.at, issue?.updatedAt]
+  const known = times.filter((t): t is number => typeof t === 'number')
+  return known.length > 0 ? Math.max(...known) : null
+}
+
+/** Flagged by the daily sweep or In Progress in Linear, with no work item or watch yet. */
+function unstartedOf(key: string, ctx: Ctx, x: NoAuto | AutoEntry, item: Item | null): boolean {
+  const flagged = x.a?.flagged.includes(key) || ctx.started.has(key)
+  return flagged === true && item === null && x.watch === null
+}
+
+function itemFacts(key: string, ctx: Ctx): ItemFacts {
+  const item = ctx.items.get(key) ?? null
+  const x = ctx.auto.get(key) ?? NO_AUTO
+  const { watch, kickoff } = x
+  const runs = ctx.runsOf.get(key) ?? []
+  const run = pickRun(runs)
+  const issue = issueOf(key, ctx)
+  const activityAt = activityOf({ item, watch, kickoff, run }, issue)
+  const stale = !isLive(run) && (activityAt === null || ctx.input.now - activityAt > STALE_MS)
+  const refs = ctx.prsOf.get(key) ?? []
+  const pr = refs[0] && !stale ? ctx.input.pr(refs[0].repo, refs[0].number) : null
+  const unstarted = unstartedOf(key, ctx, x, item)
+  const facts = { key, item, watch, kickoff, pr, linear: issue, run, unstarted }
+  return { facts, auto: x, runs, refs, issue, activityAt, stale }
+}
+
+function linearLink(key: string, f: ItemFacts): AgentLink[] {
+  const { item, kickoff } = f.facts
+  const urls = [item?.linear, kickoff?.url, f.issue?.url]
+  const url = urls.find((u): u is string => typeof u === 'string' && WEB_URL.test(u))
+  if (!url) return []
+  return [
+    { kind: 'linear', label: key, sub: f.issue ? f.issue.state : null, open: { kind: 'url', url } },
+  ]
+}
+
+const prLink = (r: PrRef): AgentLink => ({
+  kind: 'pr',
+  label: `${r.repo}#${r.number}`,
+  sub: null,
+  open: { kind: 'url', url: r.url },
+})
+const runLink = (r: Run): AgentLink => ({
+  kind: 'session',
+  label: r.title,
+  sub: r.intent,
+  open: r.open,
+})
+
+function sessionLinks(key: string, f: ItemFacts): AgentLink[] {
+  const kickoff = f.facts.kickoff
+  if (f.runs.length === 0 && kickoff?.sessionFile?.endsWith('.jsonl')) {
+    const open = { kind: 'chat', file: kickoff.sessionFile } as const
+    return [{ kind: 'session', label: `${key} auto-work`, sub: kickoff.note ?? null, open }]
   }
+  return f.runs
+    .slice()
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 4)
+    .map(runLink)
+}
+
+function ledgerLinks(key: string, item: Item | null): AgentLink[] {
+  if (!item) return []
+  const ledger: AgentLink = {
+    kind: 'ledger',
+    label: `work/items/${key}.md`,
+    sub: item.stage,
+    open: { kind: 'files', path: item.file },
+  }
+  if (!item.worktree) return [ledger]
+  const label = item.worktree.split('/').slice(-2).join('/')
+  const open = { kind: 'files', path: item.worktree } as const
+  return [ledger, { kind: 'worktree', label, sub: item.branch, open }]
+}
+
+/** Why a card can't be dragged under the host's board: no Linear issue, or writes are off. */
+function syncedDragBlock(t: TicketBoardFacts | null, s: SyncedTickets): string | null {
+  if (!t) return DRAG_BLOCK.noIssue
+  return s.writes ? null : DRAG_BLOCK.writesOff
+}
+
+/** An agent card can't be dragged while its agent runs it: the column follows the run. */
+function itemDragBlock(f: ItemFacts, ctx: Ctx, agent: string | null): string | null {
+  if (!ctx.input.tickets) return DRAG_BLOCK.fallback
+  const k = f.facts.kickoff?.state
+  if (isLive(f.facts.run) || k === 'running' || k === 'starting') {
+    return `${agent ?? 'Astra'} is working on this; the column follows her run`
+  }
+  return syncedDragBlock(ctx.synced.get(f.facts.key) ?? null, ctx.input.tickets)
+}
+
+const oldDone = (place: Placement, at: number | null, now: number): boolean =>
+  place.column === 'done' && (at === null || now - at > DONE_MS)
+
+const NO_LEDGER = { title: null, workspace: null, stage: null, move: null, next: null }
+
+/** The card's title, the fields an agent card takes from its ledger, and the auto-work phase. */
+function ledgerText(key: string, f: ItemFacts) {
+  const { title, workspace, stage, move, next } = f.facts.item ?? NO_LEDGER
+  const watch = f.facts.watch
+  return {
+    title: title ?? f.facts.kickoff?.title ?? f.issue?.title ?? key,
+    workspace,
+    stage,
+    move,
+    next,
+    phase: watch && watch.phase !== 'unwatched' ? watch.phase : null,
+  }
+}
+
+/** Who runs it and what it does now: its run or auto-work kickoff. */
+function runText(key: string, f: ItemFacts, ctx: Ctx) {
+  const { kickoff, run } = f.facts
+  const kicked = kickoff?.sessionFile ? `${key} auto-work` : null
+  return {
+    agent: run?.agent ?? f.auto.a?.agent ?? ctx.input.owners.get(key) ?? null,
+    session: run ? run.title : kicked,
+    intent: run ? run.intent : null,
+  }
+}
+
+/** One ticket or work item with agent work: placed by its agent facts, synced facts attached. */
+function itemCard(key: string, ctx: Ctx): AgentCard | null {
+  const f = itemFacts(key, ctx)
+  const place = placeTicket(f.facts)
+  if (oldDone(place, f.activityAt, ctx.input.now)) return null
+  const t = ctx.synced.get(key)
+  const text = runText(key, f, ctx)
+  const links = [linearLink(key, f), f.refs.map(prLink), sessionLinks(key, f)]
+  const issue = f.issue
+  return {
+    id: `item:${key}`,
+    kind: 'item',
+    key,
+    ...place,
+    ...ledgerText(key, f),
+    ...text,
+    pr: f.refs[0] ? agentPr(f.refs[0], f.facts.pr) : null,
+    linear: issue && {
+      key,
+      url: issue.url || null,
+      state: cut(issue.state, 80),
+      stateType: issue.stateType,
+    },
+    activityAt: f.activityAt,
+    stale: f.stale,
+    links: [...links.flat(), ...ledgerLinks(key, f.facts.item)].slice(0, 12),
+    ticket: t ? cardTicket(t, place.column === 'needs' ? place.reason : null) : null,
+    openTarget: ENG_KEY.test(key) ? { kind: 'ticket', key } : { kind: 'item', id: key },
+    dragBlock: itemDragBlock(f, ctx, text.agent),
+  }
+}
+
+/** The synced issue's first PR as the card's PR. */
+function syncedPr(t: TicketBoardFacts): AgentPr | null {
+  const p = t.prFacts[0]
+  if (!p || !WEB_URL.test(p.url)) return null
+  const { repo, number, url, state, checks, decision } = cardPr(p)
+  return { repo, number, url, state, checks, decision }
+}
+
+function syncedLinks(t: TicketBoardFacts): AgentLink[] {
+  const linear: AgentLink[] = WEB_URL.test(t.url)
+    ? [{ kind: 'linear', label: t.key, sub: t.state.name, open: { kind: 'url', url: t.url } }]
+    : []
+  const prs = t.prFacts.filter((p) => WEB_URL.test(p.url)).map(prLink)
+  return [...linear, ...prs].slice(0, 12)
+}
+
+/** A synced Linear issue with no agent work: kind `ticket`, placed by its Linear state. */
+function syncedCard(t: TicketBoardFacts, s: SyncedTickets, now: number): AgentCard | null {
+  const place = placeSynced(t)
+  if (oldDone(place, t.updatedAt, now)) return null
+  return {
+    id: `ticket:${t.key}`,
+    kind: 'ticket',
+    key: t.key,
+    title: cut(t.title, 400),
+    ...place,
+    workspace: null,
+    agent: null,
+    session: null,
+    intent: null,
+    stage: null,
+    move: null,
+    next: null,
+    phase: null,
+    pr: syncedPr(t),
+    linear: {
+      key: t.key,
+      url: t.url || null,
+      state: cut(t.state.name, 80),
+      stateType: t.state.type,
+    },
+    activityAt: t.updatedAt,
+    stale: false,
+    links: syncedLinks(t),
+    ticket: cardTicket(t, null),
+    openTarget: { kind: 'ticket', key: t.key },
+    dragBlock: syncedDragBlock(t, s),
+  }
+}
+
+/** A run of its own (no ticket): a helper, session, harness pane or canvas room. */
+function runCard(r: Run, ctx: Ctx): AgentCard | null {
+  const place = placeRun(r)
+  if (place.column === 'done' && ctx.input.now - r.at > DONE_MS) return null
+  return {
+    id: `run:${r.id}`,
+    kind: r.kind,
+    key: null,
+    title: r.title || 'Untitled run',
+    ...place,
+    workspace: null,
+    agent: r.agent,
+    session: r.title || null,
+    intent: r.intent,
+    stage: null,
+    move: null,
+    next: null,
+    phase: null,
+    pr: null,
+    linear: null,
+    activityAt: r.at,
+    stale: false,
+    links: [runLink(r)],
+    ticket: null,
+    openTarget: { kind: 'link', open: r.open },
+    dragBlock: ctx.input.tickets ? DRAG_BLOCK.noIssue : DRAG_BLOCK.fallback,
+  }
+}
+
+/**
+ * The board: one card per ticket or work item with agent work (its runs and synced facts folded
+ * in), one per synced Linear issue with none (same key: one card), one per run of its own.
+ */
+export function buildBoard(input: BoardInput): AgentBoard['cards'] {
+  const keys = ticketKeys(input)
+  const items = new Map(input.items.map((i) => [i.key, i]))
+  const auto = autoByKey(input.autoWork)
+  const prsOf = prsByKey(keys, auto, items)
+  const { runsOf, loose } = assignRuns(input.runs, runIndex(keys, prsOf, auto))
+  const s = input.tickets
+  const synced = new Map((s?.tickets ?? []).map((t) => [t.key, t]))
+  const started = new Set(input.linearStarted.map((l) => l.identifier))
+  const ctx: Ctx = { input, items, auto, started, prsOf, runsOf, synced }
+  const pure = s ? s.tickets.filter((t) => !keys.has(t.key)) : []
+  const cards = [
+    ...[...keys].map((k) => itemCard(k, ctx)),
+    ...pure.map((t) => syncedCard(t, s!, input.now)),
+    ...loose.map((r) => runCard(r, ctx)),
+  ].filter((c): c is AgentCard => c !== null)
   cards.sort((a, b) => (b.activityAt ?? 0) - (a.activityAt ?? 0))
   return cards
 }

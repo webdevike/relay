@@ -18,6 +18,7 @@ import { protoFrameMachine } from '../renderer/canvas/cards/proto-frame.machine'
 import { cardGenMachine } from '../renderer/canvas/agent/card-gen.machine'
 import { shareSnapshotsMachine } from './meetings/share-snapshots.machine'
 import { cardStackMachine } from '../renderer/chat/stack/card-stack.machine'
+import { cardMoveMachine } from '../renderer/agents-board/card-move.machine'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   {
@@ -51,6 +52,11 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
     file: 'card-stack-desktop',
     title: 'Card stack on the composer: asks and running sessions (desktop)',
     machine: cardStackMachine,
+  },
+  {
+    file: 'card-move',
+    title: 'Dragging a Board card to another column (desktop)',
+    machine: cardMoveMachine,
   },
 ]
 

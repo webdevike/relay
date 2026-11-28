@@ -4,6 +4,7 @@
 // `onTicketsChanged`.
 import {
   HandledTarget,
+  MAX_TICKET_WATCH,
   MAX_TICKET_WATCH_TTL_MS,
   TicketMutation,
   type TicketsOp,
@@ -33,6 +34,13 @@ const changedHooks = new Set<(keys: string[] | null) => void>()
 export function onTicketsChanged(cb: (keys: string[] | null) => void): () => void {
   changedHooks.add(cb)
   return () => changedHooks.delete(cb)
+}
+
+/** Keeps these keys synced although they aren't Isaac's (agent cards' keys the board lacks). */
+export function ticketsWatch(keys: readonly string[]): void {
+  if (!bridge || keys.length === 0) return
+  const op = { kind: 'watch', keys: keys.slice(0, MAX_TICKET_WATCH), ttlMs: WATCH_TTL_MS } as const
+  void bridge.req(op).catch(() => undefined)
 }
 
 /** A plain host answer: `{source:'host', ...pick(result)}`, or the fallback as is. */
