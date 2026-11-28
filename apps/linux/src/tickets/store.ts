@@ -26,8 +26,6 @@ export const MAX_STORED_COMMENTS_BYTES = 32 * 1024;
 /** UTF-8 bytes one cached issue or PR takes serialized: quotes, reactions, links and metadata included. */
 export const MAX_STORED_ENTRY_BYTES = 64 * 1024;
 
-const jsonBytes = (v: unknown): number => Buffer.byteLength(JSON.stringify(v), "utf8");
-
 /** A comment's reactions as the cache keeps them: 10 emoji, 10 people each. */
 const fewReactions = (c: TicketComment): TicketComment =>
   c.reactions.length <= 10 && c.reactions.every((r) => r.users.length <= 10) ? c : { ...c, reactions: c.reactions.slice(0, 10).map((r) => ({ ...r, users: r.users.slice(0, 10) })) };
@@ -145,33 +143,79 @@ export function boundComments(comments: readonly TicketComment[], each: number, 
   return { comments: kept.reverse(), dropped: comments.length - kept.length };
 }
 
+/** UTF-8 bytes of `v` as JSON: what a cache entry or a frame actually takes. */
+export const jsonBytes = (v: unknown): number => Buffer.byteLength(JSON.stringify(v), "utf8");
+
+/** The largest `clipped` an entry or page can carry, reserved before it is known. */
+export const WORST_CLIPPED: Clipped = { description: true, comments: 9_999_999 };
+
 /**
- * An issue as the hot cache keeps it: description, comments and their total cut to the byte caps,
- * reactions thinned, then the whole entry held to MAX_STORED_ENTRY_BYTES serialized (oldest comments
- * go first, then long link and label lists).
+ * The newest `items` (oldest first) that fit `cap` serialized next to `base` bytes for the rest of
+ * the object (each item counted with its separating comma). Deterministic: newest first, stop at the
+ * first one that doesn't fit.
+ */
+export function newestFitting<T>(items: readonly T[], base: number, cap: number): T[] {
+  const kept: T[] = [];
+  let total = base;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const size = jsonBytes(items[i]) + 1;
+    if (total + size > cap) break;
+    total += size;
+    kept.push(items[i] as T);
+  }
+  return kept.reverse();
+}
+
+interface Listed {
+  readonly children: readonly unknown[];
+  readonly relations: readonly unknown[];
+  readonly labels: readonly unknown[];
+  readonly description: string;
+}
+
+/**
+ * `x` (a ticket or a ticket page) halved until its JSON fits `budget`: its link and label lists by
+ * half, then its description by half. Fields the protocol already bounds (titles, names) stay.
+ */
+export function fitLists<T extends Listed>(x: T, budget: number): T {
+  let cur = x;
+  while (jsonBytes(cur) > budget) {
+    const longest = Math.max(cur.children.length, cur.relations.length, cur.labels.length);
+    if (longest > 0) {
+      const n = Math.floor(longest / 2);
+      cur = { ...cur, children: cur.children.slice(0, n), relations: cur.relations.slice(0, n), labels: cur.labels.slice(0, n) };
+    } else if (cur.description !== "") {
+      cur = { ...cur, description: clipBytes(cur.description, Math.floor(Buffer.byteLength(cur.description, "utf8") / 2)) };
+    } else break;
+  }
+  return cur;
+}
+
+/**
+ * An issue as the hot cache keeps it, at most MAX_STORED_ENTRY_BYTES serialized (escapes, quotes,
+ * reactions and metadata included): description, comments and their total cut to the byte caps and
+ * reactions thinned; then the ticket's lists and description halved until it takes at most half;
+ * then the newest comments that fit the rest.
  */
 function retained(entry: IssueEntry): IssueEntry {
   const description = clipBytes(entry.ticket.description, MAX_STORED_DESCRIPTION_BYTES);
   const bounded = boundComments(entry.comments.map(fewReactions), MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES);
-  const comments = bounded.comments;
-  let ticket = description === entry.ticket.description ? entry.ticket : { ...entry.ticket, description };
-  // Long link and label lists give way first (the ticket alone may take half), then the oldest comments.
-  if (jsonBytes(ticket) > MAX_STORED_ENTRY_BYTES / 2) ticket = { ...ticket, children: ticket.children.slice(0, 20), relations: ticket.relations.slice(0, 20), labels: ticket.labels.slice(0, 20) };
-  while (comments.length > 0 && jsonBytes({ ticket, comments }) > MAX_STORED_ENTRY_BYTES) comments.shift();
+  const ticket = fitLists(description === entry.ticket.description ? entry.ticket : { ...entry.ticket, description }, MAX_STORED_ENTRY_BYTES / 2);
+  const comments = newestFitting(bounded.comments, jsonBytes({ ticket, comments: [], clipped: WORST_CLIPPED }), MAX_STORED_ENTRY_BYTES);
   const dropped = entry.comments.length - comments.length;
-  const clipped = { description: description.length < entry.ticket.description.length || entry.clipped?.description === true, comments: dropped + (entry.clipped?.comments ?? 0) };
+  const clipped = { description: ticket.description.length < entry.ticket.description.length || entry.clipped?.description === true, comments: dropped + (entry.clipped?.comments ?? 0) };
   return clipped.description || clipped.comments > 0 ? { ticket, comments, clipped } : { ticket, comments };
 }
 
 /**
- * A PR as the cache keeps it: thread comment bodies made media-safe and cut like Linear's (4 KiB
- * each, 32 KiB together, newest kept), the entry held to MAX_STORED_ENTRY_BYTES serialized.
+ * A PR as the cache keeps it, at most MAX_STORED_ENTRY_BYTES serialized: thread comment bodies made
+ * media-safe and cut like Linear's (4 KiB each, 32 KiB together), then the newest that fit the cap.
  */
 function retainedPr(entry: PrEntry): PrEntry {
   if (entry.input === null) return entry;
   const safe = entry.input.comments.map((c) => ({ ...c, body: safeTicketText(c.body) }));
-  const comments = newestWithin(safe, MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES);
-  while (comments.length > 0 && jsonBytes({ ...entry, input: { ...entry.input, comments } }) > MAX_STORED_ENTRY_BYTES) comments.shift();
+  const base = jsonBytes({ ...entry, input: { ...entry.input, comments: [] } });
+  const comments = newestFitting(newestWithin(safe, MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES), base, MAX_STORED_ENTRY_BYTES);
   return { ...entry, input: { ...entry.input, comments } };
 }
 

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ticketsFeatures, type HostConfig } from "../src/host-config";
+import { MAX_DETAIL_FRAME_BYTES } from "../src/tickets/service";
 import { FakeLinear, T0, ticketsHarness, type TicketsHarness } from "./tickets-fakes";
 
 const MIN = 60_000;
@@ -92,6 +93,41 @@ describe("TicketsService bounds and reads", () => {
       expect(text).toContain(plain);
     }
   });
+
+  it("redacts whole angle-bracket destinations with parentheses, links and bare URLs: no jwt in the frame or the cache", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const jwt = (tag: string) => `https://private-user-images.githubusercontent.com/1/shot(${tag}).png?jwt=eyJ${tag}`;
+    const description = `![a](<${jwt("img")}> "t") [file](<${jwt("link")}>) (see ${jwt("bare")}) [ref]: <${jwt("def")}>`;
+    const comment = { id: "c-1", body: `![b](<${jwt("cimg")}>)`, url: "https://linear.app/acme/issue/ENG-1#c-1", createdAt: new Date(T0 - MIN).toISOString(), editedAt: null, resolvedAt: null, quotedText: `<${jwt("quote")}>`, documentContentId: null, parent: null, user: null, resolvingUser: null, reactionData: [] };
+    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), description, comments: { nodes: [comment] } });
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    const frame = JSON.stringify({ t: "tickets.res", rid: "r1", ...(await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })) });
+    const stored = readFileSync(join(h.dir, "tickets.json"), "utf8");
+    for (const text of [frame, stored]) {
+      expect(text).not.toContain("eyJ");
+      expect(text).not.toContain("private-user-images");
+    }
+    expect(frame).toContain("(see /reviews/media/unavailable)");
+  });
+
+  it("keeps the whole ticket-page frame under its cap with 250 short comments carrying long quotes and full reactions", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const users = Array.from({ length: 10 }, (_, i) => ({ id: `u-${String(i)}`, name: `Person ${String(i)} ${"é".repeat(100)}`, avatarUrl: null }));
+    const comment = (i: number) => ({ id: `c-${String(i)}`, body: `ok ${String(i)}`, url: `https://linear.app/acme/issue/ENG-1#c-${String(i)}`, createdAt: new Date(T0 - (250 - i) * MIN).toISOString(), editedAt: null, resolvedAt: null, quotedText: "\u0001".repeat(20_000), documentContentId: "doc-1", parent: null, user: users[0], resolvingUser: null, reactionData: Array.from({ length: 10 }, (_, e) => ({ emoji: `e${String(e)}`, reactions: users.map((u) => ({ user: u })) })) });
+    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), comments: { nodes: Array.from({ length: 250 }, (_, i) => comment(i)) } });
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    const answer = await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
+    const frame = JSON.stringify({ t: "tickets.res", rid: "r".repeat(64), ...answer });
+    expect(Buffer.byteLength(frame, "utf8")).toBeLessThanOrEqual(MAX_DETAIL_FRAME_BYTES);
+    expect(answer.ticket?.comments.at(-1)?.id).toBe("c-249");
+    expect(answer.ticket?.clipped?.comments).toBe(250 - (answer.ticket?.comments.length ?? 0));
+  }, 20_000);
 });
 
 describe("TicketsService ops", () => {

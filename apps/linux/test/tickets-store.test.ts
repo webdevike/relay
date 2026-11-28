@@ -54,4 +54,26 @@ describe("tickets cache byte caps (serialized, both providers)", () => {
     expect(kept?.input?.comments.at(-1)?.id).toBe("pc-299");
     expect(s.file()).not.toContain("eyJsecret");
   });
+
+  it("holds a metadata-heavy issue with no comments (500-unit Unicode and escaped titles) to 65,536 bytes serialized", () => {
+    for (const unit of ["😀".repeat(250), "\u0001".repeat(500), "é".repeat(500)]) {
+      const link = (i: number) => ({ id: `id-${String(i)}`, identifier: `ENG-${String(i + 10)}`, title: unit });
+      const node = {
+        ...issueNode("ENG-1", T0),
+        title: unit,
+        description: unit.repeat(20),
+        comments: { nodes: [] },
+        labels: { nodes: Array.from({ length: 50 }, (_, i) => ({ id: `l-${String(i)}`, name: unit, color: "#fff" })) },
+        children: { nodes: Array.from({ length: 200 }, (_, i) => ({ ...link(i), state: { type: "started" } })) },
+        relations: { nodes: Array.from({ length: 100 }, (_, i) => ({ type: "related", relatedIssue: link(i + 300) })) },
+        inverseRelations: { nodes: Array.from({ length: 100 }, (_, i) => ({ type: "blocks", issue: link(i + 600) })) },
+      };
+      const s = store();
+      s.store.upsert(toEntry(node as unknown as Parameters<typeof toEntry>[0], "user-me"));
+      s.store.save();
+      expect(bytes(s.store.issue("ENG-1"))).toBeLessThanOrEqual(65_536);
+      const file = JSON.parse(s.file()) as { issues: Record<string, unknown> };
+      expect(bytes(file.issues["ENG-1"])).toBeLessThanOrEqual(65_536);
+    }
+  });
 });

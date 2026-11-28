@@ -10,6 +10,7 @@
 // left is tombstoned; a key Linear no longer answers (access lost) is tombstoned when seen.
 
 import { TERMINAL_TICKET_STATE_TYPES, type Ticket, type TicketComment, type TicketPrRef, type TicketStateType } from "@relay/protocol";
+import { rewriteImages } from "@relay/protocol/markdown-images";
 import { z } from "zod";
 import type { LinearGql } from "../reviews/linear";
 import { isGithubUpload, isLinearUpload, UNAVAILABLE_MEDIA } from "../reviews/media";
@@ -199,17 +200,31 @@ function reactionsOf(data: unknown): TicketComment["reactions"] {
 
 /** A query parameter that carries a credential: GitHub's private-image `jwt`, signed storage or CDN links. */
 const SIGNED_PARAM = /[?&;](jwt|x-amz-(signature|credential|security-token)|x-goog-(signature|credential)|signature|sig|token|access_token|expires)=/i;
-const URL_IN_TEXT = /https?:\/\/[^\s<>"'()[\]]+/g;
+/** A `<...>` link destination (spaces and parentheses allowed). */
+const ANGLE_URL = /<(https?:\/\/[^<>\n]*)>/gi;
+/** A bare URL, parentheses included (its unbalanced closing ones are given back to the text). */
+const BARE_URL = /https?:\/\/[^\s<>"'[\]]+/gi;
+
+/** An upload only the host's credentials open (GitHub's, Linear's) or any signed link. */
+const privateMedia = (url: string): boolean => isGithubUpload(url) || isLinearUpload(url) || SIGNED_PARAM.test(url);
+
+/** A bare private URL as UNAVAILABLE_MEDIA, keeping the `)`s that close text around it. */
+function bareUrl(url: string): string {
+  if (!privateMedia(url)) return url;
+  const extra = url.split(")").length - url.split("(").length;
+  const tail = /\)*$/.exec(url)?.[0].length ?? 0;
+  return UNAVAILABLE_MEDIA + ")".repeat(Math.max(0, Math.min(extra, tail)));
+}
 
 /**
- * Ticket text (description, comment, quote) with provider media made safe, as Reviews' media
- * localizer answers a source it can't serve: an upload only the host's credentials open (GitHub's
- * user-attachments and private-user-images, Linear's uploads) or any signed link points at
- * UNAVAILABLE_MEDIA, in Markdown images (titles kept), `<img>` tags and plain links alike, so neither
- * the URL nor its signature leaves the host.
+ * Ticket text (description, comment, quote) with provider media made safe before it is cached or
+ * sent, as Reviews' media localizer answers a source it can't serve: every image (the shared media
+ * grammar, `rewriteImages`) and then every whole `<...>` destination and bare URL that is a private
+ * upload or signed points at UNAVAILABLE_MEDIA, so neither the URL nor its signature leaves the host.
  */
 export function safeTicketText(text: string): string {
-  return text.replace(URL_IN_TEXT, (url) => (isGithubUpload(url) || isLinearUpload(url) || SIGNED_PARAM.test(url) ? UNAVAILABLE_MEDIA : url));
+  const images = rewriteImages(text, (url) => (privateMedia(url) ? UNAVAILABLE_MEDIA : undefined));
+  return images.replace(ANGLE_URL, (whole, url: string) => (privateMedia(url) ? `<${UNAVAILABLE_MEDIA}>` : whole)).replace(BARE_URL, bareUrl);
 }
 
 export function toComment(c: CommentNode): TicketComment {

@@ -7,7 +7,7 @@
 // `tickets.status`) go through `onPush`, which the server sends only to sockets that subscribed.
 
 import { createHash } from "node:crypto";
-import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketComment, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
@@ -22,7 +22,7 @@ import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
 import { linearExecutor } from "./linear-writes";
-import { boundComments, clipBytes, HandledStore, SeenStore, TicketsStore, type IssueEntry } from "./store";
+import { boundComments, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
 
 export type TicketsPush = Extract<ServerMessage, { t: "tickets.snapshot" | "tickets.delta" | "tickets.status" }>;
@@ -62,10 +62,14 @@ const clip = (s: string | null): string | null => (s === null ? null : s.slice(0
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 /** A key is compared by its hash; the key itself is never kept. */
 const sha256 = (s: string): string => createHash("sha256").update(s).digest("hex");
-/** A ticket page stays near 1 MiB: its description (UTF-8 bytes), each comment body, all comment bodies (newest kept). */
+/** A ticket page's description (UTF-8 bytes), each comment body and all comment bodies, before the frame cap. */
 const MAX_DETAIL_DESCRIPTION_BYTES = 256 * 1024;
 const MAX_DETAIL_COMMENT_BYTES = 64 * 1024;
 const MAX_DETAIL_COMMENTS_BYTES = 768 * 1024;
+/** The whole `tickets.res` frame carrying a ticket page, serialized: the hard limit. */
+export const MAX_DETAIL_FRAME_BYTES = 1024 * 1024;
+/** The largest envelope around a page (`rid` at its 64-character maximum). */
+const DETAIL_ENVELOPE = { t: "tickets.res", rid: "r".repeat(64), ok: true } as const;
 
 export class TicketsService implements TicketsRelaying {
   readonly writes: boolean;
@@ -214,12 +218,21 @@ export class TicketsService implements TicketsRelaying {
     return { ok: true, ticket: this.detailFrame(entry) };
   }
 
-  /** The ticket page within the detail byte bounds: the description cut, then the oldest comments left out. */
+  /**
+   * The ticket page whose whole `tickets.res` frame is at most MAX_DETAIL_FRAME_BYTES serialized:
+   * waiting mentions halved to an eighth, lists and description halved to half, then the newest
+   * comments that fit the rest; `clipped` says what was left out.
+   */
   private detailFrame(entry: IssueEntry): TicketDetail {
     const description = clipBytes(entry.ticket.description, MAX_DETAIL_DESCRIPTION_BYTES);
-    const { comments, dropped } = boundComments(entry.comments.slice(-MAX_TICKET_COMMENTS), MAX_DETAIL_COMMENT_BYTES, MAX_DETAIL_COMMENTS_BYTES);
-    const clipped = { description: description.length < entry.ticket.description.length || entry.clipped?.description === true, comments: dropped + Math.max(0, entry.comments.length - MAX_TICKET_COMMENTS) + (entry.clipped?.comments ?? 0) };
-    const detail = { ...this.facts(entry), description, comments };
+    const bounded = boundComments(entry.comments.slice(-MAX_TICKET_COMMENTS), MAX_DETAIL_COMMENT_BYTES, MAX_DETAIL_COMMENTS_BYTES).comments;
+    const facts = this.facts(entry);
+    let waiting = facts.attention.waiting;
+    while (waiting.length > 0 && jsonBytes(waiting) > MAX_DETAIL_FRAME_BYTES / 8) waiting = waiting.slice(0, Math.floor(waiting.length / 2));
+    const page = fitLists({ ...facts, attention: { ...facts.attention, waiting }, description, comments: [] as TicketComment[] }, MAX_DETAIL_FRAME_BYTES / 2);
+    const comments = newestFitting(bounded, jsonBytes({ ...DETAIL_ENVELOPE, ticket: { ...page, clipped: WORST_CLIPPED } }), MAX_DETAIL_FRAME_BYTES);
+    const clipped = { description: page.description.length < entry.ticket.description.length || entry.clipped?.description === true, comments: entry.comments.length - comments.length + (entry.clipped?.comments ?? 0) };
+    const detail = { ...page, comments };
     return clipped.description || clipped.comments > 0 ? { ...detail, clipped } : detail;
   }
 
