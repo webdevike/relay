@@ -181,7 +181,8 @@ export class PrGate {
 
   /**
    * A known opId: its stored outcome, or (unknown) what GitHub shows now. GitHub writes have no
-   * caller id, so one GitHub doesn't show stays unknown and is never sent again from here.
+   * caller id, so one GitHub doesn't show stays unknown and is never sent again from here; one
+   * started under another gh credential isn't even read back under this one.
    */
   private async resume(req: PrCommitRequest, rec: OpRecord, pin: GithubPin): Promise<GateAnswer> {
     if (rec.state === "done" || rec.state === "failed") return answerOf(req.opId, rec);

@@ -517,6 +517,9 @@ describe("GitHub PR writes: outcomes and desired state", () => {
     const restarted = setup({ dir: first.dir, gh: first.gh });
     expect((await restarted.gate.commit(DEVICE, { opId: id, mutation: m }, ME)).outcome?.state).toBe("unknown");
     expect((await restarted.gate.commit("device-2", { opId: id, mutation: m }, ME)).refused?.code).toBe("identity");
+    restarted.account.credential = "token-2";
+    expect((await restarted.gate.commit(DEVICE, { opId: id, mutation: m }, ME)).refused).toMatchObject({ code: "identity", message: expect.stringContaining("sign-in changed") });
+    restarted.account.credential = "token-1";
     restarted.account.login = "someone-else";
     expect((await restarted.gate.commit(DEVICE, { opId: id, mutation: m }, "someone-else")).refused?.code).toBe("identity");
     // Every attempt above hit GitHub once: the first, dropped one.
