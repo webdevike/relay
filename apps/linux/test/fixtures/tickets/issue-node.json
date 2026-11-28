@@ -36,7 +36,7 @@
         "quotedText": null,
         "documentContentId": null,
         "parent": null,
-        "user": { "id": "user-other", "name": "Robin Sample", "avatarUrl": null },
+        "user": { "id": "user-other", "name": "Robin Sample", "avatarUrl": null, "url": "https://linear.app/acme/profiles/robin" },
         "resolvingUser": null,
         "reactionData": [{ "emoji": "+1", "reactions": [{ "userId": "user-other" }] }]
       }

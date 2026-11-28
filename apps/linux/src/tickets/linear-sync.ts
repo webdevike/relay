@@ -37,9 +37,10 @@ const ms = (iso: string | null | undefined): number | null => {
   return Number.isNaN(t) ? null : t;
 };
 
-const Person = z.object({ id: z.string(), name: z.string(), avatarUrl: z.string().nullable().optional() });
+const Person = z.object({ id: z.string(), name: z.string(), avatarUrl: z.string().nullable().optional(), url: z.string().optional() });
 type Person = z.infer<typeof Person>;
-const actor = (p: Person | null | undefined): Ticket["assignee"] => (p ? { id: p.id, name: p.name, avatarUrl: p.avatarUrl ?? null } : null);
+const actor = (p: Person | null | undefined): Ticket["assignee"] =>
+  p ? { id: p.id, name: p.name, avatarUrl: p.avatarUrl ?? null, ...(p.url === undefined ? {} : { url: p.url }) } : null;
 const Link = z.object({ id: z.string(), identifier: z.string(), title: z.string() });
 
 const CommentNode = z.object({
@@ -90,14 +91,14 @@ const IssueNode = z.object({
 type IssueNode = z.infer<typeof IssueNode>;
 
 const COMMENT_FIELDS = `id body url createdAt editedAt resolvedAt quotedText documentContentId parent { id }
-  user { id name avatarUrl } resolvingUser { id name avatarUrl } reactionData`;
+  user { id name avatarUrl url } resolvingUser { id name avatarUrl url } reactionData`;
 
 /** Everything a board card and its attention need; `comments` sets how many. */
 export const issueFields = (comments: string): string => `
   id identifier title description url priority prioritySortOrder dueDate startedAt createdAt updatedAt
   documentContent { id }
   state { id name type color } team { id key }
-  assignee { id name avatarUrl } creator { id name avatarUrl }
+  assignee { id name avatarUrl url } creator { id name avatarUrl url }
   labels { nodes { id name color } }
   project { id name targetDate } projectMilestone { id name targetDate sortOrder }
   parent { id identifier title }

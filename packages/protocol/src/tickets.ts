@@ -75,7 +75,13 @@ export const TicketOpId = z.string().uuid();
 export const TicketsRid = z.string().min(1).max(64);
 
 /** A Linear user (or GitHub login as `id` and `name` for GitHub authors). */
-export const TicketActor = z.object({ id: Id, name: Name, avatarUrl: Url.nullable() });
+export const TicketActor = z.object({
+  id: Id,
+  name: Name,
+  avatarUrl: Url.nullable(),
+  /** The Linear profile page; a link to it in a comment is a mention. Absent: unknown. */
+  url: Url.optional(),
+});
 export type TicketActor = z.infer<typeof TicketActor>;
 
 export const TicketStateType = z.enum([
