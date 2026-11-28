@@ -216,15 +216,39 @@ function bareUrl(url: string): string {
   return UNAVAILABLE_MEDIA + ")".repeat(Math.max(0, Math.min(extra, tail)));
 }
 
+/** HTML entities a URL can hide behind (numeric, hex and the punctuation ones markdown decodes). */
+const NAMED_ENTITIES: Readonly<Record<string, string>> = { amp: "&", colon: ":", sol: "/", quest: "?", equals: "=", period: ".", num: "#", percnt: "%", lpar: "(", rpar: ")", lt: "<", gt: ">", quot: '"', apos: "'" };
+const ENTITY = /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi;
+
+function decodeEntities(s: string): string {
+  return s.replace(ENTITY, (whole, dec: string | undefined, hex: string | undefined, name: string | undefined) => {
+    const code = dec !== undefined ? Number(dec) : hex !== undefined ? parseInt(hex, 16) : undefined;
+    if (code !== undefined) return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    return NAMED_ENTITIES[(name ?? "").toLowerCase()] ?? whole;
+  });
+}
+
+/** A run of text between spaces, quotes and brackets: where an entity-encoded URL can sit. */
+const TOKEN = /[^\s<>"'[\]]+/g;
+
+/** A token holding an entity-encoded private URL (`https&#58;//...`, `&#x3a;`, `&colon;`) as "(private link)". */
+function encodedUrl(token: string): string {
+  if (!token.includes("&")) return token;
+  const decoded = decodeEntities(token);
+  return (decoded.match(BARE_URL) ?? []).some(privateMedia) ? "(private link)" : token;
+}
+
 /**
  * Ticket text (description, comment, quote) with provider media made safe before it is cached or
- * sent, as Reviews' media localizer answers a source it can't serve: every image (the shared media
- * grammar, `rewriteImages`) and then every whole `<...>` destination and bare URL that is a private
- * upload or signed points at UNAVAILABLE_MEDIA, so neither the URL nor its signature leaves the host.
+ * sent, as Reviews' media localizer answers a source it can't serve: every image and private link
+ * (the shared media grammar, `rewriteImages`), then every whole `<...>` destination and bare URL that
+ * is a private upload or signed, and last any such URL hidden behind HTML entities, so neither the
+ * URL nor its signature leaves the host.
  */
 export function safeTicketText(text: string): string {
   const images = rewriteImages(text, (url) => (privateMedia(url) ? UNAVAILABLE_MEDIA : undefined));
-  return images.replace(ANGLE_URL, (whole, url: string) => (privateMedia(url) ? `<${UNAVAILABLE_MEDIA}>` : whole)).replace(BARE_URL, bareUrl);
+  const literal = images.replace(ANGLE_URL, (whole, url: string) => (privateMedia(url) ? `<${UNAVAILABLE_MEDIA}>` : whole)).replace(BARE_URL, bareUrl);
+  return literal.replace(TOKEN, encodedUrl);
 }
 
 export function toComment(c: CommentNode): TicketComment {

@@ -116,6 +116,32 @@ describe("TicketsService bounds and reads", () => {
     expect(frame).toContain("/reviews/media/unavailable");
   });
 
+  it("redacts duplicate and entity-encoded reference definitions and signed link labels: no credential in the frame or the cache", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const url = (tag: string) => `https://private-user-images.githubusercontent.com/1/${tag}.png?jwt=eyJ${tag}`;
+    const description = [
+      "![shot][ref]",
+      "",
+      `[ref]: ${url("first")}`,
+      `[ref]: https&#58;//private-user-images.githubusercontent.com/1/second.png?jwt=eyJsecond`,
+      `[REF]: https&#x3a;&#x2f;&#x2f;private-user-images.githubusercontent.com/1/third.png&#63;jwt&#61;eyJthird`,
+      "",
+      `See [${url("label")}](${url("label")}) and https&colon;//private-user-images.githubusercontent.com/1/bare.png?jwt=eyJbare`,
+    ].join("\n");
+    const comment = { id: "c-1", body: `[x]: https&#58;//private-user-images.githubusercontent.com/1/c.png?jwt=eyJcomment`, url: "https://linear.app/acme/issue/ENG-1#c-1", createdAt: new Date(T0 - MIN).toISOString(), editedAt: null, resolvedAt: null, quotedText: null, documentContentId: null, parent: null, user: null, resolvingUser: null, reactionData: [] };
+    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), description, comments: { nodes: [comment] } });
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    const frame = JSON.stringify({ t: "tickets.res", rid: "r1", ...(await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })) });
+    const stored = readFileSync(join(h.dir, "tickets.json"), "utf8");
+    for (const text of [frame, stored]) {
+      expect(text).not.toContain("eyJ");
+      expect(text).not.toContain("private-user-images");
+    }
+  });
+
   it("keeps the whole ticket-page frame under its cap with 250 short comments carrying long quotes and full reactions", async () => {
     const linear = new FakeLinear();
     linear.add("ENG-1", T0 - MIN);
