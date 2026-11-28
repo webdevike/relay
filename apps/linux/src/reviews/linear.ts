@@ -12,7 +12,7 @@ import type { LinearTicket, ReviewItem } from "@relay/protocol";
 import { z } from "zod";
 import { sameToken } from "../drops/serve";
 import type { DropBlob } from "../seams";
-import { isLinearUpload, localizeImages } from "./media";
+import { isLinearUpload, localizeImages, MEDIA_LIMITS, type MediaLimits } from "./media";
 
 const ms = (iso: string | null | undefined): number => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -285,7 +285,11 @@ export function toActivity(nodes: z.infer<typeof Ticket>["issue"]["history"]["no
 export class ReviewMedia {
   private readonly secret = randomBytes(32);
 
-  constructor(readonly dir: string) {}
+  constructor(
+    readonly dir: string,
+    /** The dir's bound: past it the oldest files are deleted (media.ts). */
+    readonly limits: MediaLimits = MEDIA_LIMITS,
+  ) {}
 
   token(name: string): string {
     return createHmac("sha256", this.secret).update(name, "utf8").digest("hex").slice(0, 32);

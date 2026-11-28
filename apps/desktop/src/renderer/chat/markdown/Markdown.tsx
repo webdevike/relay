@@ -151,8 +151,10 @@ const components: Components = {
     </div>
   ),
   // An image (a click opens it full size), or an inline video when the src is one (MarkdownMedia).
-  img: ({ src, alt }) =>
-    typeof src === 'string' && src !== '' ? <MarkdownMedia src={src} alt={alt ?? ''} /> : null,
+  img: ({ src, alt, title }) =>
+    typeof src === 'string' && src !== '' ? (
+      <MarkdownMedia src={src} alt={alt ?? ''} title={title} />
+    ) : null,
 }
 
 const PLUGINS = [remarkGfm, remarkAppLinks]

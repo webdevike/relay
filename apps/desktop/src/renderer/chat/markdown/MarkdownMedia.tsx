@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { ChatImage } from '@evaos/chat-core/message'
 import { IMAGE_DRAG_TYPE } from '../../canvas/image-drop'
 import { ImageViewer } from '../ImageViewer'
@@ -223,10 +223,24 @@ function MarkdownAudio({ src, caption }: { src: string; caption: string }) {
 export const InLink = createContext(false)
 
 /**
+ * A markdown image title: `w=N` (1..2000, from an `<img width>` the Reviews media pipeline
+ * rewrote) caps the image at N px within its column, never upscaling; any other title stays the
+ * image's tooltip.
+ */
+function imageTitle(title: string | undefined): {
+  style: CSSProperties | undefined
+  title: string | undefined
+} {
+  const w = Number(/^w=(\d{1,4})$/.exec(title ?? '')?.[1] ?? 0)
+  if (w >= 1 && w <= 2000) return { style: { maxWidth: `min(${w}px, 100%)` }, title: undefined }
+  return { style: undefined, title: title || undefined }
+}
+
+/**
  * An image in a reply: a click (or Enter) opens it full size in the image viewer, like a widget's.
  * One that fails says so in a short line instead of a broken icon.
  */
-function MarkdownImage({ src, alt }: { src: string; alt: string }) {
+function MarkdownImage({ src, alt, title }: { src: string; alt: string; title?: string }) {
   const [viewing, setViewing] = useState<{ images: ChatImage[]; start: number } | null>(null)
   const [failed, setFailed] = useState(false)
   const report = useRenderFailure()
@@ -234,6 +248,7 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
   const media = useMediaMenu()
   useEffect(() => setFailed(false), [src])
   const url = mediaUrl(src)
+  const sized = imageTitle(title)
   const onMenu = media.onContextMenu(mediaTarget('image', url, alt))
   const onError = (): void => {
     setFailed(true)
@@ -251,6 +266,8 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         <img
           src={url}
           alt={alt}
+          title={sized.title}
+          style={sized.style}
           loading="lazy"
           draggable={false}
           onError={onError}
@@ -264,6 +281,7 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
       <button
         type="button"
         className="eva-md-image"
+        style={sized.style}
         aria-label={`Open ${alt || 'image'}`}
         data-testid="md-image"
         onContextMenu={onMenu}
@@ -272,6 +290,8 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         <img
           src={url}
           alt={alt}
+          title={sized.title}
+          style={sized.style}
           loading="lazy"
           draggable
           onDragStart={(e) => e.dataTransfer.setData(IMAGE_DRAG_TYPE, url)}
@@ -309,7 +329,7 @@ function MarkdownFile({ caption, type }: { caption: string; type: string }) {
 }
 
 /** Drops, http(s) URLs and local files all load through main's relay-media protocol, like widgets. */
-export function MarkdownMedia({ src, alt }: { src: string; alt: string }) {
+export function MarkdownMedia({ src, alt, title }: { src: string; alt: string; title?: string }) {
   const kind = useMediaKind(src)
   const report = useRenderFailure()
   useEffect(() => {
@@ -322,5 +342,5 @@ export function MarkdownMedia({ src, alt }: { src: string; alt: string }) {
   if (kind.kind === 'video') return <MarkdownVideo src={src} poster={kind.poster} caption={alt} />
   if (kind.kind === 'audio') return <MarkdownAudio src={src} caption={alt} />
   if (kind.kind === 'file') return <MarkdownFile caption={alt} type={kind.type} />
-  return <MarkdownImage src={src} alt={alt} />
+  return <MarkdownImage src={src} alt={alt} title={title} />
 }
