@@ -226,7 +226,7 @@ export function issueTitleOf(body: string): string {
     .slice(0, 120)
 }
 
-/** The ticket as the first message of its private assistant session (as reviews' ticketContext). */
+/** The ticket as the first message of its private assistant session. */
 export function detailContext(d: TicketDetail): string {
   const byId = new Map(d.comments.map((c) => [c.id, c]))
   const name = (a: TicketActor | null): string => a?.name ?? 'Someone'

@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as TilingStore from '../tiling/tiling-store'
 
@@ -77,11 +77,14 @@ vi.mock('../tiling/tiling-store', async (orig) => ({
 }))
 
 import { createTabs, placeOf, type Place } from '@evaos/shell-core'
-import { tabsStore } from '../tabs/tabs-store'
+import { activePlace, tabsStore } from '../tabs/tabs-store'
+import { ticketPlace } from '../tickets/ticket-place'
+import { InboxDone } from './InboxDone'
 import { ReviewPage } from './ReviewPage'
 import { ReviewsList } from './ReviewsList'
+import { ReviewsPage } from './ReviewsPage'
 import { reviewPlaceOf } from './review-place'
-import { resetReviewsForTests, reviewsStore } from './reviews-store'
+import { loadLinear, openReviewItem, resetReviewsForTests, reviewsStore } from './reviews-store'
 import type { ReviewPr } from '@evaos/contract'
 import { applyUiPrefs, getPref, parseBool } from '../ui-prefs'
 import { PrView } from './PrView'
@@ -97,7 +100,8 @@ const seed = (here: Place): void =>
 const wrap = (ui: React.ReactNode) => render(<MantineProvider>{ui}</MantineProvider>)
 
 const PR_PLACE = reviewPlaceOf({ kind: 'pr', repo: ROW.repo, number: ROW.number })
-const TICKET_PLACE = reviewPlaceOf({ kind: 'linear', key: TICKET.key })
+const TICKET_PLACE = ticketPlace(TICKET.key)
+const LEGACY_TICKET_PLACE = reviewPlaceOf({ kind: 'linear', key: TICKET.key })
 const THREAD_PLACE = reviewPlaceOf({
   kind: 'slack',
   channel: THREAD.channel,
@@ -175,19 +179,47 @@ describe('queue rows open review places', () => {
       expect(screen.getByTestId('review-row-172')).toHaveAttribute('data-active', 'true'),
     )
   })
+
+  it('a Linear row opens its ticket page (the Board’s), on the Reviews page too', async () => {
+    wrap(<ReviewsList />)
+    fireEvent.click(await screen.findByTestId('review-ticket-ENG-6648'))
+    expect(openPlace).toHaveBeenLastCalledWith(TICKET_PLACE, { newTab: false })
+    expect(reviewsStore.getState().selected).toBeNull()
+    fireEvent.contextMenu(screen.getByTestId('review-ticket-ENG-6648'))
+    fireEvent.click(await screen.findByTestId('review-row-menu-tab'))
+    expect(openPlace).toHaveBeenLastCalledWith(TICKET_PLACE, { newTab: true })
+  })
+
+  it('marks the Linear row of the ticket page that is open', async () => {
+    seed(TICKET_PLACE)
+    wrap(<ReviewsList />)
+    await waitFor(() =>
+      expect(screen.getByTestId('review-ticket-ENG-6648')).toHaveAttribute('data-active', 'true'),
+    )
+  })
 })
 
 describe('ReviewPage', () => {
-  it('shows a queued ticket and a Slack thread from the place alone', async () => {
-    seed(TICKET_PLACE)
-    const t = wrap(<ReviewPage place={TICKET_PLACE} />)
-    await screen.findByTestId('review-place')
-    await waitFor(() =>
-      expect(screen.getByTestId('review-place')).toHaveAttribute('data-review', 'linear:ENG-6648'),
-    )
-    t.unmount()
+  it('turns a Linear review place (an older tab) into its ticket page', async () => {
+    seed(LEGACY_TICKET_PLACE)
+    wrap(<ReviewPage place={LEGACY_TICKET_PLACE} />)
+    await waitFor(() => expect(activePlace(tabsStore.getState())).toEqual(TICKET_PLACE))
+    expect(openPlace).not.toHaveBeenCalled()
+  })
+
+  it('shows a Slack thread from the place alone', async () => {
+    seed(THREAD_PLACE)
     wrap(<ReviewPage place={THREAD_PLACE} />)
     expect(await screen.findByTestId('review-place')).toBeInTheDocument()
+  })
+
+  it('a Linear item a link asked Reviews for goes on to its ticket page in that tab', async () => {
+    wrap(<ReviewsPage place={placeOf('reviews')} />)
+    await act(async () => {
+      openReviewItem(TICKET.url)
+    })
+    await waitFor(() => expect(activePlace(tabsStore.getState())).toEqual(TICKET_PLACE))
+    expect(reviewsStore.getState().ticketAsk).toBeNull()
   })
 
   it('loads the pull request itself, not the page selection, and says when it cannot', async () => {
@@ -204,6 +236,46 @@ describe('ReviewPage', () => {
     const odd = placeOf('review:other:1')
     wrap(<ReviewPage place={odd} />)
     expect(screen.getByTestId('review-place-unknown')).toBeInTheDocument()
+  })
+})
+
+describe('the ticket page header: Reviews Done', () => {
+  const header = () => wrap(<InboxDone ticketKey={TICKET.key} title={TICKET.title} />)
+
+  it('marks the inbox ticket done with the same reviews.done, then leaves for Reviews', async () => {
+    handlers['reviews.done'] = () => ({ ok: true, value: { [TICKET.url]: Date.now() } })
+    seed(TICKET_PLACE)
+    await loadLinear(false)
+    header()
+    fireEvent.click(await screen.findByTestId('review-done'))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('reviews.done', {
+        url: TICKET.url,
+        updatedAt: expect.any(Number),
+        done: true,
+      }),
+    )
+    // Held back like the inbox row: the button goes, and the tab goes back to Reviews.
+    await waitFor(() => expect(screen.queryByTestId('review-done')).toBeNull())
+    expect(activePlace(tabsStore.getState()).page).toBe('reviews')
+    expect(calls('reviews.linearComment')).toEqual([])
+  })
+
+  it('keeps the ticket open when Done fails', async () => {
+    handlers['reviews.done'] = () => ({ ok: false, error: { code: 'x', message: 'offline' } })
+    seed(TICKET_PLACE)
+    await loadLinear(false)
+    header()
+    fireEvent.click(await screen.findByTestId('review-done'))
+    await waitFor(() => expect(calls('reviews.done')).toHaveLength(1))
+    expect(screen.getByTestId('review-done')).toBeInTheDocument()
+    expect(activePlace(tabsStore.getState())).toEqual(TICKET_PLACE)
+  })
+
+  it('shows no Done for a ticket that is not waiting in the inbox', async () => {
+    await loadLinear(false)
+    wrap(<InboxDone ticketKey="ENG-1" title="Elsewhere" />)
+    expect(screen.queryByTestId('review-done')).toBeNull()
   })
 })
 

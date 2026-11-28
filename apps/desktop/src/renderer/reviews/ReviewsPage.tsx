@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { notifications } from '@mantine/notifications'
-import type { LinearTicket, ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
+import type { ReviewPr, ReviewRow, SlackRow } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
-import { LinearDetail } from './LinearDetail'
+import { useReplacePlace } from '../pages/place-host'
+import { ticketPlace } from '../tickets/ticket-place'
 import { SlackDetail } from './SlackDetail'
 import { ReviewsList } from './ReviewsList'
 import { PrView } from './PrView'
@@ -32,16 +33,29 @@ export async function markDone(
   return r.value
 }
 
-/** Reviews: the pull request, ticket or Slack thread picked in the sidebar queue (Guide, Diff, Comments). */
+/**
+ * A Linear issue a link asked Reviews to open goes on to its ticket page, in this page's own tab
+ * (the Board's ticket page is the one Linear ticket view).
+ */
+function useTicketAsk(): void {
+  const ask = useReviews((s) => s.ticketAsk)
+  const replace = useReplacePlace()
+  useEffect(() => {
+    if (!ask || reviewsStore.getState().ticketAsk !== ask) return
+    reviewsStore.setState({ ticketAsk: null })
+    replace(ticketPlace(ask.key))
+  }, [ask, replace])
+}
+
+/** Reviews: the pull request or Slack thread picked in the sidebar queue (Guide, Diff, Comments). */
 export function ReviewsPage(_: { place: Place }) {
   useReviewsSurface()
+  useTicketAsk()
   const queue = useReviews((s) => s.queue)
   const error = useReviews((s) => s.error)
   const view = useReviews((s) => s.view)
   const selected = useReviews((s) => s.selected)
-  const ticket = useReviews((s) => s.ticket)
   const thread = useReviews((s) => s.thread)
-  const linear = useReviews((s) => s.linear)
   const slack = useReviews((s) => s.slack)
   const [pr, setPr] = useState<{ key: string; pr: ReviewPr; at: number } | null>(null)
   const [prError, setPrError] = useState<string | null>(null)
@@ -73,17 +87,6 @@ export function ReviewsPage(_: { place: Place }) {
     notifications.show({ message: `Done: ${pr.pr.title}`, color: 'green' })
   }
 
-  const doneTicket = async (t: LinearTicket): Promise<void> => {
-    if (!ticket) return
-    const marks = await markDone(t.url, Math.max(ticket.updatedAt, Date.now()))
-    if (!marks) return
-    const rows = linear.rows ?? []
-    const at = rows.findIndex((x) => x.key === ticket.key)
-    const rest = rows.filter((x) => x.key !== ticket.key && !(marks[x.url]! >= x.updatedAt))
-    reviewsStore.setState({ ticket: rest[Math.min(Math.max(at, 0), rest.length - 1)] ?? null })
-    notifications.show({ message: `Done: ${t.key} ${t.title}`, color: 'green' })
-  }
-
   // Done holds a thread back until someone writes in it again.
   const doneThread = async (row: SlackRow): Promise<void> => {
     const marks = await markDone(row.url, row.updatedAt)
@@ -105,14 +108,6 @@ export function ReviewsPage(_: { place: Place }) {
           now={now}
           onBack={() => reviewsStore.setState({ thread: null })}
           onDone={() => void doneThread(thread)}
-        />
-      ) : ticket ? (
-        <LinearDetail
-          key={ticket.key}
-          row={ticket}
-          now={now}
-          onBack={() => reviewsStore.setState({ ticket: null })}
-          onDone={(t) => void doneTicket(t)}
         />
       ) : error ? (
         <div className="eva-rv-placeholder eva-rv-error">Couldn't read GitHub: {error}</div>
