@@ -19,6 +19,7 @@ import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
 import { linearExecutor } from "./linear-writes";
+import { PlanStore } from "./plan";
 import { HandledStore, SeenStore, TicketsStore, type IssueEntry } from "./store";
 import { SummaryCache, type SummarySnapshot, type SummaryWriter } from "./summary";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
@@ -64,6 +65,7 @@ export class TicketsService implements TicketsRelaying {
   private readonly store: TicketsStore;
   private readonly handled: HandledStore;
   private readonly seen: SeenStore;
+  private readonly plan: PlanStore;
   private readonly linear: LinearSync;
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
@@ -85,6 +87,7 @@ export class TicketsService implements TicketsRelaying {
     this.handled = new HandledStore(deps.dir);
     this.summaries = deps.summaryWriter === undefined ? null : new SummaryCache(deps.dir, deps.summaryWriter, deps.now);
     this.seen = new SeenStore(deps.dir);
+    this.plan = new PlanStore(deps.dir);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
     this.github = new GithubSync(deps.ghGraphql, this.store);
     this.gate =
@@ -144,7 +147,11 @@ export class TicketsService implements TicketsRelaying {
       prepare: (o) => this.gate.prepare({ deviceId }, o.mutation, this.gateIdentity()),
       commit: (o) => this.commit(deviceId, o),
       summary: (o) => this.summary(o.key),
-      plan: () => UNAVAILABLE,
+      plan: (o) => {
+        this.plan.set(o.rows);
+        this.publish();
+        return { ok: true };
+      },
       replan: () => UNAVAILABLE,
     };
     const answer = (ops[op.kind] as (o: TicketsOp) => Promise<Answer> | Answer)(op);
@@ -263,7 +270,8 @@ export class TicketsService implements TicketsRelaying {
       me: this.me(),
       handled: this.handled.state,
     });
-    return { ...ticket, prFacts: prs.map((p) => p.facts), attention };
+    const plannedStart = this.plan.get(ticket.key);
+    return { ...ticket, ...(plannedStart !== null && { plannedStart }), prFacts: prs.map((p) => p.facts), attention };
   }
 
   /** Changed cards to subscribed devices as one delta. */
