@@ -3,7 +3,7 @@ import { Checkbox, SegmentedControl, TextInput } from '@mantine/core'
 import { IconChevronDown, IconChevronRight, IconSearch } from '@tabler/icons-react'
 import type { ReviewPr } from '@evaos/contract'
 import { DiffView } from './DiffView'
-import { parseDiff, splitPath } from './diff'
+import { parseDiff, splitPath } from '@relay/protocol/unified-diff'
 import { parseOneOf, usePref } from '../ui-prefs'
 
 type Filter = 'all' | 'unviewed' | 'viewed'

@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./text-diff": "./src/text-diff.ts",
+    "./unified-diff": "./src/unified-diff.ts",
     "./omp-files": "./src/omp-files.ts",
     "./fixtures/*": "./fixtures/*"
   },

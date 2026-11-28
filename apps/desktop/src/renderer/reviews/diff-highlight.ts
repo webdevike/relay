@@ -1,6 +1,6 @@
 // Syntax highlighting for diff lines with highlight.js, the highlighter chat code blocks use.
 import { highlight } from '../chat/markdown/CodeBlock'
-import type { Hunk } from './diff'
+import type { Hunk } from '@relay/protocol/unified-diff'
 
 /** Beyond this many lines in one file's hunks (or this wide a line) highlighting is skipped. */
 export const MAX_HIGHLIGHT_LINES = 4000

@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { splitRows, type DiffLine, type Hunk } from './diff'
+import { splitRows, type DiffLine, type Hunk } from '@relay/protocol/unified-diff'
 import { highlightHunks, isTooLarge, languageForPath, type HunkHtml } from './diff-highlight'
 import '../chat/markdown/markdown.css'
 
