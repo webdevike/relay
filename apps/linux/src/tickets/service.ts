@@ -15,6 +15,7 @@ import { githubExecutor, RelayAutoMerge, relayAutoMergeWatch } from "../reviews/
 import { linearGql, type Fetch, type LinearGql } from "../reviews/linear";
 import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
+import { AnchorStore } from "./anchors";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { RateLimited, type Budgets } from "./budget";
 import { MutationGate, type CommitRequest, type GateIdentity } from "./gate";
@@ -73,6 +74,7 @@ export class TicketsService implements TicketsRelaying {
   private readonly handled: HandledStore;
   private readonly seen: SeenStore;
   private readonly plan: PlanStore;
+  private readonly anchors: AnchorStore;
   private readonly linear: LinearSync;
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
@@ -94,6 +96,7 @@ export class TicketsService implements TicketsRelaying {
     this.handled = new HandledStore(deps.dir);
     this.summaries = deps.summaryWriter === undefined ? null : new SummaryCache(deps.dir, deps.summaryWriter, deps.now);
     this.seen = new SeenStore(deps.dir);
+    this.anchors = new AnchorStore(deps.dir, deps.now);
     this.plan = new PlanStore(deps.dir);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
     const autoMerge = new RelayAutoMerge(deps.dir);
@@ -229,7 +232,7 @@ export class TicketsService implements TicketsRelaying {
       return { ok: false, error: `${key} is not in Linear or this account can't see it` };
     }
     this.publish();
-    return { ok: true, ticket: { ...this.facts(entry), description: entry.ticket.description, comments: entry.comments.slice(-500) } };
+    return { ok: true, ticket: { ...this.facts(entry), description: entry.ticket.description, comments: this.anchors.attach(entry.comments.slice(-500)) } };
   }
 
   private watch(deviceId: string, op: Op<"watch">): Answer {
@@ -260,6 +263,12 @@ export class TicketsService implements TicketsRelaying {
 
   private async commit(deviceId: string, op: Op<"commit">): Promise<Answer> {
     const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, this.gateIdentity());
+    // An inline comment made here keeps where its quote sat (Relay-only); a lost answer may still
+    // have landed under the opId, Linear's id for it.
+    const m = op.mutation;
+    if (m.kind === "comment" && m.anchor !== undefined && answer.outcome !== undefined && answer.outcome.state !== "failed") {
+      this.anchors.set(answer.outcome.result?.id ?? op.opId, m.anchor);
+    }
     // The board shows the write once Linear has it: one coalesced cycle.
     if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
     return answer;

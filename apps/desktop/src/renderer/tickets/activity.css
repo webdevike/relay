@@ -112,3 +112,81 @@
   flex-direction: column;
   gap: var(--mantine-spacing-sm);
 }
+/* Inline threads on the description (InlineThreads.tsx): an overlay layer over the rendered text. */
+.eva-tk-inline {
+  position: relative;
+}
+.eva-tk-inline-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* A quote's highlight: amber with an underline; clicks pass to the text (the hit test opens it). */
+.eva-tk-hl {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid var(--mantine-color-yellow-6);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--mantine-color-yellow-4) 32%, transparent);
+  pointer-events: none;
+}
+.eva-tk-hl[data-resolved] {
+  border-bottom-color: var(--eva-c-border);
+  background: color-mix(in srgb, var(--mantine-color-gray-5) 18%, transparent);
+}
+.eva-tk-hl:focus-visible {
+  outline: 2px solid var(--eva-c-accent);
+  outline-offset: 1px;
+}
+.eva-tk-inline-target {
+  position: absolute;
+  pointer-events: none;
+}
+.eva-tk-seltools {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.4);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-sm);
+  background: var(--eva-popover-bg);
+  box-shadow: var(--eva-shadow);
+  pointer-events: auto;
+}
+.eva-tk-inline-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-tk-inline-foot:empty {
+  display: none;
+}
+.eva-tk-inline-removed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  align-self: stretch;
+}
+.eva-tk-inline-pop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.eva-tk-inline-pophead {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-tk-inline-draft {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-tk-inline-draft .eva-tk-quoted {
+  margin-left: 0;
+}

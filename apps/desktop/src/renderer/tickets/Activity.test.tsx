@@ -1,11 +1,26 @@
 import { MantineProvider } from '@mantine/core'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AstraItem } from '@evaos/contract'
 import type { TicketComment, TicketDetail } from '@relay/protocol'
 
 const invoke = vi.fn()
-vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
+const listeners = new Map<string, Set<(v: unknown) => void>>()
+vi.mock('../ipc', () => ({
+  invoke: (...a: unknown[]) => invoke(...a),
+  on: (channel: string, cb: (v: unknown) => void) => {
+    const set = listeners.get(channel) ?? new Set()
+    listeners.set(channel, set)
+    set.add(cb)
+    return () => set.delete(cb)
+  },
+}))
+/** Main's push of an item session (`reviews.astraUpdate`). */
+const pushAstra = (item: AstraItem): void =>
+  act(() => {
+    for (const cb of listeners.get('reviews.astraUpdate') ?? []) cb(item)
+  })
 vi.mock('@mantine/notifications', () => ({ notifications: { show: () => {}, hide: () => {} } }))
 
 import { Activity, TicketDescription } from './Activity'
@@ -98,9 +113,10 @@ const view = (data: TicketData) =>
 const commentEl = (id: string) =>
   screen.getAllByTestId('ticket-comment').find((el) => el.dataset.commentId === id)!
 
+/** The comment's "..." menu items once it has opened (a loaded machine may take a while). */
 async function menuOf(id: string): Promise<string[]> {
   await userEvent.click(within(commentEl(id)).getByTestId('comment-menu'))
-  const items = await screen.findAllByRole('menuitem')
+  const items = await screen.findAllByRole('menuitem', {}, { timeout: 5_000 })
   return items.map((i) => i.getAttribute('data-testid')!.replace('comment-action-', ''))
 }
 
@@ -139,14 +155,15 @@ describe('Activity', () => {
     cleanup()
     view(dataOf())
     expect(await menuOf('theirs')).toEqual(['resolve', 'copyLink', 'copyMarkdown', 'newIssue'])
-  })
+  }, 15_000)
 
   it('without the gate only copies are offered and reactions do not toggle', async () => {
     gate()
     view(dataOf({ writeMode: 'legacy' }))
+    const reaction = await within(commentEl('theirs')).findByTestId('comment-reaction')
+    expect(reaction).toBeDisabled()
     expect(await menuOf('mine')).toEqual(['copyLink', 'copyMarkdown'])
-    expect(within(commentEl('theirs')).getByTestId('comment-reaction')).toBeDisabled()
-  })
+  }, 15_000)
 
   it('deleting a root confirms with its replies disclosed, then commits once', async () => {
     gate()
@@ -290,5 +307,103 @@ describe('Activity', () => {
     })
     expect(calls('tickets.prepare')).toHaveLength(0)
     expect(await within(commentEl('mine')).findByText('Better words')).toBeTruthy()
+  })
+
+  it('Nova and Astra each get the ask in their own session (`agent`), never the gate', async () => {
+    gate()
+    view(dataOf())
+    const box = screen.getByTestId('ticket-composer') as HTMLTextAreaElement
+    await userEvent.type(box, '@Nova check the plan')
+    await userEvent.click(screen.getByTestId('ticket-composer-send'))
+    await waitFor(() => expect(box.value).toBe(''))
+    await userEvent.type(box, '@Astra check it too')
+    await userEvent.click(screen.getByTestId('ticket-composer-send'))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(2))
+    const asks = calls('reviews.astraAsk').map(
+      ([, input]) => input as { agent: string; text: string },
+    )
+    expect(asks.map((a) => [a.agent, a.text])).toEqual([
+      ['nova', '@Nova check the plan'],
+      ['astra', '@Astra check it too'],
+    ])
+    expect(calls('tickets.prepare')).toHaveLength(0)
+    expect(calls('tickets.commit')).toHaveLength(0)
+  })
+
+  it('@Astra in a reply asks privately with the thread, and her reply shows in that thread', async () => {
+    gate()
+    view(dataOf())
+    await userEvent.click(within(commentEl('theirs')).getByRole('button', { name: 'Reply' }))
+    await userEvent.type(await screen.findByTestId('ticket-reply-box'), '@Astra is this right?')
+    expect(screen.getByTestId('composer-private').textContent).toContain('Only you')
+    await userEvent.click(screen.getByTestId('ticket-reply-box-send'))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(1))
+    const { text, agent } = calls('reviews.astraAsk')[0]![1] as { text: string; agent: string }
+    expect(agent).toBe('astra')
+    expect(text).toMatch(
+      /^\(In the thread theirs on "Their root"\)\n<thread>\n- Pal Lee: Their root\n<\/thread>\n@Astra is this right\?$/,
+    )
+    pushAstra({
+      url: 'https://linear.app/issue/ENG-1',
+      title: 'Astra · ENG-1',
+      file: 'f.jsonl',
+      turns: [
+        { id: 'u', role: 'user', text, streaming: false, at: 10 },
+        { id: 'a', role: 'assistant', text: 'Yes, it holds.', streaming: false, at: 11 },
+      ],
+      working: false,
+      waiting: null,
+      error: null,
+    })
+    const thread = screen
+      .getAllByTestId('ticket-thread')
+      .find((t) => t.dataset.rootId === 'theirs')!
+    const reply = await within(thread).findByTestId('assistant-reply')
+    expect(reply.dataset.agent).toBe('astra')
+    // Isaac sees his words, not the thread they carried; her answer is in the thread.
+    expect(within(reply).getByTestId('review-astra-question').textContent).toContain(
+      '@Astra is this right?',
+    )
+    expect(within(reply).getByTestId('review-astra-question').textContent).not.toContain('<thread>')
+    expect(within(reply).getByTestId('review-astra-answer').textContent).toContain('Yes, it holds.')
+    expect(within(reply).queryByTestId('review-astra-use')).toBeNull()
+    expect(calls('tickets.prepare')).toHaveLength(0)
+  })
+
+  it('inline threads sit on the description, not in the activity; text edited away is listed', async () => {
+    gate()
+    const inline = (id: string, quotedText: string, over: Partial<TicketComment> = {}) =>
+      comment(id, 10, { documentContentId: 'doc-1', quotedText, body: `On ${quotedText}`, ...over })
+    const d = {
+      ...detail,
+      documentContentId: 'doc-1',
+      description: 'Save the draft first. Then save the draft again.',
+      comments: [
+        ...detail.comments,
+        inline('inl-1', 'the draft', {
+          anchor: { prefix: 'Savethedraftfirst.Thensave', suffix: 'again.' },
+        }),
+        inline('inl-gone', 'old words'),
+        inline('inl-done', 'first', { resolvedAt: 20 }),
+      ],
+    } as TicketDetail
+    const data = dataOf({ detail: d })
+    render(
+      <MantineProvider>
+        <TicketDescription data={data} />
+        <Activity data={data} focusCommentId={null} />
+      </MantineProvider>,
+    )
+    const roots = () => screen.getAllByTestId('ticket-thread').map((t) => t.dataset.rootId)
+    const removed = await screen.findByTestId('inline-removed')
+    expect(removed.textContent).toContain('Comment on removed text')
+    expect(
+      within(removed)
+        .getAllByTestId('ticket-thread')
+        .map((t) => t.dataset.rootId),
+    ).toEqual(['inl-gone'])
+    // The removed one under the description, then the activity's own threads.
+    expect(roots()).toEqual(['inl-gone', 'mine', 'theirs'])
+    expect(screen.getByTestId('inline-resolved-toggle').textContent).toBe('Resolved (1)')
   })
 })

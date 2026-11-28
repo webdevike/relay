@@ -20,6 +20,7 @@ import { shareSnapshotsMachine } from './meetings/share-snapshots.machine'
 import { cardStackMachine } from '../renderer/chat/stack/card-stack.machine'
 import { cardMoveMachine } from '../renderer/agents-board/card-move.machine'
 import { timelinePlanMachine } from '../renderer/agents-board/timeline/plan.machine'
+import { assistantAskMachine } from '../renderer/tickets/assistant-ask.machine'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   {
@@ -63,6 +64,11 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
     file: 'timeline-plan',
     title: 'Timeline drafts, Astra re-plan and Apply (desktop)',
     machine: timelinePlanMachine,
+  },
+  {
+    file: 'assistant-ask',
+    title: 'A private ask to an assistant on a ticket (desktop)',
+    machine: assistantAskMachine,
   },
 ]
 

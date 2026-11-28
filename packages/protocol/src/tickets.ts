@@ -160,6 +160,16 @@ export const Ticket = z.object({
 });
 export type Ticket = z.infer<typeof Ticket>;
 
+/**
+ * Where an inline comment's quote sat when Isaac made it in Relay: the description's text just
+ * before and after it, whitespace removed. Relay-only (host `anchors.json`), never sent to Linear.
+ */
+export const TicketAnchorContext = z.object({
+  prefix: z.string().max(200),
+  suffix: z.string().max(200),
+});
+export type TicketAnchorContext = z.infer<typeof TicketAnchorContext>;
+
 export const TicketComment = z.object({
   id: Id,
   /** The root comment of its thread; null for a root. */
@@ -178,6 +188,8 @@ export const TicketComment = z.object({
     .array(z.object({ emoji: z.string().min(1).max(64), users: z.array(TicketActor).max(50) }))
     .max(50),
   url: Url,
+  /** An inline comment Isaac made in Relay: the context that picks its occurrence of the quote. */
+  anchor: TicketAnchorContext.optional(),
 });
 export type TicketComment = z.infer<typeof TicketComment>;
 
@@ -360,6 +372,8 @@ export const TicketMutation = z.discriminatedUnion("kind", [
     documentContentId: Id.optional(),
     parentId: Id.optional(),
     quotedText: z.string().max(MAX_TICKET_TEXT).optional(),
+    /** Relay-only: kept by the host for the created comment, not written to Linear. */
+    anchor: TicketAnchorContext.optional(),
     body: Body,
   }),
   z.object({ kind: z.literal("editComment"), commentId: Id, body: Body }),
