@@ -122,8 +122,10 @@ test('inline comment: select, confirm, one commit, anchored; @Astra in it stays 
   await box.fill('Which flow is this?')
   await shell.locator(sel('inline-composer-send')).click()
   await expect(shell.locator(sel('review-confirm-text'))).toHaveText('Which flow is this?')
-  await expect(shell.locator(sel('review-confirm-note'))).toContainText('On “flow, as drawn”')
+  // The confirm shows what the host's gate approved: the exact text and the quote it binds.
+  await expect(shell.locator(sel('approval-quote'))).toHaveText('flow, as drawn')
   expect(writes().map((w) => w.kind)).toEqual(['prepare'])
+  expect(writes()[0]).toMatchObject({ viewerId: 'user-isaac' })
   await shell.locator(sel('review-confirm-post')).click()
 
   // One commit, on the description's document, with the quote and where it sat.
