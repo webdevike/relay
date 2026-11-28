@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, utimesSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import signedImages from "@relay/protocol/fixtures/signed-images.json";
 import { ReviewMedia } from "../src/reviews/linear";
 import {
   fetchMedia,
@@ -302,5 +303,24 @@ describe("review media", () => {
     expect(script).toContain("'/api/files.info'");
     expect(script).not.toMatch(/chat\.postMessage|location\s*=|\.click\(|keyboard|dispatchEvent/);
     expect(await slackImage("F1", media, "http://127.0.0.1:9")).toBeNull();
+  });
+});
+
+describe("signed GitHub images in every form the clients render", () => {
+  const github = [{ match: isGithubUpload, headers: () => Promise.resolve({ authorization: "token T" }) }];
+  const served = () => Promise.resolve(new Response(PNG, { headers: { "content-type": "image/png" } }));
+  const refused = () => Promise.resolve(new Response("no", { status: 404 }));
+  const fresh = () => new ReviewMedia(join(mkdtempSync(join(tmpdir(), "relay signed ")), "media"));
+
+  it.each(Object.entries(signedImages.forms))("serves %s from the host and keeps no signature", async (_, md) => {
+    const out = await localizeImages(md, fresh(), github, served);
+    expect(out).toMatch(/\/reviews\/media\/[0-9a-f]{40}\.png\/[0-9a-f]{32}/);
+    for (const secret of signedImages.secrets) expect(JSON.stringify(out)).not.toContain(secret);
+  });
+
+  it.each(Object.entries(signedImages.forms))("points a failed %s at the placeholder and keeps no signature", async (_, md) => {
+    const out = await localizeImages(md, fresh(), github, refused);
+    expect(out).toContain(UNAVAILABLE_MEDIA);
+    for (const secret of signedImages.secrets) expect(JSON.stringify(out)).not.toContain(secret);
   });
 });

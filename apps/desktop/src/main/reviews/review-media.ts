@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { imageSources, rewriteImages } from '@relay/protocol/markdown-images'
 
 export const REVIEWS_MEDIA_DIR = 'reviews-media'
 export const REVIEWS_MEDIA_PREFIX = '/reviews/media/'
@@ -29,67 +30,6 @@ export function reviewsMediaFile(dir: string, src: string): string | null {
   return NAME.test(name) ? path.join(dir, name) : null
 }
 
-/** `![alt](url)`, `![alt](<url>)`, `![alt](url "title")` and `<img ... src="url" ...>`. */
-const IMAGE = /!\[([^\]\n]*)\]\(\s*<?([^\s)>]+)>?(?:\s+"([^"]*)")?\s*\)|<img\b[^>]*>/gi
-
-/** An HTML attribute's value, quoted or not. */
-function attr(tag: string, name: string): string | undefined {
-  const m = new RegExp(`[\\s"'/]${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(
-    tag,
-  )
-  return m?.[1] ?? m?.[2] ?? m?.[3]
-}
-
-const cleanAlt = (alt: string): string =>
-  alt
-    .replace(/[[\]\n\r]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-/** An `<img>`'s pixel width: its `width` attribute, else a `width: Npx` in its style. */
-function htmlWidth(tag: string): number | undefined {
-  const w =
-    /^(\d+)(?:px)?\/?$/i.exec(attr(tag, 'width') ?? '')?.[1] ??
-    /(?:^|;)\s*width\s*:\s*(\d+)(?:\.\d+)?px/i.exec(attr(tag, 'style') ?? '')?.[1]
-  return w === undefined || Number(w) === 0 ? undefined : Number(w)
-}
-
-interface Image {
-  alt: string
-  url: string
-  /** The markdown title: an `<img>`'s width as `w=N` (the renderer's bounded width), followed by its title. */
-  title: string | undefined
-}
-
-/** An `<img>`'s markdown title: `w=N`, `w=N <title>` when it has both, else its title. */
-function widthTitle(width: number | undefined, title: string | undefined): string | undefined {
-  if (width === undefined) return title
-  return title?.trim() ? `w=${width} ${title}` : `w=${width}`
-}
-
-/** One `IMAGE` match as an image; undefined for an `<img>` without a `src`. */
-function image(
-  whole: string,
-  alt: string | undefined,
-  url: string | undefined,
-  title: string | undefined,
-): Image | undefined {
-  if (!whole.startsWith('<')) return url ? { alt: alt ?? '', url, title } : undefined
-  const src = attr(whole, 'src')
-  if (!src) return undefined
-  const width = htmlWidth(whole)
-  return {
-    alt: attr(whole, 'alt') ?? '',
-    url: src,
-    title: widthTitle(width, attr(whole, 'title')),
-  }
-}
-
-function markdownImage(i: Image, url: string): string {
-  const title = (i.title ?? '').replace(/"/g, "'").replace(/\s+/g, ' ').trim()
-  return `![${cleanAlt(i.alt)}](${url}${title === '' ? '' : ` "${title}"`})`
-}
-
 export interface MediaSource {
   /** Whether this host's images are downloaded (else the URL stays as it is). */
   match: (url: string) => boolean
@@ -98,11 +38,12 @@ export interface MediaSource {
 }
 
 /**
- * Rewrites every image in `md`: HTML `<img>` tags become markdown images (their width kept as the
- * title `w=N`), titles stay, and images a source matches are downloaded once and point at
- * `/reviews/media/<file>`. A matched image that fails to download points at `UNAVAILABLE_MEDIA`
- * (its URL may be signed); other images keep their URL. Downloads run in
- * parallel; a file already in `dir` is reused.
+ * Rewrites every image in `md` (`@relay/protocol/markdown-images`: HTML `<img>` tags become
+ * markdown images, their width kept as the title `w=N`, titles stay), and images a source matches
+ * are downloaded once and point at `/reviews/media/<file>`. A matched image that fails to download
+ * points at `UNAVAILABLE_MEDIA` (its URL may be signed); other images keep their URL. A link around
+ * an image whose destination a source matches is dropped (the image stays), so a signed URL never
+ * survives as a link either. Downloads run in parallel; a file already in `dir` is reused.
  */
 export async function localizeImages(
   md: string,
@@ -110,23 +51,18 @@ export async function localizeImages(
   sources: readonly MediaSource[],
   limits: MediaLimits = MEDIA_LIMITS,
 ): Promise<string> {
-  const urls = new Set<string>()
-  for (const m of md.matchAll(IMAGE)) {
-    const url = image(m[0], m[1], m[2], m[3])?.url
-    if (url) urls.add(url)
-  }
   const local = new Map(
     await Promise.all(
-      [...urls].map(async (url) => {
+      imageSources(md).flatMap((url) => {
         const source = sources.find((s) => s.match(url))
-        return [url, source ? await download(url, dir, source, limits) : url] as const
+        return source ? [download(url, dir, source, limits).then((to) => [url, to] as const)] : []
       }),
     ),
   )
-  return md.replace(IMAGE, (whole: string, alt?: string, mdUrl?: string, title?: string) => {
-    const i = image(whole, alt, mdUrl, title)
-    return i ? markdownImage(i, local.get(i.url) ?? i.url) : whole
-  })
+  return rewriteImages(
+    md,
+    (url) => local.get(url) ?? (sources.some((s) => s.match(url)) ? UNAVAILABLE_MEDIA : undefined),
+  )
 }
 
 /** A URL as origin + path: a signed URL's query (GitHub's JWT) never goes into an error or a log. */

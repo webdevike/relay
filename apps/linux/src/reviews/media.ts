@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { imageSources, rewriteImages } from "@relay/protocol/markdown-images";
 import { z } from "zod";
 import type { Fetch, ReviewMedia } from "./linear";
 
@@ -27,69 +28,6 @@ const EXT: Record<string, string> = {
   "image/gif": ".gif",
   "image/webp": ".webp",
 };
-
-/** `![alt](url)`, `![alt](<url>)`, `![alt](url "title")` and `<img ... src="url" ...>`. */
-const IMAGE = /!\[([^\]\n]*)\]\(\s*<?([^\s)>]+)>?(?:\s+"([^"]*)")?\s*\)|<img\b[^>]*>/gi;
-
-/** An HTML attribute's value, quoted or not. */
-function attr(tag: string, name: string): string | undefined {
-  const m = new RegExp(`[\\s"'/]${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(
-    tag,
-  );
-  return m?.[1] ?? m?.[2] ?? m?.[3];
-}
-
-const cleanAlt = (alt: string): string =>
-  alt
-    .replace(/[[\]\n\r]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-/** An `<img>`'s pixel width: its `width` attribute, else a `width: Npx` in its style. */
-function htmlWidth(tag: string): number | undefined {
-  const w =
-    /^(\d+)(?:px)?\/?$/i.exec(attr(tag, "width") ?? "")?.[1] ??
-    /(?:^|;)\s*width\s*:\s*(\d+)(?:\.\d+)?px/i.exec(attr(tag, "style") ?? "")?.[1];
-  return w === undefined || Number(w) === 0 ? undefined : Number(w);
-}
-
-interface Image {
-  alt: string;
-  url: string;
-  /** The markdown title: an `<img>`'s width as `w=N` (the renderer's bounded width), followed by its title. */
-  title: string | undefined;
-}
-
-/** An `<img>`'s markdown title: `w=N`, `w=N <title>` when it has both, else its title. */
-function widthTitle(width: number | undefined, title: string | undefined): string | undefined {
-  if (width === undefined) return title;
-  return title === undefined || title.trim() === ""
-    ? `w=${String(width)}`
-    : `w=${String(width)} ${title}`;
-}
-
-/** One `IMAGE` match as an image; undefined for an `<img>` without a `src`. */
-function image(
-  whole: string,
-  alt: string | undefined,
-  url: string | undefined,
-  title: string | undefined,
-): Image | undefined {
-  if (!whole.startsWith("<")) return url === undefined ? undefined : { alt: alt ?? "", url, title };
-  const src = attr(whole, "src");
-  if (src === undefined) return undefined;
-  const width = htmlWidth(whole);
-  return {
-    alt: attr(whole, "alt") ?? "",
-    url: src,
-    title: widthTitle(width, attr(whole, "title")),
-  };
-}
-
-function markdownImage(i: Image, url: string): string {
-  const title = (i.title ?? "").replace(/"/g, "'").replace(/\s+/g, " ").trim();
-  return `![${cleanAlt(i.alt)}](${url}${title === "" ? "" : ` "${title}"`})`;
-}
 
 export interface MediaSource {
   /** Whether an image at this URL is downloaded (else it stays as it is). */
@@ -289,9 +227,11 @@ function download(
 }
 
 /**
- * Every image in `md` as markdown: `<img>` tags become `![alt](src "w=N")` (their width kept as the
- * title), titles stay, and images a source matches point at the host's copy. A source's image that fails
- * to download points at `UNAVAILABLE_MEDIA` (its URL may be signed); other images keep their URL.
+ * Every image in `md` as markdown (`@relay/protocol/markdown-images`: `<img>` tags become
+ * `![alt](src "w=N")`, titles stay), images a source matches pointing at the host's copy. A source's
+ * image that fails to download points at `UNAVAILABLE_MEDIA` (its URL may be signed); other images
+ * keep their URL. A link around an image whose destination a source matches is dropped (the image
+ * stays), so a signed URL never survives as a link either.
  */
 export async function localizeImages(
   md: string,
@@ -299,33 +239,20 @@ export async function localizeImages(
   sources: readonly MediaSource[],
   fetchFn: Fetch,
 ): Promise<string> {
-  const urls = new Set<string>();
-  for (const m of md.matchAll(IMAGE)) {
-    const url = image(m[0], m[1], m[2], m[3])?.url;
-    if (url !== undefined) urls.add(url);
-  }
   const local = new Map(
     await Promise.all(
-      [...urls].map(async (url) => {
+      imageSources(md).flatMap((url) => {
         const source = sources.find((s) => s.match(url));
-        return [
-          url,
-          source === undefined ? url : await download(url, media, source, fetchFn),
-        ] as const;
+        return source === undefined
+          ? []
+          : [download(url, media, source, fetchFn).then((to) => [url, to] as const)];
       }),
     ),
   );
-  return md.replace(
-    IMAGE,
-    (
-      whole: string,
-      alt: string | undefined,
-      mdUrl: string | undefined,
-      title: string | undefined,
-    ) => {
-      const i = image(whole, alt, mdUrl, title);
-      return i === undefined ? whole : markdownImage(i, local.get(i.url) ?? i.url);
-    },
+  return rewriteImages(
+    md,
+    (url) =>
+      local.get(url) ?? (sources.some((s) => s.match(url)) ? UNAVAILABLE_MEDIA : undefined),
   );
 }
 

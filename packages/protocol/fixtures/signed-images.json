@@ -1,0 +1,14 @@
+{
+  "signed": "https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT",
+  "secrets": ["SECRETJWT", "jwt=", "private-user-images"],
+  "forms": {
+    "double-quoted title": "![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT \"t\")",
+    "single-quoted title": "![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT 't')",
+    "parenthesized title": "![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT (t))",
+    "no title": "![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
+    "<img> tag": "<img width=\"300\" alt=\"a\" src=\"https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\">",
+    "linked image repeating its source": "[![a](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)](https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT)",
+    "<a href> around an <img>": "<a href=\"https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\" target=\"_blank\"><img alt=\"a\" src=\"https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT\"></a>",
+    "reference definition": "![a][shot]\n\n[shot]: https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT"
+  }
+}

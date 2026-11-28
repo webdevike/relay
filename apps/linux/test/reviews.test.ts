@@ -10,6 +10,7 @@ import { GitHub, snapshotDiff, toItem, toPr, type RawPr } from "../src/reviews/g
 import { claudeWriter, guideCache, HEAD_CHANGED } from "../src/reviews/guide";
 import { folderSections, NO_TEXT_CHANGES } from "@relay/protocol/review-guide";
 import guideFixture from "@relay/protocol/fixtures/review-guide.json";
+import signedImages from "@relay/protocol/fixtures/signed-images.json";
 import { handleReviewsMedia } from "../src/reviews/http";
 import { linearItem, reasonOf, ReviewMedia, toActivity, toRows as linearRows } from "../src/reviews/linear";
 import { DRY_RUN_ERROR, ReviewsService, type ReviewsMessage, type ReviewsServiceDeps } from "../src/reviews/service";
@@ -358,6 +359,30 @@ describe("guide snapshot", () => {
     expect(got.diff).toBe(snapshotDiff(big));
     expect(got.diff).toHaveLength(MAX_REVIEW_DIFF);
     expect(got.diff).not.toContain("late.ts");
+  });
+});
+
+describe("PR images at the answer boundary", () => {
+  const forms = Object.values(signedImages.forms);
+  const BASE = "c".repeat(40);
+  const HEAD = "a".repeat(40);
+  const raw = { number: 7, title: "Lock", url: "u", state: "OPEN", isDraft: false, author: null, createdAt: "", updatedAt: "", body: forms.join("\n\n"), baseRefName: "main", headRefName: "f", headRefOid: HEAD, baseRefOid: BASE, additions: 0, deletions: 0, commits: [], files: [], reviewRequests: [], latestReviews: [], reviews: forms.map((body) => ({ author: { login: "sam" }, state: "COMMENTED", body, submittedAt: "" })), comments: forms.map((body) => ({ author: { login: "sam" }, body, createdAt: "" })), assignees: [], labels: [], statusCheckRollup: [] };
+  const run: ToolRun = (argv) => {
+    const ok = (stdout: string) => Promise.resolve({ code: 0, stdout, stderr: "", timedOut: false });
+    if (argv[2] === "view") return ok(JSON.stringify(raw));
+    if (argv[2] === `repos/o/r/compare/${BASE}...${HEAD}`) return ok("");
+    return argv[1] === "auth" ? ok("tok\n") : ok("never");
+  };
+
+  it.each([
+    ["served", () => Promise.resolve(new Response(new Uint8Array([0x89, 0x50]), { headers: { "content-type": "image/png" } })), /\/reviews\/media\/[0-9a-f]{40}\.png\//],
+    ["unavailable", () => Promise.resolve(new Response("no", { status: 404 })), /\/reviews\/media\/unavailable/],
+  ] as const)("answers a PR whose body, comments and reviews hold every signed image form without a signature (%s)", async (_, fetchFn, path) => {
+    const media = new ReviewMedia(join(dir, "media"));
+    const pr = await new GitHub(run, "gh", { media, fetchFn, linearKey: () => null }).pr("o/r", 7);
+    expect(pr.body).toMatch(path);
+    expect(pr.timeline.filter((t) => path.test(t.body))).toHaveLength(forms.length * 2);
+    for (const secret of signedImages.secrets) expect(JSON.stringify(pr)).not.toContain(secret);
   });
 });
 

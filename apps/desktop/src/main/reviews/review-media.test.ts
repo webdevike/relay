@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import signedImages from '@relay/protocol/fixtures/signed-images.json'
 import { resolveMedia } from '../chat/widget-media'
 import {
   fetchMedia,
@@ -298,4 +299,33 @@ describe('review media', () => {
     await get(byBytes, 'z', ten)
     expect(fs.readdirSync(byBytes).sort()).toEqual([file('y'), file('z')].sort())
   })
+})
+
+describe('signed GitHub images in every form the clients render', () => {
+  const github = [{ match: isGithubUpload, headers: async () => ({ authorization: 'token T' }) }]
+  const fresh = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'relay signed '))
+  afterEach(() => vi.unstubAllGlobals())
+
+  it.each(Object.entries(signedImages.forms))(
+    'serves %s from /reviews/media and keeps no signature',
+    async (_, md) => {
+      vi.stubGlobal(
+        'fetch',
+        async () => new Response(PNG, { headers: { 'content-type': 'image/png' } }),
+      )
+      const out = await localizeImages(md, fresh(), github)
+      expect(out).toMatch(/\/reviews\/media\/[0-9a-f]{40}\.png/)
+      for (const secret of signedImages.secrets) expect(JSON.stringify(out)).not.toContain(secret)
+    },
+  )
+
+  it.each(Object.entries(signedImages.forms))(
+    'points a failed %s at the placeholder and keeps no signature',
+    async (_, md) => {
+      vi.stubGlobal('fetch', async () => new Response('no', { status: 404 }))
+      const out = await localizeImages(md, fresh(), github)
+      expect(out).toContain(UNAVAILABLE_MEDIA)
+      for (const secret of signedImages.secrets) expect(JSON.stringify(out)).not.toContain(secret)
+    },
+  )
 })
