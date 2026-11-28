@@ -2,35 +2,43 @@
 // headless (`claude -p`, no tools, no session) from the PR's title, body and annotated diff. The
 // prompt and the check of the answer are `@relay/protocol/review-guide`, shared with Relay
 // Desktop's local runner; when the model fails the files are grouped by folder instead. Kept per
-// PR head commit in `$XDG_CONFIG_HOME/relay/reviews/guides.json`, so a PR is written once per push.
+// PR base and head commit in `$XDG_CONFIG_HOME/relay/reviews/guides.json`, so a PR is written once
+// per push (or base move).
 
 import { tmpdir } from "node:os";
 import { ReviewGuide } from "@relay/protocol";
-import { folderSections, guidePrompt, parseGuide, sendDiff, type GuideInput } from "@relay/protocol/review-guide";
+import { folderSections, guideRequest, NO_TEXT_CHANGES, parseGuide, type GuideInput } from "@relay/protocol/review-guide";
 import { z } from "zod";
 import { readJson, writeJson, type ToolRun } from "./exec";
 
 const GUIDE_TIMEOUT_MS = 180_000;
 const KEEP_GUIDES = 40;
-/** Cache generation: v1 entries (folder-level sections) are not served to a v2 reader. */
-const CACHE_VERSION = "v2";
+/** Cache generation: entries of earlier generations (head-only keys, unchecked prose) are not served. */
+const CACHE_VERSION = "v3";
 export const HEAD_CHANGED = "PR changed; regenerating";
 
 const ClaudeOut = z.object({ result: z.string(), is_error: z.boolean().optional() });
 const Saved = z.record(z.string(), ReviewGuide.extend({ at: z.number() }));
 
-/** What the Guide is written from, read for one head commit. */
-export type GuideSnapshot = GuideInput & { headRefOid: string };
+/** What the Guide is written from, read at one base and head commit (`base...head`). */
+export type GuideSnapshot = GuideInput & { headRefOid: string; baseRefOid: string };
+
+/** The commits the client shows; a snapshot read at others is refused. */
+export interface GuidePin {
+  headSha: string;
+  /** Absent from older clients: then only the head is checked. */
+  baseSha?: string | undefined;
+}
 
 /** Runs the prompt once and answers the model's text; throws with a short reason. */
 export type GuideWriter = (prompt: string) => Promise<string>;
 
-/** `claude -p` on Sonnet with no tools, no MCP servers, no settings and no saved session. */
+/** `claude -p` on Sonnet with no tools, no MCP servers, no settings and no saved session; the prompt goes on stdin. */
 export function claudeWriter(run: ToolRun, claude: string): GuideWriter {
   return async (prompt) => {
     const res = await run(
-      [claude, "-p", prompt, "--model", "sonnet", "--tools", "", "--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--setting-sources", ""],
-      { cwd: tmpdir(), timeoutMs: GUIDE_TIMEOUT_MS },
+      [claude, "-p", "--model", "sonnet", "--tools", "", "--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--setting-sources", ""],
+      { cwd: tmpdir(), timeoutMs: GUIDE_TIMEOUT_MS, stdin: prompt },
     );
     if (res.timedOut) throw new Error("Claude took too long");
     if (res.code !== 0) throw new Error(`claude exited ${res.code === null ? "by a signal" : String(res.code)}`);
@@ -46,15 +54,16 @@ export function claudeWriter(run: ToolRun, claude: string): GuideWriter {
   };
 }
 
-/** The Guide for `headSha`; rejects with HEAD_CHANGED when the snapshot read is for another head. */
-export type GuideRead = (key: string, headSha: string, pr: GuideSnapshot) => Promise<ReviewGuide>;
+/** The Guide for `pin`; rejects with HEAD_CHANGED when the snapshot was read at other commits. */
+export type GuideRead = (key: string, pin: GuidePin, pr: GuideSnapshot) => Promise<ReviewGuide>;
 
-/** Writes one Guide: the model's walkthrough, or the folder fallback with the reason. */
+/** Writes one Guide: the model's walkthrough, or the folder fallback with the reason (the model is not asked without text changes). */
 async function writeGuide(write: GuideWriter, headSha: string, pr: GuideInput): Promise<ReviewGuide> {
   const paths = pr.files.map((f) => f.path);
   try {
-    const sent = sendDiff(pr.diff);
-    const body = parseGuide(await write(guidePrompt(pr, sent)), sent, paths);
+    const req = guideRequest(pr);
+    if (req === null) throw new Error(NO_TEXT_CHANGES);
+    const body = parseGuide(await write(req.prompt), req.sent, paths);
     if (!body) throw new Error("Claude answered in the wrong shape");
     return { headSha, source: "model", error: null, ...body };
   } catch (e) {
@@ -63,7 +72,7 @@ async function writeGuide(write: GuideWriter, headSha: string, pr: GuideInput): 
   }
 }
 
-/** One Guide per PR head, kept in `file`; one generation at a time per head. */
+/** One Guide per PR base and head, kept in `file`; one generation at a time per pair. */
 export function guideCache(file: string, write: GuideWriter): GuideRead {
   const running = new Map<string, Promise<ReviewGuide>>();
   const saved = (): z.infer<typeof Saved> => {
@@ -76,14 +85,14 @@ export function guideCache(file: string, write: GuideWriter): GuideRead {
       .slice(0, KEEP_GUIDES);
     writeJson(file, Object.fromEntries(kept));
   };
-  return (key, headSha, pr) => {
-    if (pr.headRefOid !== headSha) return Promise.reject(new Error(HEAD_CHANGED));
-    const id = `${key}@${headSha}@${CACHE_VERSION}`;
+  return (key, pin, pr) => {
+    if (pr.headRefOid !== pin.headSha || (pin.baseSha !== undefined && pr.baseRefOid !== pin.baseSha)) return Promise.reject(new Error(HEAD_CHANGED));
+    const id = `${key}@${pr.baseRefOid}...${pr.headRefOid}@${CACHE_VERSION}`;
     const hit = saved()[id];
     if (hit) return Promise.resolve(ReviewGuide.parse(hit));
     const busy = running.get(id);
     if (busy) return busy;
-    const job = writeGuide(write, headSha, pr)
+    const job = writeGuide(write, pr.headRefOid, pr)
       .then((guide) => {
         // Only a written Guide is kept; after a fallback the next open asks the model again.
         if (guide.source === "model") keep(id, guide);

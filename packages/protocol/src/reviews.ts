@@ -126,6 +126,8 @@ export const ReviewPr = z.object({
   base: z.string(),
   head: z.string(),
   headSha: z.string(),
+  /** The base commit the diff was read against (`base...head`); absent from older hosts. */
+  baseSha: z.string().optional(),
   additions: z.number(),
   deletions: z.number(),
   reviewers: z.array(z.object({ login: z.string(), state: z.string() })),
@@ -157,7 +159,7 @@ export const ReviewPr = z.object({
       change: z.string(),
     }),
   ),
-  /** `gh pr diff` (unified, every file), cut at `MAX_REVIEW_DIFF`. */
+  /** The unified diff (every file) at exactly `baseSha...headSha`, cut at `MAX_REVIEW_DIFF` (the Guide reads the same cut). */
   diff: z.string(),
   diffTruncated: z.boolean(),
 });
@@ -185,7 +187,7 @@ export type ReviewGuideHunk = z.infer<typeof ReviewGuideHunk>;
  * optional so a v1 record parses.
  */
 export const ReviewGuide = z.object({
-  /** The head commit the Guide was written for (kept per head). */
+  /** The head commit the Guide was written for (kept per base and head). */
   headSha: z.string(),
   /** `model`: written from the title, body and diff; `folders`: the fallback grouping. */
   source: z.enum(["model", "folders"]),
@@ -209,6 +211,8 @@ export const ReviewGuide = z.object({
   notCovered: z.array(z.object({ path: z.string(), why: z.string() })).optional(),
   followUps: z.array(z.string()).optional(),
   checklist: z.array(z.string()).optional(),
+  /** The model read only part of the PR (the prompt was cut for size). */
+  partial: z.boolean().optional(),
 });
 export type ReviewGuide = z.infer<typeof ReviewGuide>;
 
@@ -365,8 +369,8 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   /** The queue; `refresh` reads every source again (Slack in the background, pushed when done). */
   z.object({ kind: z.literal("queue"), refresh: z.boolean() }),
   z.object({ kind: z.literal("pr"), repo: RepoName, number: z.number().int().positive() }),
-  /** Slow the first time per head commit (a model writes it). `headSha`: the head the client shows; another head is refused. */
-  z.object({ kind: z.literal("guide"), repo: RepoName, number: z.number().int().positive(), headSha: z.string().optional() }),
+  /** Slow the first time per base and head commit (a model writes it). `headSha`/`baseSha`: the commits the client shows; a Guide read at others is refused. */
+  z.object({ kind: z.literal("guide"), repo: RepoName, number: z.number().int().positive(), headSha: z.string().optional(), baseSha: z.string().optional() }),
   z.object({ kind: z.literal("linear"), key: LinearKey }),
   /** The last read thread at once, or (`refresh`) a fresh read, which takes a minute or more. */
   z.object({

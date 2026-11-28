@@ -749,7 +749,9 @@ Sources, merged newest first into one `ReviewQueue` (a failing source keeps its 
 - GitHub with `gh` (on PATH, else `/opt/homebrew/bin/gh`; launchd gives the host a thin PATH, so children get
   `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin` added): open PRs in `eCardSystems` that request his
   review (`needs`) and the ones he reviewed that moved (`reviewing`), cached 60 s. `pr` is `gh pr view --json`
-  plus `gh pr diff` (cut at `MAX_REVIEW_DIFF`, `diffTruncated`), pushed commits in the timeline.
+  (with `headRefOid` and `baseRefOid`), then the diff at exactly those commits (`gh api
+  repos/<repo>/compare/<base>...<head>` as `application/vnd.github.diff`, so a push between the two reads can't mix
+  heads), cut at `MAX_REVIEW_DIFF` (`diffTruncated`), pushed commits in the timeline.
 - Linear's GraphQL API with `LINEAR_API_KEY` or `<agent home>/secrets/linear.env`, cached 60 s: one row per
   ticket with an unanswered ask from someone else. Images need credentials (Linear's uploads the key, GitHub's
   `user-attachments` gh's login, Slack's files the Slack desktop app's session through its debugging port 9333, read
@@ -764,8 +766,15 @@ Sources, merged newest first into one `ReviewQueue` (a failing source keeps its 
   answers the last read (and starts the first), `refresh: true` reads again in the background
   (`sources.slack.loading`), pushed when done; `slack { refresh }` answers the kept thread or reads it fresh.
 
-The Guide (`guide`) is written by `claude -p` on Sonnet with no tools from the PR's title, body and diff, kept per
-`<repo>#<n>@<headSha>` in `reviews/guides.json` (the newest 40); when that fails the files are grouped by folder.
+The Guide (`guide { headSha, baseSha }`) reads the same snapshot (view, then the diff at its two commits, cut the
+same way) and answers `PR changed; regenerating` when those are not the commits the client shows (the desktop then
+reloads the PR once). It is written by `claude -p` on Sonnet with no tools, the prompt on stdin, bounded at 150 KB
+of UTF-8 on whole lines (description, file list and each file's diff have their own share; `partial` says what was
+cut); the answer must carry its overview, a low/medium/high risk with a reason, a checklist and per section an
+explanation, a check and at most 4 hunks (3 callouts each). It is kept per `<repo>#<n>@<base>...<head>` in
+`reviews/guides.json` (the newest 40); when that fails, or the PR has no text change, the files are grouped by
+folder. Old clients read every changed file once in its v1 `sections[].files`, the uncited ones in a last hunk-less
+"Other changed files" section.
 Done (`done { url, updatedAt, done }`) lives in `reviews/done.json` (0600, url -> `updatedAt`); an item stays hidden
 until its `updatedAt` moves past it.
 

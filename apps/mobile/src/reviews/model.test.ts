@@ -152,27 +152,34 @@ describe("guide and badges", () => {
     expect(guideProgress(guide, ["a", "c", "stale"])).toEqual({ done: 2, total: 3 });
   });
 
-  it("reads a v2 Guide from a host frame through the phone's decoder, as v1 sections and files", () => {
+  it("reads a v2 Guide through the pre-PR decoder as every changed file once, so progress counts all of them", () => {
     const frame = JSON.stringify({ t: "reviews.res", rid: "g", ok: true, guide: guideV2.expected });
     const parsed = parseServerMessage(frame);
     if (!parsed.ok || parsed.value.t !== "reviews.res" || parsed.value.guide === undefined) throw new Error("frame did not decode");
-    const guide = parsed.value.guide;
-    expect(guide.sections.map((s) => [s.title, s.files])).toEqual([
-      ["Lock rule", ["src/policy.ts"]],
-      ["Endpoint guard", ["src/route.ts"]],
-      ["Cleanup", ["src/old.ts", "src/new-name.ts"]],
-      ["Tests", ["tests/policy.test.ts"]],
-    ]);
-    expect(guide.sections[0]?.why).toBe("The lock compares minutes instead of raw milliseconds. Owners may edit too.");
-    expect(guideProgress(guide, ["src/policy.ts"])).toEqual({ done: 1, total: 5 });
-    // The Guide schema phones already shipped with (v1 only) reads the same record.
+    // The Guide schema phones already shipped with (v1 only) reads the same record off the wire.
     const shipped = z.object({
       headSha: z.string(),
       source: z.enum(["model", "folders"]),
       error: z.string().nullable(),
       sections: z.array(z.object({ title: z.string(), why: z.string(), files: z.array(z.string()) })),
     });
-    expect(shipped.parse(guideV2.expected).sections[2]).toEqual({ title: "Cleanup", why: "The legacy lock goes away and the name file is renamed.", files: ["src/old.ts", "src/new-name.ts"] });
+    const old: ReviewGuide = z.object({ guide: shipped }).parse(JSON.parse(frame)).guide;
+    expect(old.sections.map((s) => [s.title, s.files])).toEqual([
+      ["Lock rule", ["src/policy.ts"]],
+      ["Endpoint guard", ["src/route.ts"]],
+      ["Cleanup", ["src/old.ts", "src/new-name.ts"]],
+      ["Tests", ["tests/policy.test.ts"]],
+      ["Other changed files", ["pnpm-lock.yaml"]],
+    ]);
+    expect(old.sections[0]?.why).toBe("The lock compares minutes instead of raw milliseconds. Owners may edit too.");
+    const all = guideV2.input.files.map((f) => f.path);
+    expect(all).toHaveLength(6);
+    expect(old.sections.flatMap((s) => s.files).sort()).toEqual([...all].sort());
+    expect(guideProgress(old, ["src/policy.ts"])).toEqual({ done: 1, total: 6 });
+    expect(guideProgress(old, all.filter((p) => p !== "pnpm-lock.yaml"))).toEqual({ done: 5, total: 6 });
+    expect(guideProgress(old, all)).toEqual({ done: 6, total: 6 });
+    // The current decoder reads the same projection.
+    expect(guideProgress(parsed.value.guide, all.slice(0, 5))).toEqual({ done: 5, total: 6 });
   });
 
   it("labels a PR's state", () => {

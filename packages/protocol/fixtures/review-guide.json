@@ -38,7 +38,7 @@
     ],
     "diff": "diff --git a/src/policy.ts b/src/policy.ts\nindex 1111111..2222222 100644\n--- a/src/policy.ts\n+++ b/src/policy.ts\n@@ -3,4 +3,5 @@ import { clock } from \"./clock\";\n export const LOCK_MINUTES = 30;\n-export function locked(at: number): boolean {\n-  return clock() - at > LOCK_MINUTES;\n+export function locked(at: number, now = clock()): boolean {\n+  const minutes = (now - at) / 60_000;\n+  return minutes > LOCK_MINUTES;\n }\n@@ -20,3 +21,4 @@ export function canEdit(role: Role): boolean {\n   if (role === \"admin\") return true;\n+  if (role === \"owner\") return true;\n   return false;\n }\ndiff --git a/src/route.ts b/src/route.ts\nindex 3333333..4444444 100644\n--- a/src/route.ts\n+++ b/src/route.ts\n@@ -10,3 +10,4 @@ router.put(\"/item/:id\", async (req, res) => {\n   const item = await load(req.params.id);\n+  if (locked(item.at)) return res.status(423).end();\n   await save(item, req.body);\n });\ndiff --git a/src/old.ts b/src/old.ts\ndeleted file mode 100644\nindex 5555555..0000000\n--- a/src/old.ts\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-export function legacyLock(): boolean {\n-  return false;\n-}\ndiff --git a/src/old-name.ts b/src/new-name.ts\nsimilarity index 90%\nrename from src/old-name.ts\nrename to src/new-name.ts\nindex 6666666..7777777 100644\n--- a/src/old-name.ts\n+++ b/src/new-name.ts\n@@ -1,2 +1,2 @@\n-export const NAME = \"old\";\n+export const NAME = \"new\";\n export default NAME;\ndiff --git a/pnpm-lock.yaml b/pnpm-lock.yaml\nindex 8888888..9999999 100644\n--- a/pnpm-lock.yaml\n+++ b/pnpm-lock.yaml\n@@ -1,2 +1,2 @@\n lockfileVersion: '9.0'\n-x: 1\n+x: 2\ndiff --git a/tests/policy.test.ts b/tests/policy.test.ts\nnew file mode 100644\nindex 0000000..aaaaaaa\n--- /dev/null\n+++ b/tests/policy.test.ts\n@@ -0,0 +1,3 @@\n+import { locked } from \"../src/policy\";\n+\n+it(\"locks after 30 minutes\", () => expect(locked(0, 31 * 60_000)).toBe(true));\n"
   },
-  "answer": "Here is the walkthrough:\n{\"overview\":\"Edits lock 30 minutes after creation and the item route refuses locked edits.\",\"risk\":\"medium\",\"riskWhy\":\"The lock now compares minutes, so existing items may lock sooner than before.\",\"sections\":[{\"title\":\"Lock rule\",\"explanation\":\"The lock compares minutes instead of raw milliseconds. Owners may edit too.\",\"check\":[\"Minutes are computed from milliseconds\"],\"risks\":[\"Clock skew between servers\"],\"hunks\":[{\"id\":\"src/policy.ts#3,3\",\"side\":\"new\",\"start\":3,\"end\":7,\"callouts\":[{\"line\":5,\"side\":\"new\",\"note\":\"Minutes, not milliseconds\"},{\"line\":5,\"side\":\"old\",\"note\":\"The old code compared milliseconds to minutes\"},{\"line\":40,\"side\":\"new\",\"note\":\"Outside the hunk\"}]},{\"id\":\"src/policy.ts#20,21\",\"side\":\"new\",\"start\":1,\"end\":22}]},{\"title\":\"Endpoint guard\",\"explanation\":\"The route answers 423 for a locked item.\",\"check\":[\"423 is the status the client expects\"],\"risks\":[],\"hunks\":[{\"id\":\"src/route.ts#10,10\",\"side\":\"new\",\"callouts\":[{\"line\":11,\"note\":\"Refuses before saving\"}]}]},{\"title\":\"Cleanup\",\"explanation\":\"The legacy lock goes away and the name file is renamed.\",\"check\":[],\"risks\":[],\"hunks\":[{\"id\":\"src/old.ts#1,0\",\"side\":\"new\",\"start\":50,\"end\":60},{\"id\":\"src/old-name.ts#1,1\",\"side\":\"old\",\"start\":1,\"end\":1}]},{\"title\":\"Tests\",\"explanation\":\"One test pins the 30 minute rule.\",\"check\":[\"The test uses a fixed clock\"],\"risks\":[],\"hunks\":[{\"id\":\"tests/policy.test.ts#0,1\",\"side\":\"new\",\"start\":1,\"end\":3},{\"id\":\"ghost.ts#1,1\"},{\"id\":\"src/policy.ts#3,3\"}]},{\"title\":\"Bogus\",\"explanation\":\"Nothing real.\",\"hunks\":[{\"id\":\"src/route.ts#99,99\"}]}],\"notCovered\":[{\"path\":\"pnpm-lock.yaml\",\"why\":\"Lockfile bump.\"},{\"path\":\"src/route.ts\",\"why\":\"covered anyway\"}],\"followUps\":[\"Make the lock length a setting\"],\"checklist\":[\"Lock math\",\"Route status\",\"Test covers the boundary\"]}",
+  "answer": "Here is the walkthrough:\n{\"overview\":\"Edits lock 30 minutes after creation and the item route refuses locked edits.\",\"risk\":\"medium\",\"riskWhy\":\"The lock now compares minutes, so existing items may lock sooner than before.\",\"sections\":[{\"title\":\"Lock rule\",\"explanation\":\"The lock compares minutes instead of raw milliseconds. Owners may edit too.\",\"check\":[\"Minutes are computed from milliseconds\"],\"risks\":[\"Clock skew between servers\"],\"hunks\":[{\"id\":\"src/policy.ts#3,3\",\"side\":\"new\",\"start\":3,\"end\":7,\"callouts\":[{\"line\":5,\"side\":\"new\",\"note\":\"Minutes, not milliseconds\"},{\"line\":5,\"side\":\"old\",\"note\":\"The old code compared milliseconds to minutes\"},{\"line\":40,\"side\":\"new\",\"note\":\"Outside the hunk\"}]},{\"id\":\"src/policy.ts#20,21\",\"side\":\"new\",\"start\":1,\"end\":22}]},{\"title\":\"Endpoint guard\",\"explanation\":\"The route answers 423 for a locked item.\",\"check\":[\"423 is the status the client expects\"],\"risks\":[],\"hunks\":[{\"id\":\"src/route.ts#10,10\",\"side\":\"new\",\"callouts\":[{\"line\":11,\"note\":\"Refuses before saving\"}]}]},{\"title\":\"Cleanup\",\"explanation\":\"The legacy lock goes away and the name file is renamed.\",\"check\":[\"Nothing still imports the old lock\"],\"risks\":[],\"hunks\":[{\"id\":\"src/old.ts#1,0\",\"side\":\"new\",\"start\":50,\"end\":60},{\"id\":\"src/old-name.ts#1,1\",\"side\":\"old\",\"start\":1,\"end\":1}]},{\"title\":\"Tests\",\"explanation\":\"One test pins the 30 minute rule.\",\"check\":[\"The test uses a fixed clock\"],\"risks\":[],\"hunks\":[{\"id\":\"tests/policy.test.ts#0,1\",\"side\":\"new\",\"start\":1,\"end\":3},{\"id\":\"ghost.ts#1,1\"},{\"id\":\"src/policy.ts#3,3\"}]},{\"title\":\"Bogus\",\"explanation\":\"Nothing real.\",\"hunks\":[{\"id\":\"src/route.ts#99,99\"}]}],\"notCovered\":[{\"path\":\"pnpm-lock.yaml\",\"why\":\"Lockfile bump.\"},{\"path\":\"src/route.ts\",\"why\":\"covered anyway\"}],\"followUps\":[\"Make the lock length a setting\"],\"checklist\":[\"Lock math\",\"Route status\",\"Test covers the boundary\"]}",
   "expected": {
     "headSha": "head1",
     "source": "model",
@@ -127,7 +127,9 @@
           "src/new-name.ts"
         ],
         "explanation": "The legacy lock goes away and the name file is renamed.",
-        "check": [],
+        "check": [
+          "Nothing still imports the old lock"
+        ],
         "risks": [],
         "hunks": [
           {
@@ -169,6 +171,17 @@
             "callouts": []
           }
         ]
+      },
+      {
+        "title": "Other changed files",
+        "why": "Changed files the walkthrough does not show. Open them in the diff.",
+        "files": [
+          "pnpm-lock.yaml"
+        ],
+        "explanation": "Changed files the walkthrough does not show. Open them in the diff.",
+        "check": [],
+        "risks": [],
+        "hunks": []
       }
     ],
     "notCovered": [

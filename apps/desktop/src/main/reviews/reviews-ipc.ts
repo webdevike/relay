@@ -34,8 +34,11 @@ const GuidePr = z.object({
   title: z.string(),
   body: z.string(),
   headRefOid: z.string(),
+  baseRefOid: z.string(),
   files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number() })),
 })
+
+const SHA = /^[0-9a-f]{40}$/
 
 export const REVIEWS_ORG = 'eCardSystems'
 const DONE_FILE = 'reviews-done.json'
@@ -106,6 +109,7 @@ interface Raw {
   baseRefName: string
   headRefName: string
   headRefOid?: string
+  baseRefOid?: string
   additions: number
   deletions: number
   commits: Array<{
@@ -132,11 +136,11 @@ interface Raw {
 }
 
 export const PR_JSON_FIELDS =
-  'number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
+  'number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
 
 const CHECK_ORDER = ['fail', 'pending', 'pass', 'skipped']
 
-/** `gh pr view --json PR_JSON_FIELDS` plus `gh pr diff` as the page's PR. */
+/** `gh pr view --json PR_JSON_FIELDS` plus its diff at `baseRefOid...headRefOid` as the page's PR. */
 export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
   const login = (a: { login: string } | null): string => a?.login ?? 'ghost'
   const requested = raw.reviewRequests.map((r) => r.login ?? r.slug ?? r.name ?? '?')
@@ -182,6 +186,7 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
     base: raw.baseRefName,
     head: raw.headRefName,
     headSha: raw.headRefOid,
+    baseSha: raw.baseRefOid,
     additions: raw.additions,
     deletions: raw.deletions,
     reviewers: [...requested.map((l) => ({ login: l, state: 'PENDING' })), ...reviewed],
@@ -235,6 +240,20 @@ export function registerReviewsIpc(
     if (res.code !== 0) throw fail('gh-failed', `gh ${args.slice(0, 2).join(' ')} failed`)
     return res.stdout
   }
+
+  /**
+   * The PR's unified diff at exactly `base...head` (what its Files tab shows for those commits),
+   * so the metadata read with the two commits and the diff can't come from different pushes.
+   */
+  const diffAt = (repo: string, base?: string, head?: string): Promise<string> =>
+    base !== undefined && head !== undefined && SHA.test(base) && SHA.test(head)
+      ? gh([
+          'api',
+          `repos/${repo}/compare/${base}...${head}`,
+          '-H',
+          'Accept: application/vnd.github.diff',
+        ])
+      : Promise.reject(fail('gh-failed', 'gh pr view answered no base or head commit'))
 
   const search = async (
     q: string,
@@ -300,11 +319,10 @@ export function registerReviewsIpc(
   }
 
   handle(ctx, 'reviews.pr', async ({ repo, number }) => {
-    const [view, diff] = await Promise.all([
-      gh(['pr', 'view', String(number), '-R', repo, '--json', PR_JSON_FIELDS]),
-      gh(['pr', 'diff', String(number), '-R', repo, '--color=never']),
-    ])
-    const pr = toPr(repo, JSON.parse(view) as Raw, diff)
+    const raw = JSON.parse(
+      await gh(['pr', 'view', String(number), '-R', repo, '--json', PR_JSON_FIELDS]),
+    ) as Raw
+    const pr = toPr(repo, raw, await diffAt(repo, raw.baseRefOid, raw.headRefOid))
     // GitHub's attachments need his login; `<img>` tags become markdown the page renders.
     const media = path.join(ctx.config.dir, REVIEWS_MEDIA_DIR)
     const sources = [
@@ -356,13 +374,23 @@ export function registerReviewsIpc(
   })
 
   const guide = guideCache(ctx.config, claudeWriter(ctx.env.claudeBin, ctx.env.live))
-  handle(ctx, 'reviews.guide', async ({ repo, number, headSha }) => {
-    const [view, diff] = await Promise.all([
-      gh(['pr', 'view', String(number), '-R', repo, '--json', 'title,body,files,headRefOid']),
-      gh(['pr', 'diff', String(number), '-R', repo, '--color=never']),
+  handle(ctx, 'reviews.guide', async ({ repo, number, headSha, baseSha }) => {
+    const view = await gh([
+      'pr',
+      'view',
+      String(number),
+      '-R',
+      repo,
+      '--json',
+      'title,body,files,headRefOid,baseRefOid',
     ])
     const pr = GuidePr.parse(JSON.parse(view))
-    return guide(`${repo}#${number}`, headSha ?? pr.headRefOid, { ...pr, diff })
+    const diff = await diffAt(repo, pr.baseRefOid, pr.headRefOid)
+    return guide(
+      `${repo}#${number}`,
+      { headSha: headSha ?? pr.headRefOid, baseSha },
+      { ...pr, diff },
+    )
   })
 
   /** One line to Astra's main thread through eva-thread.ts (Slack send requests); a dry run in test instances. */

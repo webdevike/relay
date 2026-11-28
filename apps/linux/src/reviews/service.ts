@@ -213,7 +213,7 @@ export class ReviewsService implements ReviewsRelaying {
         return { pr: keep(this.prs, `${op.repo}#${String(op.number)}`, await this.github.pr(op.repo, op.number)) };
       case "guide": {
         const input = await this.github.guideInput(op.repo, op.number);
-        return { guide: await this.guide(`${op.repo}#${String(op.number)}`, op.headSha ?? input.headRefOid, input) };
+        return { guide: await this.guide(`${op.repo}#${String(op.number)}`, { headSha: op.headSha ?? input.headRefOid, baseSha: op.baseSha }, input) };
       }
       case "linear":
         return { ticket: keep(this.tickets, op.key, await this.linear.ticket(op.key)) };

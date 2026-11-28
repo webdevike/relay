@@ -528,6 +528,7 @@ export function Detail({
                   setFocusFile(p)
                   setTab('files')
                 }}
+                onStale={onRefresh}
               />
             ) : null}
           </div>

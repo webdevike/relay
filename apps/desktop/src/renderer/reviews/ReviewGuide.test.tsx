@@ -27,17 +27,25 @@ const PR = {
   base: 'main',
   head: 'lock',
   headSha: 'head1',
+  baseSha: 'base1',
   updatedAt: 1,
   files: fixture.input.files.map((f) => ({ ...f, change: 'MODIFIED' })),
   diff: fixture.input.diff,
 } as unknown as ReviewPr
 
-const show = (onViewInDiff = vi.fn()) =>
-  render(
-    <MantineProvider>
-      <ReviewGuide pr={PR} viewed={new Set()} onViewed={() => {}} onViewInDiff={onViewInDiff} />
-    </MantineProvider>,
-  )
+const view = (pr: ReviewPr, onViewInDiff = vi.fn(), onStale?: () => void) => (
+  <MantineProvider>
+    <ReviewGuide
+      pr={pr}
+      viewed={new Set()}
+      onViewed={() => {}}
+      onViewInDiff={onViewInDiff}
+      onStale={onStale}
+    />
+  </MantineProvider>
+)
+const show = (onViewInDiff = vi.fn(), onStale?: () => void) =>
+  render(view(PR, onViewInDiff, onStale))
 
 beforeEach(() => {
   localStorage.clear()
@@ -54,8 +62,13 @@ describe('ReviewGuide', () => {
       repo: 'o/r',
       number: 7,
       headSha: 'head1',
+      baseSha: 'base1',
     })
+    // Concept sections only: the hunk-less "Other changed files" section is for old clients.
     expect(sections).toHaveLength(4)
+    expect(screen.queryByText('Other changed files')).toBeNull()
+    expect(screen.queryByTestId('review-guide-missing')).toBeNull()
+    expect(screen.queryByTestId('review-guide-partial')).toBeNull()
     expect(screen.getByTestId('review-guide-overview').textContent).toContain('medium risk')
     expect(within(sections[0]!).getByText('Minutes, not milliseconds')).toBeTruthy()
     expect(within(sections[0]!).getAllByTestId('review-diff-annotation')).toHaveLength(2)
@@ -95,11 +108,52 @@ describe('ReviewGuide', () => {
     expect(screen.getAllByTestId('review-diff')).toHaveLength(1)
   })
 
-  it('waits while the PR moved to another head', async () => {
+  it('reloads the PR once when the Guide was read at other commits, then says so with Reload', async () => {
     answer = 'PR changed; regenerating'
-    show()
+    const onStale = vi.fn()
+    const { rerender } = show(vi.fn(), onStale)
     expect((await screen.findByTestId('review-guide-loading')).textContent).toContain(
-      'The PR changed',
+      'The PR changed; reloading it',
     )
+    expect(onStale).toHaveBeenCalledTimes(1)
+    // The reloaded PR (a new object) still isn't what the runner reads: an error, not a spinner.
+    rerender(view({ ...PR, headSha: 'head2' }, vi.fn(), onStale))
+    const error = await screen.findByTestId('review-guide-error')
+    expect(error.textContent).toContain('The PR changed again')
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(onStale).toHaveBeenCalledTimes(1)
+    fireEvent.click(within(error).getByText('Reload the PR'))
+    expect(onStale).toHaveBeenCalledTimes(2)
+    // The next reload is in step: the Guide shows.
+    answer = fixture.expected as Guide
+    rerender(view({ ...PR, headSha: 'head3' }, vi.fn(), onStale))
+    expect(await screen.findAllByTestId('review-guide-section')).toHaveLength(4)
+  })
+
+  it('lists cited hunks the loaded diff lacks and says when the model read part of the PR', async () => {
+    const expected = fixture.expected as Guide
+    const lost = {
+      id: 'src/gone.ts#5,5',
+      path: 'src/gone.ts',
+      side: 'new' as const,
+      start: 5,
+      end: 9,
+      callouts: [],
+    }
+    answer = {
+      ...expected,
+      partial: true,
+      sections: expected.sections.map((s, i) =>
+        i === 1 ? { ...s, hunks: [...s.hunks!, lost] } : s,
+      ),
+    }
+    const onViewInDiff = vi.fn()
+    show(onViewInDiff)
+    const sections = await screen.findAllByTestId('review-guide-section')
+    const missing = within(sections[1]!).getByTestId('review-guide-missing')
+    expect(missing.textContent).toContain('src/gone.ts 5-9')
+    fireEvent.click(within(missing).getByText('View in Diff'))
+    expect(onViewInDiff).toHaveBeenCalledWith('src/gone.ts')
+    expect(screen.getByTestId('review-guide-partial').textContent).toContain('cut for size')
   })
 })

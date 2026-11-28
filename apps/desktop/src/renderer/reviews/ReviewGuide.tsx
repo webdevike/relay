@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { Badge, Button, Checkbox, Loader } from '@mantine/core'
 import { IconCheck, IconDots, IconFile } from '@tabler/icons-react'
-import type { ReviewGuide as Guide, ReviewPr } from '@evaos/contract'
+import type { ReviewGuide as Guide, ReviewGuideHunk, ReviewPr } from '@evaos/contract'
 import type { GuideCallout } from '@relay/protocol/review-guide'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
@@ -9,13 +9,15 @@ import { EvaMenu } from '../overlay'
 import { Markdown } from '../chat/markdown/Markdown'
 import { parseOneOf, usePref } from '../ui-prefs'
 import { DiffView } from './DiffView'
-import { calloutsFor, sectionFiles, type SectionFile } from './guide-hunks'
+import { calloutsFor, sectionCode, type SectionFile } from './guide-hunks'
 import { useLocal } from './review-ui'
 import { parseDiff, splitPath, type DiffFile } from '@relay/protocol/unified-diff'
 
 const two = (n: number): string => String(n).padStart(2, '0')
-/** The runner's answer when the PR moved on under the request (the page reloads the PR). */
+/** The runner's answer when the PR moved on under the request (the page reloads the PR once). */
 const HEAD_CHANGED = 'PR changed; regenerating'
+/** Shown when the PR moved again after that one reload. */
+const STILL_CHANGING = 'The PR changed again while its walkthrough was loading.'
 const RISK_COLOR = { low: 'green', medium: 'yellow', high: 'red' } as const
 const parseDiffMode = parseOneOf<'split' | 'unified'>(['split', 'unified'])
 
@@ -45,32 +47,62 @@ interface GuideProps {
   viewed: ReadonlySet<string>
   onViewed: (path: string, on: boolean) => void
   onViewInDiff: (path: string) => void
+  /** Reloads the PR (its new commits ask for the Guide again). */
+  onStale?: (() => void) | undefined
+}
+
+/**
+ * The Guide for the PR's base and head as shown. When the runner reads other commits (a push or a
+ * base move landed after the PR loaded) the page reloads the PR once; if the reloaded PR moved
+ * again the answer is an error with Reload, never an endless spinner.
+ */
+function useGuide(pr: ReviewPr, onStale: (() => void) | undefined) {
+  const [guide, setGuide] = useState<Guide | string | null>(null)
+  const reloadedFor = useRef<string | null>(null)
+  const stale = useRef(onStale)
+  useEffect(() => {
+    stale.current = onStale
+  })
+  useEffect(() => {
+    let live = true
+    setGuide(null)
+    const pin = { repo: pr.repo, number: pr.number, headSha: pr.headSha, baseSha: pr.baseSha }
+    void invoke('reviews.guide', pin).then((r) => {
+      if (!live) return
+      if (r.ok) reloadedFor.current = null
+      const moved = !r.ok && r.error.message === HEAD_CHANGED
+      if (moved && reloadedFor.current !== pr.url && stale.current) {
+        reloadedFor.current = pr.url
+        setGuide(HEAD_CHANGED)
+        stale.current()
+        return
+      }
+      setGuide(r.ok ? r.value : moved ? STILL_CHANGING : r.error.message)
+    })
+    return () => {
+      live = false
+    }
+    // A reloaded PR is a new object: it asks again even when its commits are the same.
+  }, [pr])
+  const reload = (): void => {
+    reloadedFor.current = null
+    setGuide(HEAD_CHANGED)
+    stale.current?.()
+  }
+  return { guide, reload: onStale ? reload : null }
 }
 
 /**
  * The PR as a walkthrough in one scroll, like Linear's Guide. Main (or the host) has a model write
- * it from the title, description and annotated diff, cached per head commit. A v2 Guide opens with
- * an overview and risk, then 3 to 7 sections that each explain one concept, say what to check and
- * what could break, and show only the hunks it cites with notes under their lines; files no section
- * shows are listed with View in diff, then follow-ups and a checklist. A v1 record (and the folder
- * fallback) shows each section's whole files, as before.
+ * it from the title, description and annotated diff, cached per base and head commit. A v2 Guide
+ * opens with an overview and risk, then 3 to 7 sections that each explain one concept, say what to
+ * check and what could break, and show only the lines it cites with notes under them; files no
+ * section shows are listed with View in diff, then follow-ups and a checklist. A v1 record (and
+ * the folder fallback) shows each section's whole files, as before.
  */
 export function ReviewGuide(props: GuideProps) {
   const { pr } = props
-  const [guide, setGuide] = useState<Guide | string | null>(null)
-
-  useEffect(() => {
-    let live = true
-    setGuide(null)
-    void invoke('reviews.guide', { repo: pr.repo, number: pr.number, headSha: pr.headSha }).then(
-      (r) => {
-        if (live) setGuide(r.ok ? r.value : r.error.message)
-      },
-    )
-    return () => {
-      live = false
-    }
-  }, [pr.repo, pr.number, pr.updatedAt, pr.headSha])
+  const { guide, reload } = useGuide(pr, props.onStale)
 
   const head = <GuideHead pr={pr} />
   if (guide === null || typeof guide === 'string') {
@@ -79,7 +111,7 @@ export function ReviewGuide(props: GuideProps) {
         <nav className="eva-rv-ticks" aria-hidden />
         <div className="eva-rv-lguide-col">
           {head}
-          <GuideWaiting error={guide} />
+          <GuideWaiting error={guide} onReload={reload} />
         </div>
       </div>
     )
@@ -108,16 +140,36 @@ function GuideHead({ pr }: { pr: ReviewPr }) {
   )
 }
 
-function GuideWaiting({ error }: { error: string | null }) {
+function GuideWaiting({
+  error,
+  onReload,
+}: {
+  error: string | null
+  onReload: (() => void) | null
+}) {
   if (error !== null && error !== HEAD_CHANGED) {
-    return <div className="eva-rv-error">Couldn't build the guide: {error}</div>
+    return (
+      <div className="eva-rv-error" data-testid="review-guide-error">
+        Couldn't build the guide: {error}
+        {error === STILL_CHANGING && onReload ? (
+          <Button size="compact-xs" variant="subtle" onClick={onReload}>
+            Reload the PR
+          </Button>
+        ) : null}
+      </div>
+    )
   }
   return (
     <div className="eva-rv-lguide-wait" data-testid="review-guide-loading">
       <Loader size={14} />
       {error === HEAD_CHANGED
-        ? 'The PR changed; writing the walkthrough for the new head...'
+        ? 'The PR changed; reloading it to write the walkthrough for the new commits...'
         : 'Writing the walkthrough from the description and diff...'}
+      {error === HEAD_CHANGED && onReload ? (
+        <Button size="compact-xs" variant="subtle" onClick={onReload}>
+          Reload the PR
+        </Button>
+      ) : null}
     </div>
   )
 }
@@ -332,15 +384,16 @@ function GuideV2({
 }: GuideProps & { guide: Guide; head: ReactNode }) {
   const refs = useRef<Array<HTMLElement | null>>([])
   const diffs = useMemo(() => new Map(parseDiff(pr.diff).map((f) => [f.path, f])), [pr.diff])
-  // One hunk subset per section, kept while the diff is the same (DiffView's highlight cache is per array).
-  const files = useMemo(
-    () => guide.sections.map((s) => sectionFiles(diffs, s.hunks ?? [])),
-    [diffs, guide],
+  // Concept sections only: the hunk-less "Other changed files" section is old clients' copy of notCovered.
+  const sections = useMemo(() => guide.sections.filter((s) => (s.hunks?.length ?? 0) > 0), [guide])
+  // One cited-range subset per section, kept while the diff is the same (DiffView's highlight cache is per array).
+  const code = useMemo(
+    () => sections.map((s) => sectionCode(diffs, s.hunks ?? [])),
+    [diffs, sections],
   )
   const [savedMode] = usePref<'split' | 'unified' | null>('reviews.diffMode', null, parseDiffMode)
   const [reviewed, setReviewed] = useTicks('sections', pr, guide.headSha)
   const [checked, setChecked] = useTicks('checklist', pr, guide.headSha)
-  const sections = guide.sections
   return (
     <div
       className="eva-rv-lguide"
@@ -369,7 +422,7 @@ function GuideV2({
               onReviewed={(on) => setReviewed(i, on)}
             />
             <div className="eva-rv-lsec-right">
-              {files[i]!.map((f) => (
+              {code[i]!.files.map((f) => (
                 <SectionHunks
                   key={f.path}
                   pr={pr}
@@ -378,6 +431,7 @@ function GuideV2({
                   onViewInDiff={onViewInDiff}
                 />
               ))}
+              <MissingHunks refs={code[i]!.missing} onViewInDiff={onViewInDiff} />
             </div>
           </section>
         ))}
@@ -407,6 +461,41 @@ function Overview({ guide }: { guide: Guide }) {
           <Markdown text={guide.overview} />
         </div>
       ) : null}
+      {guide.partial ? (
+        <div className="eva-rv-dim eva-rv-small" data-testid="review-guide-partial">
+          Written from part of the PR: the prompt was cut for size. Files the model didn't see are
+          under Not covered.
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** Citations the loaded diff has no lines for: said, with View in Diff, never dropped silently. */
+function MissingHunks({
+  refs,
+  onViewInDiff,
+}: {
+  refs: readonly ReviewGuideHunk[]
+  onViewInDiff: (path: string) => void
+}) {
+  if (refs.length === 0) return null
+  return (
+    <div className="eva-rv-gblock" data-testid="review-guide-missing">
+      <div className="eva-rv-dim eva-rv-small">
+        Not in the loaded diff (it was cut for size or the PR changed):
+      </div>
+      {refs.map((r) => (
+        <div key={r.id} className="eva-rv-gnot">
+          <span className="eva-rv-mono eva-rv-ellipsis">
+            {r.path} {r.side === 'old' ? 'old ' : ''}
+            {r.start}-{r.end}
+          </span>
+          <Button size="compact-xs" variant="subtle" onClick={() => onViewInDiff(r.path)}>
+            View in Diff
+          </Button>
+        </div>
+      ))}
     </div>
   )
 }

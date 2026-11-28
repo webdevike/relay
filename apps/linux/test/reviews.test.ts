@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LaunchOptions } from "../src/agents/herdr";
 import { ASK_MARK, AstraSessions, seedPrompt, toTurns } from "../src/reviews/astra";
 import type { ToolRun } from "../src/reviews/exec";
-import { toItem, toPr, type RawPr } from "../src/reviews/github";
-import { guideCache, HEAD_CHANGED } from "../src/reviews/guide";
-import { folderSections } from "@relay/protocol/review-guide";
+import { GitHub, snapshotDiff, toItem, toPr, type RawPr } from "../src/reviews/github";
+import { claudeWriter, guideCache, HEAD_CHANGED } from "../src/reviews/guide";
+import { folderSections, NO_TEXT_CHANGES } from "@relay/protocol/review-guide";
 import guideFixture from "@relay/protocol/fixtures/review-guide.json";
 import { handleReviewsMedia } from "../src/reviews/http";
 import { linearItem, reasonOf, ReviewMedia, toActivity, toRows as linearRows } from "../src/reviews/linear";
@@ -66,6 +66,7 @@ describe("github", () => {
       baseRefName: "main",
       headRefName: "feat",
       headRefOid: "abcdef1234567890",
+      baseRefOid: "fedcba0987654321",
       additions: 3,
       deletions: 1,
       commits: [{ oid: "1234567890abcdef", messageHeadline: "feat: lock", authoredDate: "2026-10-30T10:00:00Z", authors: [{ login: "todd", name: "Todd" }] }],
@@ -229,53 +230,134 @@ describe("slack", () => {
 });
 
 describe("guide", () => {
-  const input = { ...guideFixture.input, headRefOid: guideFixture.headSha };
+  const input = { ...guideFixture.input, headRefOid: guideFixture.headSha, baseRefOid: "base1" };
+  const pin = { headSha: guideFixture.headSha, baseSha: "base1" };
   const PATHS = input.files.map((f) => f.path);
 
-  it("writes the shared fixture's v2 Guide once per head and keeps it under the v2 key", async () => {
+  it("writes the shared fixture's v2 Guide once per base and head and keeps it under that key", async () => {
     const file = join(dir, "guides.json");
     const write = vi.fn<(prompt: string) => Promise<string>>(() => Promise.resolve(guideFixture.answer));
     const read = guideCache(file, write);
-    const [a, b] = await Promise.all([read(guideFixture.key, guideFixture.headSha, input), read(guideFixture.key, guideFixture.headSha, input)]);
+    const [a, b] = await Promise.all([read(guideFixture.key, pin, input), read(guideFixture.key, pin, input)]);
     expect(a).toEqual(guideFixture.expected);
     expect(b).toEqual(a);
-    expect(await read(guideFixture.key, guideFixture.headSha, input)).toEqual(guideFixture.expected);
+    expect(await read(guideFixture.key, pin, input)).toEqual(guideFixture.expected);
     expect(write).toHaveBeenCalledTimes(1);
     expect(write.mock.calls[0]?.[0]).toContain("HUNK src/policy.ts#3,3");
-    expect(Object.keys(JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>)).toEqual(["o/r#7@head1@v2"]);
+    expect(Object.keys(JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>)).toEqual(["o/r#7@base1...head1@v3"]);
+    // The base moved under the same head: another comparison, another Guide.
+    expect(await read(guideFixture.key, { headSha: "head1", baseSha: "base2" }, { ...input, baseRefOid: "base2" })).toEqual(guideFixture.expected);
+    expect(write).toHaveBeenCalledTimes(2);
   });
 
-  it("serves a warm v2 entry and ignores a v1 entry kept under the old key", async () => {
+  it("serves a warm v3 entry and ignores entries kept under older keys", async () => {
     const file = join(dir, "guides.json");
     const v1 = { headSha: "head1", source: "model", error: null, sections: [{ title: "Old", why: "", files: ["src/policy.ts"] }], at: 1 };
-    writeFileSync(file, JSON.stringify({ "o/r#7@head1": v1, "o/r#8@head1@v2": { ...guideFixture.expected, at: 2 } }));
+    writeFileSync(file, JSON.stringify({ "o/r#7@head1": v1, "o/r#7@head1@v2": { ...guideFixture.expected, at: 1 }, "o/r#8@base1...head1@v3": { ...guideFixture.expected, at: 2 } }));
     const write = vi.fn(() => Promise.resolve(guideFixture.answer));
     const read = guideCache(file, write);
-    expect(await read("o/r#8", "head1", input)).toEqual(guideFixture.expected);
+    expect(await read("o/r#8", pin, input)).toEqual(guideFixture.expected);
     expect(write).not.toHaveBeenCalled();
-    expect((await read("o/r#7", "head1", input)).version).toBe(2);
+    expect((await read("o/r#7", pin, input)).version).toBe(2);
     expect(write).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses a snapshot read for another head without asking the model", async () => {
+  it("refuses a snapshot read at another head or base without asking the model", async () => {
     const write = vi.fn(() => Promise.resolve(guideFixture.answer));
     const read = guideCache(join(dir, "guides.json"), write);
-    await expect(read(guideFixture.key, "head2", input)).rejects.toThrow(HEAD_CHANGED);
+    await expect(read(guideFixture.key, { headSha: "head2" }, input)).rejects.toThrow(HEAD_CHANGED);
+    await expect(read(guideFixture.key, { headSha: "head1", baseSha: "base0" }, input)).rejects.toThrow(HEAD_CHANGED);
     expect(write).not.toHaveBeenCalled();
   });
 
   it("falls back to folders, labeled with the reason, and keeps nothing", async () => {
     const file = join(dir, "guides.json");
     const failing = guideCache(file, () => Promise.reject(new Error("Claude took too long")));
-    expect(await failing(guideFixture.key, guideFixture.headSha, input)).toEqual({
+    expect(await failing(guideFixture.key, pin, input)).toEqual({
       headSha: "head1",
       source: "folders",
       error: "Claude took too long",
       sections: folderSections(PATHS),
     });
     const wrong = guideCache(file, () => Promise.resolve('{"sections":[]}'));
-    expect(await wrong(guideFixture.key, guideFixture.headSha, input)).toMatchObject({ source: "folders", error: "Claude answered in the wrong shape" });
+    expect(await wrong(guideFixture.key, pin, input)).toMatchObject({ source: "folders", error: "Claude answered in the wrong shape" });
+    // An answer in the right JSON shape without its checklist is not a Guide either, and is not kept.
+    const proseless = guideCache(file, () => Promise.resolve(guideFixture.answer.replace(/"checklist":\[[^\]]*\]/, '"checklist":[]')));
+    expect(await proseless(guideFixture.key, pin, input)).toMatchObject({ source: "folders", error: "Claude answered in the wrong shape" });
     expect(() => readFileSync(file, "utf8")).toThrow();
+  });
+
+  it("does not ask the model about a PR without text changes", async () => {
+    const write = vi.fn(() => Promise.resolve(guideFixture.answer));
+    const read = guideCache(join(dir, "guides.json"), write);
+    const binary = { ...input, files: [{ path: "a.png", additions: 0, deletions: 0 }], diff: "diff --git a/a.png b/a.png\nBinary files a/a.png and b/a.png differ\n" };
+    expect(await read("o/r#9", pin, binary)).toMatchObject({ source: "folders", error: NO_TEXT_CHANGES });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("sends the prompt to claude on stdin, never in argv", async () => {
+    const runs: { argv: readonly string[]; stdin: string | undefined }[] = [];
+    const run: ToolRun = (argv, options) => {
+      runs.push({ argv, stdin: options.stdin });
+      return Promise.resolve({ code: 0, stdout: JSON.stringify({ result: "answer" }), stderr: "", timedOut: false });
+    };
+    const prompt = `HUNK x#1,1\n${"y".repeat(300_000)}`;
+    expect(await claudeWriter(run, "claude")(prompt)).toBe("answer");
+    expect(runs[0]?.stdin).toBe(prompt);
+    expect(runs[0]?.argv.some((a) => a.includes("HUNK"))).toBe(false);
+    expect(runs[0]?.argv.slice(0, 2)).toEqual(["claude", "-p"]);
+  });
+});
+
+describe("guide snapshot", () => {
+  const A = "a".repeat(40);
+  const B = "b".repeat(40);
+  const BASE = "c".repeat(40);
+  const view = (head: string, base = BASE) => ({ title: "Lock", body: "b", files: guideFixture.input.files, headRefOid: head, baseRefOid: base });
+  const diffOf = (argv: readonly string[]): string => `diff --git a/at.ts b/at.ts\n--- a/at.ts\n+++ b/at.ts\n@@ -1 +1 @@\n-x\n+${argv[2] ?? ""}\n`;
+  const ok = (stdout: string) => Promise.resolve({ code: 0, stdout, stderr: "", timedOut: false });
+
+  it("reads the diff at exactly the viewed base...head, so a push between the two reads can't mix heads", async () => {
+    // A push lands right after gh answers the view: the diff read must still be A's.
+    let head = A;
+    const calls: string[][] = [];
+    const run: ToolRun = (argv) => {
+      calls.push([...argv]);
+      if (argv[1] === "pr" && argv[2] === "view") {
+        const answer = view(head);
+        head = B;
+        return ok(JSON.stringify(answer));
+      }
+      if (argv[1] === "api" && argv[2]?.startsWith("repos/o/r/compare/")) return ok(diffOf(argv));
+      return Promise.resolve({ code: 1, stdout: "", stderr: "no", timedOut: false });
+    };
+    const got = await new GitHub(run, "gh").guideInput("o/r", 7);
+    expect(got.headRefOid).toBe(A);
+    expect(calls[1]).toEqual(["gh", "api", `repos/o/r/compare/${BASE}...${A}`, "-H", "Accept: application/vnd.github.diff"]);
+    expect(got.diff).toContain(`+repos/o/r/compare/${BASE}...${A}`);
+    expect(calls.some((c) => c.includes("diff"))).toBe(false);
+    // The PR detail reads the same snapshot shape: metadata first, then the diff at its commits.
+    head = A;
+    const raw = { ...view(A), number: 7, url: "u", state: "OPEN", isDraft: false, author: null, createdAt: "", updatedAt: "", baseRefName: "main", headRefName: "f", additions: 0, deletions: 0, commits: [], reviewRequests: [], latestReviews: [], reviews: [], comments: [], assignees: [], labels: [], statusCheckRollup: [] };
+    const prRun: ToolRun = (argv) => (argv[2] === "view" ? ok(JSON.stringify(raw)) : run(argv, { cwd: "", timeoutMs: 1 }));
+    const pr = await new GitHub(prRun, "gh").pr("o/r", 7);
+    expect([pr.headSha, pr.baseSha]).toEqual([A, BASE]);
+    expect(pr.diff).toContain(`${BASE}...${A}`);
+  });
+
+  it("refuses a view without commits instead of reading an unpinned diff", async () => {
+    const run: ToolRun = (argv) => (argv[2] === "view" ? ok(JSON.stringify(view("HEAD"))) : ok("never"));
+    await expect(new GitHub(run, "gh").guideInput("o/r", 7)).rejects.toThrow("gh pr view answered no base or head commit");
+  });
+
+  it("cuts the Guide's diff where the Diff tab's is cut", async () => {
+    const big = `diff --git a/big.ts b/big.ts\n--- a/big.ts\n+++ b/big.ts\n@@ -1 +1,30000 @@\n-x\n${"+0123456789abcdef\n".repeat(30_000)}diff --git a/late.ts b/late.ts\n--- a/late.ts\n+++ b/late.ts\n@@ -1 +1 @@\n-a\n+b\n`;
+    expect(big.length).toBeGreaterThan(MAX_REVIEW_DIFF);
+    const run: ToolRun = (argv) => (argv[2] === "view" ? ok(JSON.stringify(view(A))) : ok(big));
+    const got = await new GitHub(run, "gh").guideInput("o/r", 7);
+    expect(got.diff).toBe(snapshotDiff(big));
+    expect(got.diff).toHaveLength(MAX_REVIEW_DIFF);
+    expect(got.diff).not.toContain("late.ts");
   });
 });
 
@@ -579,6 +661,35 @@ describe("service", () => {
     expect(calls.at(-1)).toContain("q=is:pr org:eCardSystems is:open author:@me");
     expect(await reviews.handle({ kind: "prView", repo: "eCardSystems/api", number: 7 })).toEqual({ ok: true, view });
     expect(calls.at(-1)).toEqual(["gh", "pr", "view", "7", "-R", "eCardSystems/api", "--json", PR_VIEW_FIELDS]);
+  });
+
+  it("answers HEAD_CHANGED when gh reads other commits than the client shows, then writes the Guide for the reloaded PR", async () => {
+    const A = "a".repeat(40);
+    const B = "b".repeat(40);
+    const BASE = "c".repeat(40);
+    let head = A;
+    const prompts: string[] = [];
+    const run: ToolRun = (argv, options) => {
+      const out = (stdout: string) => Promise.resolve({ code: 0, stdout, stderr: "", timedOut: false });
+      if (argv[1] === "pr" && argv[2] === "view") return out(JSON.stringify({ title: "Lock", body: "b", files: guideFixture.input.files, headRefOid: head, baseRefOid: BASE }));
+      if (argv[1] === "api" && argv[2] === `repos/o/r/compare/${BASE}...${head}`) return out(guideFixture.input.diff);
+      if (argv[0] === "claude") {
+        prompts.push(options.stdin ?? "");
+        return out(JSON.stringify({ result: guideFixture.answer }));
+      }
+      return Promise.resolve({ code: 1, stdout: "", stderr: "unexpected", timedOut: false });
+    };
+    const { reviews } = service({ run });
+    // The client shows A; a push moved the PR to B before the Guide was asked for.
+    head = B;
+    expect(await reviews.handle({ kind: "guide", repo: "o/r", number: 7, headSha: A, baseSha: BASE })).toEqual({ ok: false, error: HEAD_CHANGED });
+    // A base move under the same head is refused too.
+    expect(await reviews.handle({ kind: "guide", repo: "o/r", number: 7, headSha: B, baseSha: "d".repeat(40) })).toEqual({ ok: false, error: HEAD_CHANGED });
+    expect(prompts).toEqual([]);
+    const fresh = await reviews.handle({ kind: "guide", repo: "o/r", number: 7, headSha: B, baseSha: BASE });
+    expect(fresh.guide).toMatchObject({ headSha: B, source: "model", version: 2 });
+    expect(prompts).toHaveLength(1);
+    expect(Object.keys(JSON.parse(readFileSync(join(dir, "guides.json"), "utf8")) as Record<string, unknown>)).toEqual([`o/r#7@${BASE}...${B}@v3`]);
   });
 
   it("refuses every write on a test host and posts nothing", async () => {

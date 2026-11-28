@@ -51,6 +51,8 @@ export const ReviewPrSchema = z.object({
   head: z.string(),
   /** The head commit the PR was read at (the Guide is asked for this head); absent from older hosts. */
   headSha: z.string().optional(),
+  /** The base commit the diff was read against (`base...head`); absent from older hosts. */
+  baseSha: z.string().optional(),
   additions: z.number(),
   deletions: z.number(),
   reviewers: z.array(z.object({ login: z.string(), state: z.string() })),
@@ -87,7 +89,7 @@ export const ReviewPrSchema = z.object({
       change: z.string(),
     }),
   ),
-  /** `gh pr diff` output (unified, every file). */
+  /** The unified diff (every file) at exactly `baseSha...headSha`. */
   diff: z.string(),
 })
 export type ReviewPr = z.infer<typeof ReviewPrSchema>
@@ -127,7 +129,7 @@ export const ReviewGuideSchema = z.object({
       title: z.string(),
       /** One to three plain sentences: what this part changes and why (v2: the explanation). */
       why: z.string(),
-      /** PR file paths, in reading order (v2: the paths of its hunks). */
+      /** PR file paths, in reading order (v2: the paths it shows first; each file in one section). */
       files: z.array(z.string()),
       explanation: z.string().optional(),
       check: z.array(z.string()).optional(),
@@ -142,6 +144,8 @@ export const ReviewGuideSchema = z.object({
   notCovered: z.array(z.object({ path: z.string(), why: z.string() })).optional(),
   followUps: z.array(z.string()).optional(),
   checklist: z.array(z.string()).optional(),
+  /** The model read only part of the PR (the prompt was cut for size). */
+  partial: z.boolean().optional(),
 })
 export type ReviewGuide = z.infer<typeof ReviewGuideSchema>
 
@@ -389,8 +393,11 @@ export const reviewsInvoke = {
   },
   /** The Guide for the PR's current head: written by a model, or grouped by folder when that fails. */
   'reviews.guide': {
-    /** `headSha`: the head the renderer shows; a Guide read for another head is refused. */
-    input: PrRef.extend({ headSha: z.string().optional() }).strict(),
+    /** `headSha`/`baseSha`: the commits the renderer shows; a Guide read at others is refused. */
+    input: PrRef.extend({
+      headSha: z.string().optional(),
+      baseSha: z.string().optional(),
+    }).strict(),
     output: ReviewGuideSchema,
   },
   /** Posts a comment on GitHub. The renderer only calls this after Isaac confirms the exact text. */

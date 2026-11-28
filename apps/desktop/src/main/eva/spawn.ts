@@ -122,8 +122,13 @@ export interface CaptureResult {
   timedOut: boolean
 }
 
-/** Runs a CLI to completion; never rejects. Only execFile's own timeout signals its own child. */
-export function runCapture(cmd: Command, cwd: string, timeoutMs: number): Promise<CaptureResult> {
+/** Runs a CLI to completion with `input` on stdin (else none); never rejects. Only execFile's own timeout signals its own child. */
+export function runCapture(
+  cmd: Command,
+  cwd: string,
+  timeoutMs: number,
+  input?: string,
+): Promise<CaptureResult> {
   return new Promise((resolve) => {
     const child = execFile(
       cmd.file,
@@ -137,7 +142,9 @@ export function runCapture(cmd: Command, cwd: string, timeoutMs: number): Promis
         resolve({ code, stdout: String(stdout), stderr: String(stderr), timedOut })
       },
     )
-    child.stdin?.end()
+    // A child that exits before reading its input must not crash main with EPIPE.
+    child.stdin?.on('error', () => {})
+    child.stdin?.end(input)
   })
 }
 
