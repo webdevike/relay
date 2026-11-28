@@ -115,6 +115,30 @@ describe('markdown media: image or inline video', () => {
     await waitFor(() => expect(screen.queryByAltText('Image 1 of 1')).toBeNull())
   })
 
+  it('caps a `w=N` image at N px within its column, and still opens the viewer on click', async () => {
+    show(
+      [
+        '![Proof](https://cdn.example.com/proof.png "w=400")',
+        '![Huge](https://cdn.example.com/huge.png "w=9000")',
+        '![Tip](https://cdn.example.com/tip.png "The login page")',
+      ].join('\n\n'),
+    )
+    const img = screen.getByAltText('Proof')
+    expect(img.style.maxWidth).toBe('min(400px, 100%)')
+    expect(img).not.toHaveAttribute('title')
+    expect(screen.getByRole('button', { name: 'Open Proof' }).style.maxWidth).toBe(
+      'min(400px, 100%)',
+    )
+    expect(screen.getByAltText('Huge').style.maxWidth).toBe('')
+    expect(screen.getByAltText('Tip')).toHaveAttribute('title', 'The login page')
+    expect(screen.getByAltText('Tip').style.maxWidth).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: 'Open Proof' }))
+    expect(await screen.findByAltText('Image 1 of 3')).toHaveAttribute(
+      'src',
+      mediaUrl('https://cdn.example.com/proof.png'),
+    )
+  })
+
   it('a linked image follows its link instead of opening the viewer', () => {
     show('[![Logo](https://cdn.example.com/logo.png)](https://example.com)')
     expect(screen.getByAltText('Logo').closest('a')).toHaveAttribute('href', 'https://example.com')
