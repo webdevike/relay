@@ -41,9 +41,11 @@ import {
 import {
   AskNotices,
   AssistantReply,
+  askAssistants,
   useAssistantSessions,
   type AssistantSession,
 } from './AssistantReply'
+import { useMentionAssistants } from './mention-assistants'
 import { ApprovalNote } from './ApprovalNote'
 import { CommentBlock, CommentMarkdown } from './CommentBlock'
 import {
@@ -628,9 +630,9 @@ function privateAsk(body: string, t: Target): string {
 }
 
 /**
- * Sends a message: to people, a comment through the gate (or legacy path); mentioning an assistant,
- * a private ask to each assistant mentioned and nothing else (DECISIONS 7). The box clears once
- * it went out.
+ * Sends a message: to people, a comment through the gate (or legacy path); mentioning any
+ * configured assistant, a private ask to each assistant mentioned and nothing else (DECISIONS 7).
+ * The box clears once it went out.
  */
 function useSend(
   w: Writes,
@@ -638,18 +640,17 @@ function useSend(
   people: Person[],
   sessions: readonly AssistantSession[],
 ) {
+  const assistants = useMentionAssistants()
   return (text: string, t: Target): void => {
     const body = text.trim()
     if (!body) return
-    const named = new Set(assistantsIn(body).map(agentOf))
-    if (named.size === 0) {
+    const named = [...new Set(assistantsIn(body, assistants).map(agentOf))]
+    if (named.length === 0) {
       w.postPublic(publicPost(body, people, t, detail.documentContentId))
       return
     }
-    const ask = privateAsk(body, t)
-    const to = sessions.filter((s) => named.has(s.agent))
-    void Promise.all(to.map((s) => s.ask(ask))).then((sent) => {
-      if (!sent.every(Boolean)) return
+    void askAssistants(sessions, named, privateAsk(body, t)).then((sent) => {
+      if (!sent) return
       if (t.thread) w.setReply(null)
       else if (t.inline) w.setInline(null)
       else w.setDraft('')
@@ -729,7 +730,7 @@ function TicketActivity({
   const inline = host ? all.filter((t) => isInline(t.root)) : []
   const threads = all.filter((t) => !inline.includes(t))
   const { flash, anchor } = useFocus(threads, inline, focusCommentId, expand, showInline)
-  const sessions = useAssistantSessions({
+  const { sessions, slots } = useAssistantSessions({
     url: detail.url,
     label: detail.key,
     context: () => detailContext(detail),
@@ -766,6 +767,7 @@ function TicketActivity({
 
   return (
     <section className="eva-tk-activity" data-testid="ticket-activity">
+      {slots}
       {host ? (
         <InlineThreads
           host={host}

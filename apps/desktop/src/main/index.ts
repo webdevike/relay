@@ -269,6 +269,7 @@ function bootstrap(): void {
             }
           : null,
         chat.frames,
+        () => chat.canvas.canvasOrigin(),
       )
       // Rooms on the phone: the Relay Host relays this app's rooms and the phone's commands.
       const rooms = registerRoomsIpc(ctx)

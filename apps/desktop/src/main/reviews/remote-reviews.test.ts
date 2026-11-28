@@ -20,10 +20,11 @@ vi.mock('../window', () => ({ isAppUrl: () => true }))
 import { rewriteImages } from '@relay/protocol/markdown-images'
 import { createConfigStore } from '../config-store'
 import type { MainContext } from '../context'
-import { REVIEWS_ASSISTANTS_FEATURE } from '@relay/protocol'
+import { REVIEWS_ACTIONS_FEATURE, REVIEWS_ASSISTANTS_FEATURE } from '@relay/protocol'
 import type { RelayFeatures, RelayFrames } from '../relay/client'
 import type { HostAnswer, HostOp, HostReviews } from '../relay/host-reviews'
 import {
+  LEGACY_COMMENT_REFUSED,
   absoluteMedia,
   hostLinearIssue,
   hostPrFacts,
@@ -327,6 +328,72 @@ describe('the page through the host', () => {
     expect(r.value).toMatchObject({
       body: expect.stringMatching(/^see !\[shot\]\(\/reviews\/media\/[0-9a-f]{40}\.png\)$/),
     })
+  })
+
+  it('marks a capable host’s read writeGate (with or without actions facts); an old host’s facts are dropped', async () => {
+    const actions = {
+      viewerLogin: 'webdevike',
+      viewerPermission: 'WRITE',
+      mergeable: 'MERGEABLE',
+      mergeStateStatus: 'CLEAN',
+      methods: { merge: true, squash: true, rebase: false },
+      mergeQueue: { required: false, inQueue: false, entryState: null },
+      reviews: [],
+      checks: [],
+    }
+    const pr = (over: Record<string, unknown>) => ({
+      pr: {
+        repo: 'o/r',
+        number: 1,
+        title: 't',
+        url: 'u',
+        state: 'OPEN',
+        draft: false,
+        author: { login: 'd' },
+        createdAt: 1,
+        updatedAt: 2,
+        body: '',
+        base: 'main',
+        head: 'h',
+        headSha: 'x',
+        additions: 0,
+        deletions: 0,
+        reviewers: [],
+        assignees: [],
+        labels: [],
+        timeline: [],
+        checks: [],
+        files: [],
+        diff: '',
+        ...over,
+      },
+    })
+    const read = async () =>
+      (await call('reviews.pr', { repo: 'o/r', number: 1 })).value as Record<string, unknown>
+    host.answers.pr = () => pr({ actions })
+    expect(await read()).not.toHaveProperty('writeGate')
+    expect(await read()).not.toHaveProperty('actions')
+    features.add(REVIEWS_ACTIONS_FEATURE)
+    expect(await read()).toMatchObject({ writeGate: true, actions: { viewerLogin: 'webdevike' } })
+    host.answers.pr = () => pr({})
+    const bare = await read()
+    expect(bare).toMatchObject({ writeGate: true })
+    expect(bare).not.toHaveProperty('actions')
+  })
+
+  it('refuses the legacy comment while the host takes PR writes; an older host still gets it', async () => {
+    host.answers.comment = () => ({ url: 'https://github.com/o/r/pull/1#c' })
+    features.add(REVIEWS_ACTIONS_FEATURE)
+    expect(await call('reviews.comment', { repo: 'o/r', number: 1, body: 'hi' })).toMatchObject({
+      ok: false,
+      error: { code: 'use-gate', message: LEGACY_COMMENT_REFUSED },
+    })
+    expect(host.ops).toEqual([])
+    features.clear()
+    expect(await call('reviews.comment', { repo: 'o/r', number: 1, body: 'hi' })).toMatchObject({
+      ok: true,
+    })
+    expect(host.ops.map((o) => o.kind)).toEqual(['comment'])
   })
 
   it('loads images the host rewrote from reference and entity-escaped forms: inline host paths, fetched and served locally', async () => {

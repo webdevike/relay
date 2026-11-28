@@ -1,16 +1,24 @@
-// Private asks to Relay's assistants on a ticket (PLAN T4.2, DECISIONS 7). Each assistant has her
-// own item session (`reviews.astraAsk` with her `agent` id), driven by `assistantAskMachine`; her
-// replies render inside the Linear thread they were asked in (`askedIn`), or on their own in the
-// activity. Nothing here is posted to Linear or GitHub.
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+// Private asks to Relay's assistants on a ticket or a PR (PLAN T4.2, DECISIONS 7). Each configured
+// assistant has her own item session (`reviews.astraAsk` with her `agent` id), driven by
+// `assistantAskMachine`; her replies render inside the thread they were asked in (`askedIn`, a
+// Diff line's anchor), or on their own in the activity. Nothing here is posted to Linear or GitHub,
+// and her answers offer no way into a public comment box.
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@mantine/core'
 import { useActorRef, useSelector } from '@xstate/react'
 import { fromPromise, waitFor, type SnapshotFrom } from 'xstate'
 import type { AstraItem, AstraTurn } from '@evaos/contract'
 import { invoke } from '../ipc'
-import { AstraThreadView, assistantName, useAstraItem } from '../reviews/AstraInline'
+import {
+  AstraThreadView,
+  assistantName,
+  useAstraItem,
+  type AstraCardLook,
+} from '../reviews/AstraInline'
 import { astraThreads, threadReplyText, type AstraThread } from '../reviews/astra-timeline'
-import { askedIn } from './activity-model'
+import { fail } from '../reviews/review-ui'
+import { agentOf, askedIn } from './activity-model'
+import { useMentionAssistants } from './mention-assistants'
 import {
   assistantAskMachine,
   type AskInput,
@@ -170,17 +178,62 @@ export function useAssistantSession(input: SessionInput, agent: string): Assista
   }, [actor, agent, astra.item, pending, view])
 }
 
+/** Mounts one assistant's session and hands it up whenever it changes; renders nothing. */
+function SessionSlot({
+  input,
+  agent,
+  onSession,
+}: {
+  input: SessionInput
+  agent: string
+  onSession: (agent: string, s: AssistantSession | null) => void
+}) {
+  const session = useAssistantSession(input, agent)
+  useEffect(() => onSession(agent, session), [agent, session, onSession])
+  useEffect(() => () => onSession(agent, null), [agent, onSession])
+  return null
+}
+
+export interface AssistantSessions {
+  /** Each configured assistant's session on the item, in registry order. */
+  sessions: AssistantSession[]
+  /** Their hooks, one component each (hooks can't run in a loop): the page renders this once. */
+  slots: ReactNode
+}
+
+/** Every configured assistant's private session on the item (the registry's, `useMentionAssistants`). */
+export function useAssistantSessions(input: SessionInput): AssistantSessions {
+  const assistants = useMentionAssistants()
+  const agents = useMemo(() => [...new Set(assistants.map(agentOf))], [assistants])
+  const [byAgent, setByAgent] = useState<Readonly<Record<string, AssistantSession>>>({})
+  const onSession = useCallback((agent: string, s: AssistantSession | null) => {
+    setByAgent(({ [agent]: _, ...rest }) => (s ? { ...rest, [agent]: s } : rest))
+  }, [])
+  const sessions = useMemo(() => agents.flatMap((a) => byAgent[a] ?? []), [agents, byAgent])
+  const slots = agents.map((a) => (
+    <SessionSlot key={a} input={input} agent={a} onSession={onSession} />
+  ))
+  return { sessions, slots }
+}
+
 /**
- * Every assistant's session on the item, in `ASSISTANTS` order (activity-model). One hook call
- * each, written out: hooks can't run in a loop.
+ * A private ask to each named assistant (registry ids), in her own session: true once every one
+ * took it. An assistant whose session hasn't loaded yet gets nothing and Isaac is told, so the box
+ * keeps his words; nothing is ever posted instead.
  */
-export function useAssistantSessions(input: SessionInput): AssistantSession[] {
-  const astra = useAssistantSession(input, 'astra')
-  const nova = useAssistantSession(input, 'nova')
-  const penny = useAssistantSession(input, 'penny')
-  const iris = useAssistantSession(input, 'iris')
-  const polaris = useAssistantSession(input, 'polaris')
-  return useMemo(() => [astra, nova, penny, iris, polaris], [astra, nova, penny, iris, polaris])
+export async function askAssistants(
+  sessions: readonly AssistantSession[],
+  agents: readonly string[],
+  text: string,
+): Promise<boolean> {
+  const to = sessions.filter((s) => agents.includes(s.agent))
+  const missing = agents.filter((a) => !to.some((s) => s.agent === a))
+  if (missing.length > 0) {
+    fail(`Couldn't reach ${missing.map(assistantName).join(', ')}`, 'Try again in a moment.')
+    return false
+  }
+  const sent = await Promise.all(to.map((s) => s.ask(text)))
+  return sent.every(Boolean)
 }
 
 /** A private thread: her session's thread, Isaac's words shown without the thread it carried. */
@@ -189,11 +242,14 @@ export function AssistantReply({
   thread,
   now,
   me,
+  look = 'linear',
 }: {
   session: AssistantSession
   thread: AstraThread
   now: number
   me: string
+  /** Which surface's thread it dresses as (the ticket's Linear threads, or a PR's). */
+  look?: AstraCardLook
 }) {
   const raw = thread.root.text
   const shown = { ...thread, root: { ...thread.root, text: askedIn(raw).text } }
@@ -206,7 +262,7 @@ export function AssistantReply({
         busy={session.busy}
         asking={session.sending}
         now={now}
-        look="linear"
+        look={look}
         me={me}
         agent={session.agent}
         // A reply in the thread continues it by the root's words as her session has them.

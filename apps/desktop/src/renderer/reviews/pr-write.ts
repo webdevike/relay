@@ -25,6 +25,22 @@ export function prWritesOn(pr: ReviewPr): boolean {
   return pr.actions !== undefined && pr.headSha !== undefined
 }
 
+/**
+ * How a comment on this PR is written, by the HOST'S capability when main read it (`writeGate`),
+ * never by whether the facts happen to be there (PLAN §2.9): `gate` through the host's gate;
+ * `unavailable` when that host couldn't give this read its facts (a failed query, a newer head):
+ * refused until a re-read has them, never downgraded; `legacy` the confirmed `reviews.comment`
+ * only without such a host (old host, disconnected, flags off).
+ */
+export function prWritePath(pr: ReviewPr): 'gate' | 'unavailable' | 'legacy' {
+  if (prWritesOn(pr)) return 'gate'
+  return pr.writeGate ? 'unavailable' : 'legacy'
+}
+
+/** A capable host's read came without its facts: what Isaac is told before he retries (a re-read). */
+export const PR_ACTIONS_STALE =
+  'PR actions unavailable: Relay Host couldn’t confirm this pull request’s current state. Retry reads it again.'
+
 /** The gh login the page's PR read showed; writes carry it. */
 export const prLoginOf = (pr: ReviewPr): string | null => pr.actions?.viewerLogin ?? null
 

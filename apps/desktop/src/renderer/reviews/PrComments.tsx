@@ -2,8 +2,9 @@
 // conversation comments, reviews, review (line) comments and pushes in time order, with Isaac's
 // private assistant threads at their place. Images come through the shared markdown media path
 // (widths kept). Reactions show who on hover; a click sets Isaac's own as desired state through the
-// host gate (`react`). The box posts a comment only after the gate's confirm (or, without the
-// gate, the old confirmed `reviews.comment`); a message to an assistant stays private in Relay.
+// host gate (`react`). The box posts a comment only after the gate's confirm; the old confirmed
+// `reviews.comment` only without a capable host (`prWritePath`). A message to any configured
+// assistant goes to her own private session on the PR (the ticket page's routing), never to GitHub.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ActionIcon, Badge, Tooltip, UnstyledButton } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -14,15 +15,30 @@ import { invoke } from '../ipc'
 import { Markdown } from '../chat/markdown/Markdown'
 import { EvaPopover } from '../overlay'
 import { Composer, ConfirmPost, MutationNotice } from '../tickets/Composer'
-import { privacyOf, type Person } from '../tickets/activity-model'
-import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
-import { mergeTimeline, threadReplyText } from './astra-timeline'
+import { agentOf, assistantsIn, type Person } from '../tickets/activity-model'
+import {
+  AskNotices,
+  AssistantReply,
+  askAssistants,
+  useAssistantSessions,
+} from '../tickets/AssistantReply'
+import { useMentionAssistants } from '../tickets/mention-assistants'
+import type { MutationView } from '../tickets/use-mutation'
+import { mergeTimeline } from './astra-timeline'
 import { prContext } from './astra-context'
 import { ago, agoPhrase } from './review-model'
 import { Avatar, fail } from './review-ui'
 import { reviewStateOf } from './PrSidebar'
 import { ApprovalNote } from '../tickets/ApprovalNote'
-import { GITHUB_REACTION, prLoginOf, prWritesOn, useGithubLogin, usePrWrite } from './pr-write'
+import {
+  GITHUB_REACTION,
+  PR_ACTIONS_STALE,
+  prLoginOf,
+  prWritePath,
+  prWritesOn,
+  useGithubLogin,
+  usePrWrite,
+} from './pr-write'
 
 type Reactions = Array<{ emoji: string; users: string[] }>
 
@@ -289,16 +305,26 @@ function useReactions(pr: ReviewPr, onChanged: () => void): ReactCtx {
   }
 }
 
-/** The comment box's writes: the gate's post (confirmed) or, without it, the old confirmed path. */
+const IDLE: MutationView = { kind: 'idle' }
+const STALE: MutationView = { kind: 'refused', message: PR_ACTIONS_STALE }
+
+/**
+ * The comment box's writes, by the host's capability (`prWritePath`): the gate's post (confirmed);
+ * the old confirmed path only without a capable host; refused (`stale`, Retry re-reads) when a
+ * capable host's read came without its facts.
+ */
 function usePost(pr: ReviewPr, onPosted: () => void) {
   const gate = usePrWrite(prLoginOf(pr), () => {
     notifications.show({ message: 'Posted on GitHub.', color: 'green' })
     onPosted()
   })
   const [legacy, setLegacy] = useState<{ body: string; busy: boolean } | null>(null)
+  const [stale, setStale] = useState(false)
   const post = (body: string): void => {
-    if (prWritesOn(pr)) gate.run({ kind: 'comment', repo: pr.repo, number: pr.number, body })
-    else setLegacy({ body, busy: false })
+    const path = prWritePath(pr)
+    if (path === 'gate') gate.run({ kind: 'comment', repo: pr.repo, number: pr.number, body })
+    else if (path === 'legacy') setLegacy({ body, busy: false })
+    else setStale(true)
   }
   const postLegacy = async (): Promise<void> => {
     if (!legacy) return
@@ -314,7 +340,33 @@ function usePost(pr: ReviewPr, onPosted: () => void) {
     notifications.show({ message: 'Posted on GitHub.', color: 'green' })
     onPosted()
   }
-  return { gate, legacy, setLegacy, post, postLegacy }
+  return { gate, legacy, setLegacy, post, postLegacy, stale, setStale }
+}
+
+type Posting = ReturnType<typeof usePost>
+
+/** The confirm before a comment posts: the gate's approval in full, or the legacy path's own words. */
+function CommentConfirm({ pr, posting, draft }: { pr: ReviewPr; posting: Posting; draft: string }) {
+  const v = posting.gate.view
+  const legacy = posting.legacy
+  return (
+    <ConfirmPost
+      opened={v.kind === 'confirming' || v.kind === 'committing' || legacy !== null}
+      title="Post this comment on GitHub?"
+      text={v.kind === 'confirming' ? (v.approval.text ?? draft) : draft}
+      note={
+        v.kind === 'confirming' ? (
+          <ApprovalNote approval={v.approval} />
+        ) : (
+          `Posts as you on ${pr.repo}#${pr.number}. Everyone on the PR sees it.`
+        )
+      }
+      confirmLabel="Post comment"
+      busy={v.kind === 'committing' || legacy?.busy === true}
+      onConfirm={() => (legacy ? void posting.postLegacy() : posting.gate.confirm())}
+      onCancel={() => (legacy ? posting.setLegacy(null) : posting.gate.cancel())}
+    />
+  )
 }
 
 export function PrComments({
@@ -327,27 +379,34 @@ export function PrComments({
   onChanged: () => void
 }) {
   const [draft, setDraft] = useState('')
-  const astra = useAstraItem(pr.url)
   const label = `${pr.repo.split('/')[1]}#${pr.number}`
+  const assistants = useMentionAssistants()
+  const { sessions, slots } = useAssistantSessions({
+    url: pr.url,
+    label,
+    context: () => prContext(pr),
+  })
   const ctx = useReactions(pr, onChanged)
   const posting = usePost(pr, () => {
     setDraft('')
     onChanged()
   })
   const people = peopleOf(pr)
-  const threadProps = threadPropsOf(astra)
+  const sessionOf = new Map(sessions.flatMap((s) => s.threads.map((t) => [t, s] as const)))
   const v = posting.gate.view
 
   const send = (): void => {
     const text = draft.trim()
     if (!text) return
-    if (privacyOf(text, people) === 'public') return posting.post(text)
-    // An assistant is mentioned: a private ask in Relay; nothing is posted.
-    void astra.ask(text, label, () => prContext(pr)).then((ok) => ok && setDraft(''))
+    const named = [...new Set(assistantsIn(text, assistants).map(agentOf))]
+    if (named.length === 0) return posting.post(text)
+    // An assistant is mentioned: a private ask in her own session on the PR; nothing is posted.
+    void askAssistants(sessions, named, text).then((ok) => ok && setDraft(''))
   }
 
   return (
     <>
+      {slots}
       <div className="eva-rv-scroll">
         <div className="eva-rv-conv" data-testid="review-conversation">
           <CommentCard
@@ -367,22 +426,20 @@ export function PrComments({
             <ReactionChips reactions={pr.bodyReactions} target={{ kind: 'prBody' }} ctx={ctx} />
           </CommentCard>
           <div className="eva-rv-timeline">
-            {mergeTimeline(itemsOf(pr, now, ctx), (i) => i.at, astra.threads).map((e) =>
-              e.kind === 'astra' ? (
-                <AstraThreadView
-                  key={`astra-${e.thread.id}`}
-                  {...threadProps(e.thread)}
+            {mergeTimeline(itemsOf(pr, now, ctx), (i) => i.at, [...sessionOf.keys()]).map((e) => {
+              if (e.kind === 'comment') return <div key={e.item.key}>{e.item.node}</div>
+              const session = sessionOf.get(e.thread)!
+              return (
+                <AssistantReply
+                  key={`${session.agent}-${e.thread.id}`}
+                  session={session}
+                  thread={e.thread}
                   now={now}
+                  me="Isaac"
                   look="pr"
-                  onReply={(root, text) =>
-                    astra.ask(threadReplyText(root, text), label, () => prContext(pr))
-                  }
-                  onUseAsReply={setDraft}
                 />
-              ) : (
-                <div key={e.item.key}>{e.item.node}</div>
-              ),
-            )}
+              )
+            })}
           </div>
         </div>
       </div>
@@ -398,23 +455,17 @@ export function PrComments({
           testid="review-composer"
         />
         <MutationNotice view={v} onRetry={posting.gate.retry} onDismiss={posting.gate.cancel} />
+        <MutationNotice
+          view={posting.stale ? STALE : IDLE}
+          onRetry={() => {
+            posting.setStale(false)
+            onChanged()
+          }}
+          onDismiss={() => posting.setStale(false)}
+        />
+        <AskNotices sessions={sessions} />
       </div>
-      <ConfirmPost
-        opened={v.kind === 'confirming' || v.kind === 'committing' || posting.legacy !== null}
-        title="Post this comment on GitHub?"
-        text={v.kind === 'confirming' ? (v.approval.text ?? draft.trim()) : draft.trim()}
-        note={
-          v.kind === 'confirming' ? (
-            <ApprovalNote approval={v.approval} />
-          ) : (
-            `Posts as you on ${pr.repo}#${pr.number}. Everyone on the PR sees it.`
-          )
-        }
-        confirmLabel="Post comment"
-        busy={v.kind === 'committing' || posting.legacy?.busy === true}
-        onConfirm={() => (posting.legacy ? void posting.postLegacy() : posting.gate.confirm())}
-        onCancel={() => (posting.legacy ? posting.setLegacy(null) : posting.gate.cancel())}
-      />
+      <CommentConfirm pr={pr} posting={posting} draft={draft.trim()} />
     </>
   )
 }

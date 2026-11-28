@@ -193,6 +193,19 @@ test('one PrView from a ticket and from Reviews; merge bound to the head; refusa
     kind: 'prCommit',
     mutation: { target: { kind: 'prBody' }, emoji: 'hooray', on: true },
   })
+
+  // An assistant (with a person) in the conversation box: private only, never a GitHub write.
+  const sent = writes().length
+  const box = shell.locator(sel('review-composer'))
+  await box.fill('**@Astra** and @todd please check the batch')
+  await expect(shell.locator(sel('composer-private'))).toContainText(
+    'Write a separate comment for people.',
+  )
+  await shell.locator(sel('review-composer-send')).click()
+  await expect.poll(() => host.reviewOps.filter((o) => o.kind === 'astraAsk').length).toBe(1)
+  expect(host.reviewOps.find((o) => o.kind === 'astraAsk')).toMatchObject({ url: PR.url })
+  expect(writes()).toHaveLength(sent)
+  expect(host.reviewOps.filter((o) => o.kind === 'comment')).toEqual([])
 })
 
 test.describe('a host without reviews.actions', () => {
@@ -211,6 +224,10 @@ test.describe('a host without reviews.actions', () => {
     await expect(shell.locator(sel('pr-react-add'))).toHaveCount(0)
     // A reaction chip is read-only here.
     await expect(shell.locator(sel('pr-reaction')).first()).toBeDisabled()
+    // A comment keeps today's confirmed path on this host (the gate isn't there to ask).
+    await shell.locator(sel('review-composer')).fill('Ship it')
+    await shell.locator(sel('review-composer-send')).click()
+    await expect(shell.locator(sel('review-confirm-text'))).toHaveText('Ship it')
     expect(host.prMutations).toHaveLength(0)
     expect(host.reviewOps.filter((o) => o.kind === 'prPrepare' || o.kind === 'prCommit')).toEqual(
       [],

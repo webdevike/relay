@@ -159,6 +159,13 @@ export const ReviewPrSchema = z.object({
   actions: ReviewPrActionsSchema.optional(),
   /** Review (line) comments, oldest first (relay protocol ReviewComment); absent from older hosts and local reads. */
   reviewComments: z.array(ReviewCommentSchema).optional(),
+  /**
+   * Main read this PR while connected to a host whose write gate takes PR writes (reviews.actions):
+   * Isaac's comments go only through that gate, and without `actions` they are refused (re-read),
+   * never posted the legacy way. Absent: no such host (old host, disconnected, flags off), so the
+   * legacy confirmed `reviews.comment` is the path, as before.
+   */
+  writeGate: z.literal(true).optional(),
 })
 export type ReviewPr = z.infer<typeof ReviewPrSchema>
 

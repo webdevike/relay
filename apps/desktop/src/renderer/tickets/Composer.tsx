@@ -10,7 +10,8 @@ import { invoke } from '../ipc'
 import { EvaModal } from '../overlay'
 import { fail } from '../reviews/review-ui'
 import { PersonAvatar } from '../agents-board/CardChips'
-import { ASSISTANTS, privacyOf, type Person } from './activity-model'
+import { mentionQuery, privacyOf, type Person } from './activity-model'
+import { useMentionAssistants } from './mention-assistants'
 import type { MutationView } from './use-mutation'
 
 export type { Person } from './activity-model'
@@ -63,10 +64,14 @@ export function selectionIn(el: HTMLElement | null): string | null {
 }
 
 /** The `@` list: assistants first (tagged), then the people, matching what follows the `@`. */
-function mentionOptions(people: readonly Person[], query: string | null): Person[] {
+function mentionOptions(
+  assistants: readonly Person[],
+  people: readonly Person[],
+  query: string | null,
+): Person[] {
   if (query === null) return []
   const q = query.toLowerCase()
-  return [...ASSISTANTS, ...people]
+  return [...assistants, ...people]
     .filter((p) => p.handle.toLowerCase().startsWith(q) || p.name.toLowerCase().startsWith(q))
     .slice(0, 6)
 }
@@ -146,13 +151,11 @@ export function Composer(props: ComposerProps) {
   const { value, onChange, people, busy, onSend, onCancel } = props
   const box = useRef<HTMLTextAreaElement>(null)
   const [query, setQuery] = useState<string | null>(null)
-  const privacy = privacyOf(value, people)
-  const options = mentionOptions(people, query)
+  const assistants = useMentionAssistants()
+  const privacy = privacyOf(value, people, assistants)
+  const options = mentionOptions(assistants, people, query)
 
-  const track = (text: string, caret: number): void => {
-    const m = /(^|\s)@([\w.-]*)$/.exec(text.slice(0, caret))
-    setQuery(m ? m[2]! : null)
-  }
+  const track = (text: string, caret: number): void => setQuery(mentionQuery(text.slice(0, caret)))
   // After a mention is picked, the caret goes right after it before the next key lands.
   const caretAt = useRef<number | null>(null)
   const pick = (p: Person): void => {

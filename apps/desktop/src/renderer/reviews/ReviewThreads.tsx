@@ -1,8 +1,9 @@
 // A PR's review threads inline in the Diff tab: each thread under its line (an outdated one on the
 // line it was written on, marked Outdated), images through the markdown media path, and replies and
 // new threads written through the host gate (`reviewReply` / `reviewComment`) after Isaac confirms
-// the exact text. A message to an assistant never goes to GitHub: it is a private ask in Relay
-// (`reviews.astraAsk`, DECISIONS 7) whose thread shows on the same line.
+// the exact text. A message to any configured assistant never goes to GitHub: it is a private ask
+// in her own session on the PR (the ticket page's routing, DECISIONS 7), anchored to the line, and
+// her thread shows on that line; replies in it stay in that thread.
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Badge, Button } from '@mantine/core'
 import { IconArrowBackUp } from '@tabler/icons-react'
@@ -11,13 +12,20 @@ import type { PrMutation } from '@relay/protocol'
 import type { DiffLine, Hunk } from '@relay/protocol/unified-diff'
 import { Markdown } from '../chat/markdown/Markdown'
 import { Composer, ConfirmPost, MutationNotice } from '../tickets/Composer'
-import { privacyOf } from '../tickets/activity-model'
-import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
+import { agentOf, assistantsIn } from '../tickets/activity-model'
+import {
+  AskNotices,
+  AssistantReply,
+  askAssistants,
+  useAssistantSessions,
+  type AssistantSession,
+} from '../tickets/AssistantReply'
+import { useMentionAssistants } from '../tickets/mention-assistants'
 import { prContext } from './astra-context'
-import { threadReplyText, type AstraThread } from './astra-timeline'
+import type { AstraThread } from './astra-timeline'
 import type { DiffAnnotate, DiffCommentOn } from './DiffView'
 import { ApprovalNote } from '../tickets/ApprovalNote'
-import { prLoginOf, prWritesOn, usePrWrite } from './pr-write'
+import { prLoginOf, prWritesOn, usePrWrite, type PrWrite } from './pr-write'
 import { agoPhrase } from './review-model'
 import { Avatar } from './review-ui'
 import {
@@ -174,7 +182,12 @@ export function useInlineThreads(pr: ReviewPr, onChanged?: () => void): InlineTh
     setDraft(null)
     onChanged?.()
   })
-  const astra = useAstraItem(pr.url)
+  const assistants = useMentionAssistants()
+  const { sessions, slots } = useAssistantSessions({
+    url: pr.url,
+    label: `${pr.repo}#${String(pr.number)}`,
+    context: () => prContext(pr),
+  })
   const threads = useMemo(
     () => threadsOf([...(pr.reviewComments ?? []), ...posted]),
     [pr.reviewComments, posted],
@@ -188,35 +201,31 @@ export function useInlineThreads(pr: ReviewPr, onChanged?: () => void): InlineTh
     const d = draft
     const text = d?.text.trim() ?? ''
     if (!d || !text) return
-    if (privacyOf(text, NO_PEOPLE) !== 'public') {
-      const label = `${pr.repo}#${String(pr.number)}`
-      void astra
-        .ask(askText(d, text), label, () => prContext(pr))
-        .then((ok) => {
-          if (ok) setDraft(null)
-        })
+    const named = [...new Set(assistantsIn(text, assistants).map(agentOf))]
+    if (named.length > 0) {
+      void askAssistants(sessions, named, askText(d, text)).then((ok) => {
+        if (ok) setDraft(null)
+      })
       return
     }
     const m = mutationOf(pr, d, text)
     if (m) write.run(m)
-  }, [draft, pr, astra, write])
+  }, [draft, pr, assistants, sessions, write])
 
   const ctx: Ctx = { now, writes, draft, busy, setDraft, send }
-  const threadProps = threadPropsOf(astra)
-  const askView = (t: AstraThread) => (
-    <AstraThreadView
-      key={`astra-${t.id}`}
-      {...threadProps(t)}
-      now={now}
-      look="pr"
-      onReply={(root, text) =>
-        astra.ask(threadReplyText(root, text), `${pr.repo}#${String(pr.number)}`, () =>
-          prContext(pr),
-        )
-      }
-      onUseAsReply={() => undefined}
-    />
-  )
+  const askView = (t: AstraThread) => {
+    const session = sessionOf.get(t)
+    return session ? (
+      <AssistantReply
+        key={`${session.agent}-${t.id}`}
+        session={session}
+        thread={t}
+        now={now}
+        me="Isaac"
+        look="pr"
+      />
+    ) : null
+  }
 
   const annotate =
     (path: string): DiffAnnotate =>
@@ -264,28 +273,14 @@ export function useInlineThreads(pr: ReviewPr, onChanged?: () => void): InlineTh
     )
   }
 
-  const confirming = write.view.kind === 'confirming'
   const overlay = (
     <>
-      <ConfirmPost
-        opened={confirming}
-        title={draft?.kind === 'reply' ? 'Reply on GitHub' : 'Comment on GitHub'}
-        text={
-          write.view.kind === 'confirming'
-            ? (write.view.approval.text ?? draft?.text.trim())
-            : draft?.text.trim()
-        }
-        note={
-          write.view.kind === 'confirming' ? <ApprovalNote approval={write.view.approval} /> : null
-        }
-        confirmLabel={draft?.kind === 'reply' ? 'Post reply' : 'Post comment'}
-        busy={write.view.kind === 'committing'}
-        onConfirm={write.confirm}
-        onCancel={write.cancel}
-      />
+      <DraftConfirm write={write} draft={draft} />
       <div className="eva-rv-ithreads-notice">
         <MutationNotice view={write.view} onRetry={write.retry} onDismiss={write.cancel} />
+        <AskNotices sessions={sessions} />
       </div>
+      {slots}
     </>
   )
   return { annotate, onComment, unplaced, overlay }

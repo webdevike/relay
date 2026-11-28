@@ -216,7 +216,7 @@ function AstraReply({
   when: ReactNode
   /** The registry assistant answering (absent: Astra). */
   agent: string | undefined
-  /** Absent: no "Use as reply" (a ticket's private threads never become comments). */
+  /** Absent: no "Use as reply". Only Slack's thread offers it; ticket and PR threads never do (DECISIONS 7). */
   onUseAsReply?: (text: string) => void
 }) {
   const answer = block.turns.filter((t) => t.role === 'assistant').at(-1)

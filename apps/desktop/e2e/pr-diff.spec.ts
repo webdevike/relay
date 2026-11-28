@@ -26,7 +26,7 @@ const test = base.extend({
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-pr-diff-')))
     const relayDir = path.join(root, 'relay')
     host = await FakeRelayHost.start(relayDir)
-    host.features.push('reviews.actions')
+    host.features.push('reviews.actions', 'reviews.assistants')
     host.serveReviews(FIXTURES)
     const authority = new URL(host.origin).host
     const secretHex = randomBytes(32).toString('hex')

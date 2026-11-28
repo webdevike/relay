@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as TilingStore from '../tiling/tiling-store'
 
@@ -59,9 +59,20 @@ const invoke = vi.fn(async (ch: string, arg?: Record<string, unknown>) => {
   if (ch === 'reviews.pr') return { ok: false, error: { code: 'x', message: 'no gh in tests' } }
   return { ok: false, error: { code: 'x', message: 'not in tests' } }
 })
+const listeners = new Map<string, Set<(v: unknown) => void>>()
+/** Main's push of an item session (`reviews.astraUpdate`). */
+const pushAstra = (item: unknown): void =>
+  act(() => {
+    for (const cb of listeners.get('reviews.astraUpdate') ?? []) cb(item)
+  })
 vi.mock('../ipc', () => ({
   invoke: (...a: unknown[]) => invoke(...(a as [string, Record<string, unknown>])),
-  on: () => () => {},
+  on: (channel: string, cb: (v: unknown) => void) => {
+    const set = listeners.get(channel) ?? new Set()
+    listeners.set(channel, set)
+    set.add(cb)
+    return () => set.delete(cb)
+  },
 }))
 const openPlace = vi.fn()
 vi.mock('../navigation/navigate', () => ({
@@ -552,6 +563,103 @@ describe('PrView', () => {
     await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(1))
     expect(calls('reviews.prPrepare')).toHaveLength(1)
     expect(calls('reviews.comment')).toHaveLength(0)
+  })
+
+  it('PR conversation: each assistant in her own private session, nothing public, no Use as reply', async () => {
+    gateOk()
+    handlers['reviews.astraAsk'] = () => ({ ok: true, value: astraItem('nova', []) })
+    showPr(prOf())
+    const box = screen.getByTestId('review-composer')
+    fireEvent.change(box, { target: { value: '(@Nova, is the batch idempotent?)' } })
+    expect(screen.getByTestId('composer-private')).toHaveTextContent('Only you')
+    fireEvent.click(screen.getByTestId('review-composer-send'))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(1))
+    expect(calls('reviews.astraAsk')[0]).toMatchObject({
+      url: prOf().url,
+      agent: 'nova',
+      text: '(@Nova, is the batch idempotent?)',
+    })
+    await waitFor(() => expect(box).toHaveValue(''))
+    // A person and an assistant: private only, Isaac told to write people separately.
+    fireEvent.change(box, { target: { value: '**@Astra** and @noah please check' } })
+    expect(screen.getByTestId('composer-private')).toHaveTextContent(
+      'Write a separate comment for people.',
+    )
+    fireEvent.click(screen.getByTestId('review-composer-send'))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(2))
+    expect(calls('reviews.astraAsk')[1]).toMatchObject({ agent: 'astra' })
+    pushAstra(astraItem('nova', ['(@Nova, is the batch idempotent?)', 'Yes, by opId.']))
+    const reply = await screen.findByTestId('assistant-reply')
+    expect(reply).toHaveAttribute('data-agent', 'nova')
+    expect(reply).toHaveTextContent('Yes, by opId.')
+    expect(screen.queryByTestId('review-astra-use')).toBeNull()
+    expect(calls('reviews.prPrepare')).toHaveLength(0)
+    expect(calls('reviews.prCommit')).toHaveLength(0)
+    expect(calls('reviews.comment')).toHaveLength(0)
+  })
+
+  it('PR Diff: an assistant ask on a line goes to her session with the line, never to GitHub', async () => {
+    gateOk()
+    handlers['reviews.astraAsk'] = () => ({ ok: true, value: astraItem('nova', []) })
+    showPr(prOf())
+    fireEvent.click(screen.getByTestId('review-tab-diff'))
+    fireEvent.click((await screen.findAllByTestId('review-diff-addline'))[0]!)
+    const box = await screen.findByTestId('review-inline-composer')
+    fireEvent.change(box, { target: { value: '_@Nova_ why b?' } })
+    fireEvent.click(screen.getByTestId('review-inline-composer-send'))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(1))
+    const ask = calls('reviews.astraAsk')[0]!
+    expect(ask).toMatchObject({ agent: 'nova', url: prOf().url })
+    expect(ask['text']).toMatch(/^\(On src\/a\.ts line 1(, old side)?\) _@Nova_ why b\?$/)
+    pushAstra(astraItem('nova', [String(ask['text']), 'Because the batch is new.']))
+    const reply = await within(screen.getByTestId('review-files')).findByTestId('assistant-reply')
+    expect(reply).toHaveAttribute('data-agent', 'nova')
+    expect(within(reply).queryByTestId('review-astra-use')).toBeNull()
+    // A reply in her thread stays in it: the same session, naming the anchored thread.
+    fireEvent.change(within(reply).getByTestId('review-astra-thread-input'), {
+      target: { value: 'and the old side?' },
+    })
+    fireEvent.click(within(reply).getByRole('button', { name: 'Reply' }))
+    await waitFor(() => expect(calls('reviews.astraAsk')).toHaveLength(2))
+    expect(calls('reviews.astraAsk')[1]).toMatchObject({ agent: 'nova' })
+    expect(calls('reviews.astraAsk')[1]!['text']).toMatch(
+      /^\(Reply in your thread on "\(On src\/a\.ts line 1/,
+    )
+    expect(calls('reviews.prPrepare')).toHaveLength(0)
+    expect(calls('reviews.prCommit')).toHaveLength(0)
+    expect(calls('reviews.comment')).toHaveLength(0)
+  })
+
+  it('a capable host’s read without actions facts refuses the comment (Retry re-reads), never legacy', async () => {
+    gateOk()
+    const onRefresh = vi.fn()
+    showPr(prOf({ actions: undefined, writeGate: true }), onRefresh)
+    fireEvent.change(screen.getByTestId('review-composer'), { target: { value: 'Ship it' } })
+    fireEvent.click(screen.getByTestId('review-composer-send'))
+    expect(await screen.findByTestId('mutation-notice')).toHaveTextContent('PR actions unavailable')
+    expect(screen.queryByTestId('review-confirm-post')).toBeNull()
+    fireEvent.click(screen.getByTestId('mutation-retry'))
+    expect(onRefresh).toHaveBeenCalled()
+    expect(screen.getByTestId('review-composer')).toHaveValue('Ship it')
+    expect(calls('reviews.comment')).toHaveLength(0)
+    expect(calls('reviews.prPrepare')).toHaveLength(0)
+    expect(calls('reviews.prCommit')).toHaveLength(0)
+  })
+
+  it('without a capable host (old host, flags off) the comment keeps the legacy confirmed path', async () => {
+    handlers['reviews.comment'] = () => ({ ok: true, value: { url: 'u' } })
+    showPr(prOf({ actions: undefined }))
+    fireEvent.change(screen.getByTestId('review-composer'), { target: { value: 'Ship it' } })
+    fireEvent.click(screen.getByTestId('review-composer-send'))
+    expect(await screen.findByTestId('review-confirm-text')).toHaveTextContent('Ship it')
+    expect(calls('reviews.comment')).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('review-confirm-post'))
+    await waitFor(() =>
+      expect(calls('reviews.comment')).toEqual([
+        { repo: 'eCardSystems/api', number: 42, body: 'Ship it' },
+      ]),
+    )
+    expect(calls('reviews.prPrepare')).toHaveLength(0)
   })
 
   it('shows who reacted and sets Isaac’s reaction as desired state', async () => {

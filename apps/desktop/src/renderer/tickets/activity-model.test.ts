@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { TicketComment } from '@relay/protocol'
 import {
   NO_EDITS,
+  agentOf,
+  assistantPeople,
   assistantsIn,
   commentActions,
   focusTarget,
   isEmojiOnly,
   issueTitleOf,
+  mentionQuery,
   privacyOf,
   reactionKey,
   threadsOf,
@@ -180,6 +183,45 @@ describe('privacyOf', () => {
   })
   it('names the assistants mentioned', () => {
     expect(assistantsIn('@Penny @Iris hi').map((a) => a.name)).toEqual(['Penny', 'Iris'])
+  })
+  it('reads a mention where the composer does: after punctuation and formatting, not in an address', () => {
+    expect(privacyOf('(@Astra, check this)', people)).toBe('private')
+    expect(privacyOf('**@Astra** please check', people)).toBe('private')
+    expect(privacyOf('_@astra_: look', people)).toBe('private')
+    expect(privacyOf('Thanks @Astra.', people)).toBe('private')
+    expect(privacyOf('[@Pal Lee] and (@Nova)', people)).toBe('mixed')
+    expect(privacyOf('**@Pal Lee** see this', people)).toBe('public')
+    expect(privacyOf('mail astra@example.com or @@Astra', people)).toBe('public')
+    expect(privacyOf('@Astral is a word, @Astra-bot a name, @Astra.io a host', people)).toBe(
+      'public',
+    )
+    expect(mentionQuery('ask (@As')).toBe('As')
+    expect(mentionQuery('**@')).toBe('')
+    expect(mentionQuery('astra@ex')).toBeNull()
+  })
+  it('resolves assistants from the configured registry, ids and one-word titles alike', () => {
+    const registry = assistantPeople([
+      { id: 'astra', title: 'Astra' },
+      { id: 'scout', title: 'Scout' },
+      { id: 'code-review', title: 'Code Review' },
+    ])
+    expect(registry.map((a) => [a.handle, agentOf(a)])).toEqual([
+      ['Astra', 'astra'],
+      ['Scout', 'scout'],
+      ['code-review', 'code-review'],
+      ['Nova', 'nova'],
+      ['Penny', 'penny'],
+      ['Iris', 'iris'],
+      ['Polaris', 'polaris'],
+    ])
+    expect(privacyOf('**@Scout** dig into this', people, registry)).toBe('private')
+    expect(privacyOf('@Pal Lee, @code-review: thoughts?', people, registry)).toBe('mixed')
+    expect(privacyOf('@Code Review thoughts?', people, registry)).toBe('private')
+    expect(assistantsIn('(@scout, @Astra)', registry).map(agentOf)).toEqual(['astra', 'scout'])
+    expect(privacyOf('@Scout check', people, assistantPeople(null))).toBe('public')
+    // An empty or unloaded registry (a thin client's) never makes a built-in one public.
+    expect(privacyOf('@Nova check', people, assistantPeople([]))).toBe('private')
+    expect(privacyOf('@Astra check', people, assistantPeople(null))).toBe('private')
   })
 })
 

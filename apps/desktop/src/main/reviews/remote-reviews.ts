@@ -408,6 +408,54 @@ export function hostLinearIssue(host: HostReviews) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The PR read through the host: remote mode always, local mode when the host takes PR writes
+// ---------------------------------------------------------------------------------------------
+
+/** Markdown with the host's served images (`/reviews/media/<file>/<token>`) fetched once into `mediaDir`, served as `/reviews/media/<file>`. */
+export function hostMedia(mediaDir: string, origin: () => string | null) {
+  return async (md: string): Promise<string> => {
+    const at = origin()
+    if (at === null || !md.includes('/reviews/media/')) return md
+    const prefix = `${at}/reviews/media/`
+    return localizeImages(absoluteMedia(md, at), mediaDir, [
+      { match: (u) => u.startsWith(prefix), headers: () => Promise.resolve({}) },
+    ])
+  }
+}
+
+/**
+ * The PR as the host read it: one snapshot (body, timeline, diff, actions facts and line comments at
+ * one head), its images made local. From a host with REVIEWS_ACTIONS_FEATURE it is marked
+ * `writeGate`: comments go only through that host's gate, and are refused (not downgraded) when
+ * the read has no `actions`. Any other host's actions facts are dropped, so this app sends it no write.
+ */
+export function hostPrRead(
+  host: Pick<HostReviews, 'req'>,
+  frames: RelayFeatures,
+  local: (md: string) => Promise<string>,
+) {
+  return async (repo: string, number: number): Promise<ReviewPr> => {
+    const { actions, ...rest } = toPr(
+      HostPr.parse((await host.req({ kind: 'pr', repo, number })).pr),
+    )
+    const pr = frames.hostHas(REVIEWS_ACTIONS_FEATURE)
+      ? { ...rest, writeGate: true as const, ...(actions ? { actions } : {}) }
+      : rest
+    const [body, timeline, reviewComments] = await Promise.all([
+      local(pr.body),
+      Promise.all(pr.timeline.map(async (t) => ({ ...t, body: await local(t.body) }))),
+      pr.reviewComments &&
+        Promise.all(pr.reviewComments.map(async (c) => ({ ...c, body: await local(c.body) }))),
+    ])
+    return { ...pr, body, timeline, ...(reviewComments ? { reviewComments } : {}) }
+  }
+}
+
+/** The legacy `reviews.comment` while the host takes PR writes: the page read before it did. */
+export const LEGACY_COMMENT_REFUSED =
+  'Comments on this pull request go through Relay Host now. Reload it and post again.'
+
+// ---------------------------------------------------------------------------------------------
 // PR actions: the host's write gate, in local and remote mode alike
 // ---------------------------------------------------------------------------------------------
 
@@ -481,14 +529,7 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   const { host } = d
   const mediaDir = path.join(ctx.config.dir, REVIEWS_MEDIA_DIR)
 
-  const local = async (md: string): Promise<string> => {
-    const origin = d.origin()
-    if (origin === null || !md.includes('/reviews/media/')) return md
-    const prefix = `${origin}/reviews/media/`
-    return localizeImages(absoluteMedia(md, origin), mediaDir, [
-      { match: (u) => u.startsWith(prefix), headers: () => Promise.resolve({}) },
-    ])
-  }
+  const local = hostMedia(mediaDir, () => d.origin())
   /** One host image path as a local `/reviews/media/<file>`; null when it can't be fetched. */
   const localSrc = async (src: string): Promise<string | null> => {
     const out = /^!\[\]\((.*)\)$/.exec(await local(`![](${src})`))?.[1] ?? null
@@ -602,19 +643,8 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return toQueue(q, l, Date.now())
   })
 
-  handle(ctx, 'reviews.pr', async ({ repo, number }) => {
-    const read = toPr(HostPr.parse((await host.req({ kind: 'pr', repo, number })).pr))
-    // A host without the gate's PR actions gets no write from this app: its controls stay hidden.
-    const { actions, ...rest } = read
-    const pr = d.frames.hostHas(REVIEWS_ACTIONS_FEATURE) && actions ? { ...rest, actions } : rest
-    const [body, timeline, reviewComments] = await Promise.all([
-      local(pr.body),
-      Promise.all(pr.timeline.map(async (t) => ({ ...t, body: await local(t.body) }))),
-      pr.reviewComments &&
-        Promise.all(pr.reviewComments.map(async (c) => ({ ...c, body: await local(c.body) }))),
-    ])
-    return { ...pr, body, timeline, ...(reviewComments ? { reviewComments } : {}) }
-  })
+  const readPr = hostPrRead(host, d.frames, local)
+  handle(ctx, 'reviews.pr', ({ repo, number }) => readPr(repo, number))
 
   handle(ctx, 'reviews.guide', async ({ repo, number, headSha, baseSha }) =>
     ReviewGuideSchema.parse(
@@ -623,6 +653,8 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   )
 
   handle(ctx, 'reviews.comment', async ({ repo, number, body }) => {
+    // A capable host's comments go only through its gate (`reviews.prCommit`), never this way.
+    if (d.frames.hostHas(REVIEWS_ACTIONS_FEATURE)) throw fail('use-gate', LEGACY_COMMENT_REFUSED)
     if (!d.writes) throw fail('dry-run', 'Test instance: the comment was not posted')
     const a = await host.req({ kind: 'comment', repo, number, body })
     return { url: typeof a.url === 'string' ? a.url : '' }

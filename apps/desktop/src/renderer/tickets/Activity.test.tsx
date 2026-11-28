@@ -24,6 +24,7 @@ const pushAstra = (item: AstraItem): void =>
 vi.mock('@mantine/notifications', () => ({ notifications: { show: () => {}, hide: () => {} } }))
 
 import { Activity, TicketDescription, clippedWords } from './Activity'
+import { assistantsStore } from '../assistants/assistants-store'
 import type { TicketData } from './ticket-data'
 
 const pal = { id: 'u-pal', name: 'Pal Lee', avatarUrl: null }
@@ -123,7 +124,18 @@ async function menuOf(id: string): Promise<string[]> {
 // jsdom has no layout: the private thread scrolls its newest reply into view.
 Element.prototype.scrollIntoView = () => {}
 
-afterEach(() => invoke.mockReset())
+afterEach(() => {
+  // Unmounted first: a registry change re-mounts the sessions, which read through `invoke`.
+  cleanup()
+  invoke.mockReset()
+  assistantsStore.setState({ data: null })
+})
+
+/** The configured registry as main lists it (only the fields the composer reads matter here). */
+const configure = (agents: Array<{ id: string; title: string }>): void =>
+  assistantsStore.setState({
+    data: { agents: agents as never, relayUp: true },
+  })
 
 describe('Activity', () => {
   it('threads replies under their root and renders the description image at its width', async () => {

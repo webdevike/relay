@@ -160,6 +160,8 @@ export interface Person {
   avatarUrl?: string | null
   /** A Relay assistant: a message to her stays private. */
   assistant?: true
+  /** An assistant's registry id (`astra`): whose private item session gets the ask. */
+  agent?: string
 }
 
 const handleOf = (url: string | undefined, name: string): string =>
@@ -186,25 +188,72 @@ export function peopleOf(d: TicketDetail): Person[] {
   return [...seen.values()]
 }
 
-/** Relay's assistants: mentioning one makes the message a private ask in Relay (never posted). */
+/**
+ * Relay's built-in assistants: always private, whether or not this Mac's registry lists them (a thin
+ * client's list can be empty or not loaded yet), so an ask meant for one never becomes a comment.
+ */
 export const ASSISTANTS: readonly Person[] = ['Astra', 'Nova', 'Penny', 'Iris', 'Polaris'].map(
-  (name) => ({ name, handle: name, url: '', assistant: true }),
+  (name) => ({ name, handle: name, url: '', assistant: true, agent: name.toLowerCase() }),
 )
 
-const mentions = (text: string, name: string): boolean =>
-  new RegExp(`(^|\\s)@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i').test(text)
+/** A configured assistant as the registry lists her (`assistants.list`). */
+export interface RegistryAssistant {
+  id: string
+  title: string
+}
 
-/** The assistants `text` mentions. */
-export function assistantsIn(text: string): Person[] {
-  return ASSISTANTS.filter((a) => mentions(text, a.name))
+const ONE_WORD = /^[\w.-]+$/
+
+/**
+ * The assistants an @ means: the configured registry's (custom ones included) in its order, offered
+ * as `@Title` when her title is one word, else `@id`; then any built-in one it doesn't list.
+ */
+export function assistantPeople(agents: readonly RegistryAssistant[] | null): readonly Person[] {
+  const configured: Person[] = (agents ?? []).map((a) => ({
+    name: a.title || a.id,
+    handle: ONE_WORD.test(a.title) ? a.title : a.id,
+    url: '',
+    assistant: true,
+    agent: a.id,
+  }))
+  const ids = new Set(configured.map((a) => a.agent))
+  return [...configured, ...ASSISTANTS.filter((a) => !ids.has(a.agent))]
+}
+
+/**
+ * Where `@` starts a mention, as the composer's @ list reads it: at the start or after anything but
+ * a letter, digit or another `@`, so `(@Astra,`, `**@Astra**` and `_@Astra_` mention her and an
+ * address (`astra@example.com`) doesn't.
+ */
+const AT = '(?<![^\\W_]|@)@'
+/** A mention ends before anything but a letter, digit or `-`, or at a `.` that ends the sentence. */
+const END = '(?![^\\W_]|-|\\.[^\\W_])'
+
+const mentions = (text: string, name: string): boolean =>
+  new RegExp(`${AT}${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${END}`, 'i').test(text)
+
+/** The mention being typed right before the caret (what follows its `@`), or null: the @ list's query. */
+export function mentionQuery(beforeCaret: string): string | null {
+  return new RegExp(`${AT}([\\w.-]*)$`).exec(beforeCaret)?.[1] ?? null
+}
+
+/** The assistants `text` mentions, by her handle, name or registry id. */
+export function assistantsIn(text: string, assistants: readonly Person[] = ASSISTANTS): Person[] {
+  return assistants.filter((a) =>
+    [a.handle, a.name, a.agent ?? ''].some((n) => n !== '' && mentions(text, n)),
+  )
 }
 
 /**
  * Where a message goes: `public` (posted), `private` (an assistant is mentioned: Relay only), or
  * `mixed` (an assistant and a person: still private, and Isaac is told to write people separately).
  */
-export function privacyOf(text: string, people: readonly Person[]): 'public' | 'private' | 'mixed' {
-  if (assistantsIn(text).length === 0) return 'public'
+export function privacyOf(
+  text: string,
+  people: readonly Person[],
+  assistants: readonly Person[] = ASSISTANTS,
+): 'public' | 'private' | 'mixed' {
+  if (assistantsIn(text, assistants).length === 0) return 'public'
   const person = people.some(
     (p) => !p.assistant && (mentions(text, p.name) || mentions(text, p.handle)),
   )
@@ -254,7 +303,7 @@ export const isInline = (c: TicketComment): boolean =>
   c.documentContentId !== null && Boolean(c.quotedText)
 
 /** An assistant's registry id (`Nova` -> `nova`): which of her sessions gets the ask. */
-export const agentOf = (p: Person): string => p.handle.toLowerCase()
+export const agentOf = (p: Person): string => p.agent ?? p.handle.toLowerCase()
 
 const oneLine = (text: string, max: number): string =>
   text.replace(/\s+/g, ' ').replace(/"/g, "'").trim().slice(0, max)
