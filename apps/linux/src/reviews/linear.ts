@@ -12,7 +12,7 @@ import type { LinearTicket, ReviewItem } from "@relay/protocol";
 import { z } from "zod";
 import { sameToken } from "../drops/serve";
 import type { DropBlob } from "../seams";
-import type { ProviderBudget } from "../tickets/budget";
+import type { Budget } from "../tickets/budget";
 import { ProviderRejected } from "../tickets/gate";
 import { isLinearUpload, localizeImages, MEDIA_LIMITS, type MediaLimits } from "./media";
 
@@ -349,7 +349,7 @@ const GqlAnswer = z.object({
 type GqlError = NonNullable<z.infer<typeof GqlAnswer>["errors"]>[number];
 
 /** Throws what Linear's first GraphQL error means: a limit, a refused key, or a refusal. */
-function throwGqlError(status: number, first: GqlError, budget: ProviderBudget | null): never {
+function throwGqlError(status: number, first: GqlError, budget: Budget | null): never {
   const code = first.extensions?.code;
   if (code === "RATELIMITED" && budget !== null) budget.limited();
   if (status === 401 || code === "AUTHENTICATION_ERROR") throw new LinearUnauthorized(first.message);
@@ -360,7 +360,7 @@ function throwGqlError(status: number, first: GqlError, budget: ProviderBudget |
  * An answer's data, or the error it means: Linear said no (GraphQL `errors`, a 4xx) throws
  * `ProviderRejected` (nothing was written); a limit throws `RateLimited`; a 5xx a plain Error.
  */
-function dataOf(status: number, body: unknown, budget: ProviderBudget | null): unknown {
+function dataOf(status: number, body: unknown, budget: Budget | null): unknown {
   const parsed = GqlAnswer.safeParse(body);
   const first = parsed.success ? parsed.data.errors?.[0] : undefined;
   if (first !== undefined) throwGqlError(status, first, budget);
@@ -374,7 +374,7 @@ function dataOf(status: number, body: unknown, budget: ProviderBudget | null): u
  * Linear's GraphQL with the host's key, through `budget` when given (shared by Reviews and the
  * tickets sync): a spent budget, a 429 or Linear's RATELIMITED error throw `RateLimited`.
  */
-export function linearGql(key: () => string | null, fetchFn: Fetch, budget: ProviderBudget | null = null): LinearGql {
+export function linearGql(key: () => string | null, fetchFn: Fetch, budget: Budget | null = null): LinearGql {
   return async (query, variables = {}) => {
     const token = key();
     if (!token) throw new LinearUnauthorized("No Linear API key (LINEAR_API_KEY or secrets/linear.env)");
@@ -398,7 +398,7 @@ export class Linear {
     private readonly key: () => string | null,
     private readonly media: ReviewMedia,
     private readonly fetchFn: Fetch,
-    budget: ProviderBudget | null = null,
+    budget: Budget | null = null,
   ) {
     this.gql = linearGql(key, fetchFn, budget);
   }

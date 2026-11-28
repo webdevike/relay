@@ -53,8 +53,8 @@ export interface ReviewsServiceDeps {
   readonly broadcast: (message: ReviewsMessage) => void;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
-  /** The per-provider budgets the tickets sync shares; absent: Reviews' calls are unpaced. */
-  readonly budgets?: Budgets;
+  /** The per-provider budgets the tickets sync shares (only with host.json features.tickets); absent or null: unpaced. */
+  readonly budgets?: Budgets | null;
 }
 
 /** url -> epoch ms: done.json (the item's updatedAt when Done), snooze.json (until), read.json (the updatedAt seen). */

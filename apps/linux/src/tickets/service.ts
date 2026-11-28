@@ -7,13 +7,14 @@
 // `tickets.status`) go through `onPush`, which the server sends only to sockets that subscribed.
 
 import { TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { ticketsFeatures, type HostConfig } from "../host-config";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
 import { linearGql, type Fetch, type LinearGql } from "../reviews/linear";
 import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
-import { RateLimited, type Budgets } from "./budget";
+import { providerBudgets, RateLimited, type Budgets } from "./budget";
 import { MutationGate, type GateIdentity } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
@@ -371,15 +372,17 @@ export interface HostTicketsOptions {
 /** gh signed out (as opposed to failing): its login is then nobody's. */
 const GH_SIGNED_OUT = /auth login|not logged in/i;
 
-/** The service as the host runs it: the shared budgets, the host's key and gh's login. */
+/** The service as the host runs it: the sync on the budgets' background lane, the host's key and gh's login. */
 export function hostTicketsService(o: HostTicketsOptions): TicketsService {
+  const linear = o.budgets.linear.background;
+  const github = o.budgets.github.background;
   return new TicketsService({
     dir: o.dir,
-    gql: linearGql(o.linearKey, o.fetch, o.budgets.linear),
-    ghGraphql: ghGraphql(o.run, o.gh, o.budgets.github),
+    gql: linearGql(o.linearKey, o.fetch, linear),
+    ghGraphql: ghGraphql(o.run, o.gh, github),
     ghLogin: async () => {
       try {
-        return (await ghCall(o.run, o.gh, o.budgets.github, ["api", "user", "--jq", ".login"])).trim() || null;
+        return (await ghCall(o.run, o.gh, github, ["api", "user", "--jq", ".login"])).trim() || null;
       } catch (error) {
         if (GH_SIGNED_OUT.test(text(error))) return null;
         throw error;
@@ -390,4 +393,22 @@ export function hostTicketsService(o: HostTicketsOptions): TicketsService {
     now: () => Date.now(),
     log: o.log,
   });
+}
+
+export interface HostTickets {
+  /** Null unless host.json has `features.tickets: true`. */
+  readonly tickets: TicketsService | null;
+  /**
+   * The budgets Reviews' clients share with the sync (interactive lane, with a reserve the sync
+   * can't spend); null with tickets off, so Reviews calls Linear and GitHub exactly as without tickets.
+   */
+  readonly reviewsBudgets: Budgets | null;
+}
+
+/** What `serve` builds for tickets from host.json and the environment (the only construction path). */
+export function hostTickets(config: HostConfig | null, env: Readonly<Record<string, string | undefined>>, o: Omit<HostTicketsOptions, "budgets" | "writes">): HostTickets {
+  const on = ticketsFeatures(config, env);
+  if (!on.sync) return { tickets: null, reviewsBudgets: null };
+  const budgets = providerBudgets(() => Date.now());
+  return { tickets: hostTicketsService({ ...o, budgets, writes: on.writes }), reviewsBudgets: budgets };
 }

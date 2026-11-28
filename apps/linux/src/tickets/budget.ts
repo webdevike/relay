@@ -1,9 +1,12 @@
 // One request budget per provider (Linear, GitHub), shared by the tickets sync and Reviews' clients
-// so neither can starve the other (PLAN T0.3). A token bucket paces calls on our side; the
-// provider's own answers move it: Linear's `x-ratelimit-requests-*`/`x-ratelimit-complexity-*`
-// headers and 429 `Retry-After`, GitHub's `x-ratelimit-remaining`/`-reset` and a secondary limit
-// (403 or 429 with `retry-after`). While backing off every call is refused at once with
-// `RateLimited`, which carries how long to wait; nothing here sleeps or schedules.
+// when host.json opts into tickets (with tickets off Reviews stays unpaced, as before). A token
+// bucket paces calls on our side; the last `reserve` tokens are kept for interactive calls
+// (Reviews, ticket writes): the sync takes through `background`, which is refused while only the
+// reserve is left. The provider's own answers move the bucket: Linear's
+// `x-ratelimit-requests-*`/`x-ratelimit-complexity-*` headers and 429 `Retry-After`, GitHub's
+// `x-ratelimit-remaining`/`-reset` and a secondary limit (403 or 429 with `retry-after`). While
+// backing off every call is refused at once with `RateLimited`, which carries how long to wait;
+// nothing here sleeps or schedules.
 
 export type BudgetProvider = "linear" | "github";
 
@@ -53,12 +56,28 @@ const resetMs = (v: string | null): number | null => {
   return n < 1e12 ? n * 1000 : n;
 };
 
-export class ProviderBudget {
+/** What a client calls through: Reviews and writes take the provider budget, the sync its `background` lane. */
+export interface Budget {
+  /** Takes one call's token, or throws RateLimited. */
+  take(): void;
+  /** Reads an answer's limit headers; throws RateLimited when the answer was a limit. */
+  observe(status: number, headers: HeaderBag): void;
+  /** A limit seen without headers: backs off and throws RateLimited. */
+  limited(waitMs?: number | null): never;
+}
+
+export class ProviderBudget implements Budget {
   private tokens: number;
   private filledAt: number;
   private remaining: number | null = null;
   private resetAt: number | null = null;
   private backoffUntil: number | null = null;
+  /** The sync's lane: refused while only the interactive reserve is left. */
+  readonly background: Budget = {
+    take: () => this.takeAbove(this.reserve),
+    observe: (status, headers) => this.observe(status, headers),
+    limited: (waitMs) => this.limited(waitMs),
+  };
 
   constructor(
     readonly provider: BudgetProvider,
@@ -67,19 +86,26 @@ export class ProviderBudget {
     private readonly capacity: number,
     /** Tokens back per second. */
     private readonly perSecond: number,
+    /** Tokens only interactive calls (`take`) may spend. */
+    private readonly reserve = 0,
   ) {
     this.tokens = capacity;
     this.filledAt = now();
   }
 
-  /** Takes one call's token, or throws RateLimited while backing off or out of tokens. */
+  /** An interactive call's token, or RateLimited while backing off or out of tokens. */
   take(): void {
+    this.takeAbove(0);
+  }
+
+  /** Takes one token when more than `floor` are left; otherwise throws RateLimited. */
+  private takeAbove(floor: number): void {
     const now = this.now();
     if (this.backoffUntil !== null && now < this.backoffUntil) throw new RateLimited(this.provider, this.backoffUntil - now);
     this.backoffUntil = null;
     this.tokens = Math.min(this.capacity, this.tokens + ((now - this.filledAt) / 1000) * this.perSecond);
     this.filledAt = now;
-    if (this.tokens < 1) throw new RateLimited(this.provider, Math.ceil(((1 - this.tokens) / this.perSecond) * 1000));
+    if (this.tokens < floor + 1) throw new RateLimited(this.provider, Math.ceil(((floor + 1 - this.tokens) / this.perSecond) * 1000));
     this.tokens -= 1;
   }
 
@@ -142,10 +168,13 @@ export interface Budgets {
   readonly github: ProviderBudget;
 }
 
-/** Linear allows 1,500 requests an hour per key, GitHub 5,000: we pace below both. */
+/**
+ * Linear allows 1,500 requests an hour per key, GitHub 5,000: we pace below both, and keep a
+ * quarter of each burst for Reviews and ticket writes.
+ */
 export function providerBudgets(now: () => number): Budgets {
   return {
-    linear: new ProviderBudget("linear", now, 40, 1200 / 3600),
-    github: new ProviderBudget("github", now, 60, 4000 / 3600),
+    linear: new ProviderBudget("linear", now, 40, 1200 / 3600, 10),
+    github: new ProviderBudget("github", now, 60, 4000 / 3600, 15),
   };
 }

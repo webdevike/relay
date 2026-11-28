@@ -217,9 +217,9 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
   const pushes: TicketsPush[] = [];
   const service = new TicketsService({
     dir,
-    gql: linearGql(() => "lin_api_test", linear.fetch, budgets.linear),
-    ghGraphql: ghGraphql(gh.run, "gh", budgets.github),
-    ghLogin: async () => (await ghCall(gh.run, "gh", budgets.github, ["api", "user", "--jq", ".login"]).catch(() => "")).trim() || null,
+    gql: linearGql(() => "lin_api_test", linear.fetch, budgets.linear.background),
+    ghGraphql: ghGraphql(gh.run, "gh", budgets.github.background),
+    ghLogin: async () => (await ghCall(gh.run, "gh", budgets.github.background, ["api", "user", "--jq", ".login"]).catch(() => "")).trim() || null,
     budgets,
     writes: o.writes ?? false,
     now: () => now,

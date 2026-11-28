@@ -5,7 +5,7 @@
 import { homedir } from "node:os";
 import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type ReviewItem, type ReviewPr } from "@relay/protocol";
 import { z } from "zod";
-import type { ProviderBudget } from "../tickets/budget";
+import type { Budget } from "../tickets/budget";
 import type { ToolRun } from "./exec";
 import type { Fetch, ReviewMedia } from "./linear";
 import { isGithubUpload, isLinearUpload, localizeImages } from "./media";
@@ -183,7 +183,7 @@ const GH_LIMIT = /rate limit|secondary rate|abuse detection/i;
  * `gh <args>` through the GitHub budget when given: a spent budget throws `RateLimited` before gh
  * runs, and gh's rate-limit failure backs the budget off.
  */
-export async function ghCall(run: ToolRun, gh: string, budget: ProviderBudget | null, args: readonly string[]): Promise<string> {
+export async function ghCall(run: ToolRun, gh: string, budget: Budget | null, args: readonly string[]): Promise<string> {
   budget?.take();
   const res = await run([gh, ...args], { cwd: homedir(), timeoutMs: GH_TIMEOUT_MS });
   if (res.timedOut) throw new Error(`gh ${args.slice(0, 2).join(" ")} took too long`);
@@ -230,7 +230,7 @@ function jsonOf(body: string): unknown {
 }
 
 /** The body's data and errors; throws when there is no data (gh or GitHub failed outright). */
-function graphqlAnswer(body: string, stderr: string, budget: ProviderBudget | null): GhGraphqlAnswer {
+function graphqlAnswer(body: string, stderr: string, budget: Budget | null): GhGraphqlAnswer {
   const parsed = GhAnswer.safeParse(jsonOf(body));
   const answer = parsed.success ? parsed.data : {};
   const errors: GhGraphqlAnswer["errors"] = answer.errors ?? [];
@@ -246,7 +246,7 @@ function graphqlAnswer(body: string, stderr: string, budget: ProviderBudget | nu
  * GitHub GraphQL through `gh api graphql --include`, so the budget sees GitHub's limit headers. An
  * answer with partial data and errors (an alias without access) is returned, not thrown.
  */
-export function ghGraphql(run: ToolRun, gh: string, budget: ProviderBudget | null): GhGraphql {
+export function ghGraphql(run: ToolRun, gh: string, budget: Budget | null): GhGraphql {
   return async (query) => {
     budget?.take();
     const res = await run([gh, "api", "graphql", "--include", "-f", `query=${query}`], { cwd: homedir(), timeoutMs: GH_TIMEOUT_MS });
@@ -264,7 +264,7 @@ export class GitHub {
     /** Where PR images are kept and how they are fetched; without it bodies stay as GitHub wrote them. */
     private readonly images?: { media: ReviewMedia; fetchFn: Fetch; linearKey: () => string | null },
     /** The GitHub budget shared with the tickets sync; null: unpaced. */
-    private readonly budget: ProviderBudget | null = null,
+    private readonly budget: Budget | null = null,
   ) {}
 
   private call(args: readonly string[]): Promise<string> {
