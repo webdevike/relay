@@ -80,8 +80,11 @@ const TeamStates = z.object({ team: z.object({ id: z.string(), key: z.string(), 
 const Template = z.object({
   template: z.object({ id: z.string(), name: z.string(), type: z.string(), updatedAt: z.string(), templateData: z.unknown(), team: Ref.nullable().optional() }).nullable(),
 });
-/** Sub-issues a template defines, where Linear's templateData lists them. */
-const TemplateSubIssues = z.object({ subIssues: z.array(z.object({ title: z.string().optional() }).passthrough()) }).passthrough();
+/**
+ * A template's issue data as Linear documents it (`templateData`, JSON-encoded): sub-issues it also
+ * creates are listed under `subIssues`, each with its title.
+ */
+const TemplateIssueData = z.object({ subIssues: z.array(z.object({ title: z.string() }).passthrough()).optional() }).passthrough();
 const Project = z.object({ project: z.object({ id: z.string(), name: z.string(), teams: Nodes(Ref) }).nullable() });
 const CommentRef = z.object({
   comment: z
@@ -383,12 +386,29 @@ function subscribeOps(gql: LinearGql, viewerId: () => string | null): KindOps<Of
 type Team = { readonly id: string; readonly key: string };
 type Named = { problem: string } | { name: string | null; rev: string };
 
-/** Template-defined sub-issues Linear also creates, as the confirm names them. */
-function subIssues(data: unknown): string {
-  const parsed = TemplateSubIssues.safeParse(data);
-  if (!parsed.success) return "";
-  const titles = parsed.data.subIssues.map((s) => s.title ?? "untitled");
-  return titles.length === 0 ? "" : ` with ${String(titles.length)} sub-issues: ${titles.join(", ")}`;
+/** An array that looks like issues (objects with a title): what a template would create besides the root. */
+const issueList = (v: unknown): boolean => Array.isArray(v) && v.some((x) => typeof x === "object" && x !== null && "title" in x);
+
+/**
+ * What else a template creates, for the confirm: its sub-issues by title, or why that can't be told
+ * (data that isn't JSON or an object, sub-issues without titles, or issue lists under another key).
+ * Unknown effects refuse the change rather than confirming less than Linear will do.
+ */
+export function templateEffects(data: unknown): { ok: true; text: string } | { ok: false; why: string } {
+  let decoded: unknown = data;
+  if (typeof data === "string") {
+    try {
+      decoded = JSON.parse(data);
+    } catch {
+      return { ok: false, why: "Relay can't read what this template creates" };
+    }
+  }
+  const parsed = TemplateIssueData.safeParse(decoded);
+  if (!parsed.success) return { ok: false, why: "Relay can't tell what this template creates" };
+  const { subIssues = [], ...rest } = parsed.data;
+  if (Object.values(rest).some(issueList)) return { ok: false, why: "Relay can't tell what this template creates" };
+  const titles = subIssues.map((s) => s.title);
+  return { ok: true, text: titles.length === 0 ? "" : ` with ${String(titles.length)} sub-issues: ${titles.join(", ")}` };
 }
 
 /** The template, when given: an issue template of this team (or of none), bound to its live content. */
@@ -397,7 +417,9 @@ async function templateOf(gql: LinearGql, id: string | null, team: Team): Promis
   const { template } = await ask(gql, TEMPLATE, { id }, Template);
   const teamOk = (template?.team ?? null) === null || template?.team?.id === team.id;
   if (template === null || template.type !== "issue" || !teamOk) return { problem: `That template isn't an issue template of team ${team.key}` };
-  return { name: `template ${template.name}${subIssues(template.templateData)}`, rev: digest(template.updatedAt, template.templateData) };
+  const effects = templateEffects(template.templateData);
+  if (!effects.ok) return { problem: `${effects.why} (template ${template.name}); create the issue in Linear` };
+  return { name: `template ${template.name}${effects.text}`, rev: digest(template.updatedAt, template.templateData) };
 }
 
 /** The project, when given: one this team is in. */

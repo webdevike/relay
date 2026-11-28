@@ -6,7 +6,7 @@ import { MAX_TICKET_PLAN_ROWS, MAX_TICKET_TEXT, type TicketMutation } from "@rel
 import { linearGql } from "../src/reviews/linear";
 import { StaleCredential } from "../src/tickets/errors";
 import { MutationGate } from "../src/tickets/gate";
-import { linearExecutor } from "../src/tickets/linear-writes";
+import { linearExecutor, templateEffects } from "../src/tickets/linear-writes";
 
 const T0 = Date.parse("2026-11-27T12:00:00Z");
 const ME = "viewer-isaac";
@@ -59,9 +59,11 @@ class FakeLinear {
   readonly calls: { op: string; vars: Vars }[] = [];
   readonly teams = [{ id: "t-1", key: "ENG", states: STATES }];
   readonly templates = new Map([
-    ["tpl-bug", { id: "tpl-bug", name: "Bug", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: { subIssues: [{ title: "Repro" }, { title: "Fix" }] }, team: { id: "t-1" } }],
-    ["tpl-other", { id: "tpl-other", name: "Ops bug", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: {}, team: { id: "t-2" } }],
-    ["tpl-doc", { id: "tpl-doc", name: "Spec", type: "document", updatedAt: "2026-11-01T00:00:00.000Z", templateData: {}, team: null }],
+    // Linear sends templateData JSON-encoded (schema: "The template data as JSON encoded attributes").
+    ["tpl-bug", { id: "tpl-bug", name: "Bug", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: JSON.stringify({ title: "Bug", subIssues: [{ title: "Repro" }, { title: "Fix" }] }), team: { id: "t-1" } }],
+    ["tpl-other", { id: "tpl-other", name: "Ops bug", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: "{}", team: { id: "t-2" } }],
+    ["tpl-doc", { id: "tpl-doc", name: "Spec", type: "document", updatedAt: "2026-11-01T00:00:00.000Z", templateData: "{}", team: null }],
+    ["tpl-odd", { id: "tpl-odd", name: "Odd", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: "{not json", team: { id: "t-1" } }],
   ]);
   readonly projects = new Map([
     ["p-1", { id: "p-1", name: "Board", teams: { nodes: [{ id: "t-1" }] } }],
@@ -315,6 +317,27 @@ describe("linearExecutor checks", () => {
     const { exec, linear } = setup();
     linear.addComment({ id: "c-my-inline", issueId: "issue-1", docId: "doc-1", parentId: null, userId: ME, body: "Is this the v2 API?" });
     expect(await exec.check({ kind: "deleteComment", commentId: "c-my-inline", replyCount: 0 })).toMatchObject({ ok: true, summary: 'Delete your inline comment on the description "Is this the v2 API?"' });
+  });
+});
+
+describe("template effects", () => {
+  it("reads the JSON-encoded representation and names its sub-issues", () => {
+    expect(templateEffects(JSON.stringify({ title: "Bug", labelIds: ["l-1"], subIssues: [{ title: "Repro" }, { title: "Fix" }] }))).toEqual({ ok: true, text: " with 2 sub-issues: Repro, Fix" });
+    expect(templateEffects(JSON.stringify({ title: "Bug", priority: 2 }))).toEqual({ ok: true, text: "" });
+  });
+
+  it("fails closed on malformed JSON, a shape it doesn't know and sub-issues without titles", () => {
+    for (const data of ["{not json", '"just a string"', "[]", "null", JSON.stringify({ children: [{ title: "Hidden" }] }), JSON.stringify({ subIssues: [{ description: "no title" }] }), JSON.stringify({ subIssues: "two" })]) {
+      expect(templateEffects(data).ok).toBe(false);
+    }
+  });
+
+  it("refuses to prepare a new issue whose template effects can't be told, writing nothing", async () => {
+    const { gate, linear } = setup();
+    const create: TicketMutation = { ...(CREATE_ISSUE as Extract<TicketMutation, { kind: "createIssue" }>), templateId: "tpl-odd" };
+    const res = await gate.prepare(DEVICE, create, ACTOR);
+    expect(res.refused).toEqual({ code: "invalid", message: "Relay can't read what this template creates (template Odd); create the issue in Linear" });
+    expect(linear.mutations()).toEqual([]);
   });
 });
 
