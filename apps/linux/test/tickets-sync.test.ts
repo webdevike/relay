@@ -218,6 +218,21 @@ describe("tickets sync", () => {
     expect(checkpoint()).toBe(T0 + MIN);
   });
 
+  it("on a cold start reads a ticket mentioned only in an inline comment (not assigned, not followed) before setting the checkpoint", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    linear.others.set("OPS-9", { ...(linear.members.get("ENG-1") ?? {}), identifier: "OPS-9", id: "id-OPS-9", assignee: null, subscribers: { nodes: [] } });
+    linear.notices = [{ type: "issueCommentMention", createdAt: new Date(T0 - 5 * MIN).toISOString(), issue: { identifier: "OPS-9" }, comment: { id: "c-inline-9" } }];
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    expect(await boardKeys(h)).toEqual(["ENG-1", "OPS-9"]);
+    expect(h.file().sync.noticesAt).toBe(T0 - 5 * MIN);
+    // The membership check keeps it: a kept notification mentions Isaac there.
+    for (let t = 0; t <= RECONCILE_EVERY_MS; t += INTERVAL) await nextCycle(h);
+    expect(await boardKeys(h)).toEqual(["ENG-1", "OPS-9"]);
+  });
+
   it("withholds a ticket Linear now refuses to show, and keeps the stored card only through an outage", async () => {
     const linear = new FakeLinear();
     linear.add("ENG-1", T0 - MIN);

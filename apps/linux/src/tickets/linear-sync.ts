@@ -368,7 +368,8 @@ export class LinearSync {
   /**
    * The newest 100 notifications. Since the checkpoint, the issues they touched (stored ones, and new
    * ones that mention Isaac) are read by key first; the checkpoint then moves only past notices whose
-   * issue was read, so a failed or capped read is retried next cycle. The first read only sets it.
+   * issue was read, so a failed or capped read is retried next cycle. On the first read (no
+   * checkpoint yet) every mention of an issue the issue pass didn't bring in is read the same way.
    */
   private async notices(viewer: LinearViewer): Promise<void> {
     const store = this.deps.store;
@@ -379,17 +380,15 @@ export class LinearSync {
     store.setSync({ notices });
     const since = store.sync.noticesAt;
     const newest = Math.max(since ?? 0, ...notices.map((n) => n.at));
-    if (since === null) {
-      store.setSync({ noticesAt: newest });
-      return;
-    }
-    const fresh = notices.filter((n) => n.at > since && (store.issue(n.issueKey) !== undefined || MENTION_NOTICES.has(n.type))).sort((a, b) => a.at - b.at);
+    const cached = (n: LinearNotice): boolean => store.issue(n.issueKey) !== undefined;
+    const due = (n: LinearNotice): boolean => (since === null ? MENTION_NOTICES.has(n.type) && !cached(n) : n.at > since && (cached(n) || MENTION_NOTICES.has(n.type)));
+    const fresh = notices.filter(due).sort((a, b) => a.at - b.at);
     const keys = [...new Set(fresh.map((n) => n.issueKey))].slice(0, KEYS_PER_CALL * MAX_KEY_CALLS);
     if (keys.length > 0) await this.byKeys(viewer, keys);
     const read = new Set(keys);
     const unread = fresh.find((n) => !read.has(n.issueKey));
     // Past every notice up to the first one whose issue wasn't read this cycle.
-    const through = unread === undefined ? newest : Math.max(since, ...fresh.filter((n) => n.at < unread.at).map((n) => n.at));
+    const through = unread === undefined ? newest : Math.max(since ?? 0, ...fresh.filter((n) => n.at < unread.at).map((n) => n.at));
     store.setSync({ noticesAt: through });
   }
 
