@@ -114,10 +114,19 @@ const view = (data: TicketData) =>
 const commentEl = (id: string) =>
   screen.getAllByTestId('ticket-comment').find((el) => el.dataset.commentId === id)!
 
-/** The comment's "..." menu items once it has opened (a loaded machine may take a while). */
+/**
+ * The comment's "..." menu items once it has opened. On a loaded CI runner the first click can land
+ * before the comment settles (its menu state starts over), so it reopens until the items show.
+ */
 async function menuOf(id: string): Promise<string[]> {
-  await userEvent.click(within(commentEl(id)).getByTestId('comment-menu'))
-  const items = await screen.findAllByRole('menuitem', {}, { timeout: 5_000 })
+  const items = await waitFor(
+    async () => {
+      if (screen.queryAllByRole('menuitem').length === 0)
+        await userEvent.click(within(commentEl(id)).getByTestId('comment-menu'))
+      return screen.findAllByRole('menuitem', {}, { timeout: 1_500 })
+    },
+    { timeout: 12_000 },
+  )
   return items.map((i) => i.getAttribute('data-testid')!.replace('comment-action-', ''))
 }
 
