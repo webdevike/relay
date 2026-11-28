@@ -1293,6 +1293,11 @@ button.eva-rv-sfile {
   gap: calc(var(--mantine-spacing-xs) * 0.6);
   min-height: 26px;
   min-width: 0;
+  font-size: var(--eva-fz-label);
+}
+/* The run's name is a button: it takes the row's size, not Mantine's button size. */
+.eva-rv-check .eva-rv-ellipsis {
+  font-size: inherit;
 }
 .eva-rv-picker {
   display: flex;
