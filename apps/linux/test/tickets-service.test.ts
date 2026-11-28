@@ -175,10 +175,17 @@ describe("TicketsService bounds and reads", () => {
 });
 
 describe("TicketsService ops", () => {
-  it("answers plan and replan as not available yet", async () => {
+  it("plan keeps Relay-only starts in plan.json and pushes them on the cards; replan is not available yet", async () => {
     const h = started();
     await h.settled();
-    expect(await h.service.handle("desk", { kind: "plan", rows: [] })).toEqual({ ok: false, error: "Not available yet" });
+    const card = async () => (await h.service.handle("desk", { kind: "board" })).board?.tickets[0];
+    expect((await card())?.plannedStart).toBeUndefined();
+    expect(await h.service.handle("desk", { kind: "plan", rows: [{ key: "ENG-1", plannedStart: "2026-12-01" }] })).toEqual({ ok: true });
+    expect((await card())?.plannedStart).toBe("2026-12-01");
+    expect(h.pushes.at(-1)).toMatchObject({ t: "tickets.delta", upserts: [{ key: "ENG-1", plannedStart: "2026-12-01" }] });
+    expect(JSON.parse(readFileSync(join(h.dir, "plan.json"), "utf8"))).toEqual({ v: 1, starts: { "ENG-1": "2026-12-01" } });
+    await h.service.handle("desk", { kind: "plan", rows: [{ key: "ENG-1", plannedStart: null }] });
+    expect((await card())?.plannedStart).toBeUndefined();
     expect(await h.service.handle("desk", { kind: "replan", projectId: "project-1" })).toEqual({ ok: false, error: "Not available yet" });
   });
 
