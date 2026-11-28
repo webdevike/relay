@@ -1,0 +1,45 @@
+{
+  "id": "issue-template",
+  "identifier": "ENG-0",
+  "title": "Synthetic ticket",
+  "description": "A made-up ticket for host tests.",
+  "url": "https://linear.app/acme/issue/ENG-0/synthetic-ticket",
+  "priority": 2,
+  "prioritySortOrder": 100,
+  "dueDate": null,
+  "startedAt": null,
+  "createdAt": "2026-11-01T09:00:00.000Z",
+  "updatedAt": "2026-11-20T09:00:00.000Z",
+  "documentContent": { "id": "doc-template" },
+  "state": { "id": "state-started", "name": "In Progress", "type": "started", "color": "#f2c94c" },
+  "team": { "id": "team-eng", "key": "ENG" },
+  "assignee": { "id": "user-me", "name": "Pat Example", "avatarUrl": null },
+  "creator": { "id": "user-other", "name": "Robin Sample", "avatarUrl": null },
+  "labels": { "nodes": [{ "id": "label-1", "name": "Board", "color": "#5e6ad2" }] },
+  "project": { "id": "project-1", "name": "Relay Board", "targetDate": "2026-12-15" },
+  "projectMilestone": { "id": "ms-1", "name": "M0", "targetDate": "2026-12-01", "sortOrder": 1 },
+  "parent": null,
+  "children": { "nodes": [] },
+  "relations": { "nodes": [] },
+  "inverseRelations": { "nodes": [] },
+  "attachments": { "nodes": [] },
+  "subscribers": { "nodes": [{ "id": "user-me" }] },
+  "comments": {
+    "nodes": [
+      {
+        "id": "comment-1",
+        "body": "Can you look at this, [Pat Example](https://linear.app/acme/profiles/pat)?",
+        "url": "https://linear.app/acme/issue/ENG-0#comment-1",
+        "createdAt": "2026-11-20T08:00:00.000Z",
+        "editedAt": null,
+        "resolvedAt": null,
+        "quotedText": null,
+        "documentContentId": null,
+        "parent": null,
+        "user": { "id": "user-other", "name": "Robin Sample", "avatarUrl": null },
+        "resolvingUser": null,
+        "reactionData": [{ "emoji": "+1", "reactions": [{ "userId": "user-other" }] }]
+      }
+    ]
+  }
+}

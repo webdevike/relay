@@ -1,0 +1,5 @@
+{ "teams": { "nodes": [{ "id": "team-eng", "key": "ENG", "states": { "nodes": [
+  { "id": "state-todo", "name": "Todo", "type": "unstarted", "color": "#e2e2e2", "position": 1 },
+  { "id": "state-started", "name": "In Progress", "type": "started", "color": "#f2c94c", "position": 2 },
+  { "id": "state-done", "name": "Done", "type": "completed", "color": "#5e6ad2", "position": 3 }
+] } }] } }

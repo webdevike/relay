@@ -141,6 +141,20 @@ export function featureOn(
   return config === null ? true : resourcePresent;
 }
 
+/**
+ * Tickets are explicit opt-ins (unlike `featureOn`, no host.json is not "on"): the sync runs only
+ * with `features.tickets: true`, writes only with `features.ticketsWrites: true` as well and no
+ * `RELAY_REVIEWS_DRY_RUN=1`.
+ */
+export function ticketsFeatures(
+  config: HostConfig | null,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): { readonly sync: boolean; readonly writes: boolean } {
+  const sync = config?.features["tickets"] === true;
+  const writes = sync && config?.features["ticketsWrites"] === true && env["RELAY_REVIEWS_DRY_RUN"] !== "1";
+  return { sync, writes };
+}
+
 /** `Jane` from "Jane's Mac Studio" / "Jane’s MacBook"; null for a name without an owner. */
 export function ownerOf(hostName: string): string | null {
   const match = /^(.+?)['’]s\s/.exec(hostName);

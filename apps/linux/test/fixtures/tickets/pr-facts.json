@@ -1,0 +1,23 @@
+{
+  "number": 1,
+  "title": "Synthetic PR",
+  "url": "https://github.com/acme/app/pull/1",
+  "state": "OPEN",
+  "isDraft": false,
+  "updatedAt": "2026-11-20T10:00:00Z",
+  "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reviewDecision": "REVIEW_REQUIRED",
+  "mergeStateStatus": "BLOCKED",
+  "viewerDidAuthor": true,
+  "author": { "login": "pat-example" },
+  "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "PENDING", "contexts": { "nodes": [
+    { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+    { "__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": null }
+  ] } } } }] },
+  "reviewRequests": { "nodes": [] },
+  "comments": { "nodes": [
+    { "id": "ic-1", "body": "Looks fine so far", "createdAt": "2026-11-20T10:00:00Z", "author": { "login": "robin-sample" }, "reactionGroups": [] }
+  ] },
+  "reviews": { "nodes": [] },
+  "reviewThreads": { "nodes": [] }
+}

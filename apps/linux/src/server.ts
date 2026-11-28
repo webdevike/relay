@@ -96,6 +96,7 @@ import type {
   ReviewsRelaying,
   StudioRelaying,
   TextInjecting,
+  TicketsRelaying,
 } from "./seams";
 import { ClientSession } from "./session";
 import { authorizeVnc, VncBridge, VncTickets } from "./vnc";
@@ -189,6 +190,8 @@ export interface ServerDeps {
   readonly workspace?: WorkspaceRelaying | null;
   /** The boards folder for desktops on other Macs; absent or null leaves CANVAS_FILES_FEATURE out of `welcome.features`. */
   readonly canvasFiles?: CanvasFilesRelaying | null;
+  /** Isaac's synced Linear tickets; absent or null refuses `tickets.req`. Pushes reach subscribed sockets only. */
+  readonly tickets?: TicketsRelaying | null;
   /** The bearer token every state-changing loopback route requires (`controlToken` in serve.json, 0600). */
   readonly hostToken: string;
   /** The Skills page's catalog and live skill rooms; absent or null disables `/skills`. */
@@ -326,6 +329,7 @@ export class RelayServer {
         }
       };
     }
+    this.wireTickets();
     const server = Bun.serve<SocketData>({
       port: this.config.port,
       hostname: this.config.listenAddress ?? "0.0.0.0",
@@ -680,6 +684,17 @@ export class RelayServer {
     }
   }
 
+  /** Tickets pushes go only to sockets that subscribed (`tickets.req subscribe {on: true}`). */
+  private wireTickets(): void {
+    const tickets = this.deps.tickets ?? null;
+    if (tickets === null) return;
+    tickets.onPush = (message) => {
+      for (const ws of this.sockets) {
+        if (ws.data.session?.wantsTickets() === true) ws.data.session.broadcast(message);
+      }
+    };
+  }
+
   /** Sends a stats snapshot to every socket that asked for stats (`stats.get`); phones never do. */
   broadcastStats(message: ServerMessage): void {
     for (const ws of this.sockets) {
@@ -948,6 +963,7 @@ export class RelayServer {
           }
         },
         canvasFiles: this.deps.canvasFiles ?? null,
+        tickets: this.deps.tickets ?? null,
       },
       (closed) => {
         const reason = closed.closeReason;
