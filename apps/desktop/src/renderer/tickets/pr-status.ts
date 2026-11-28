@@ -190,24 +190,13 @@ export function prStatusOf(s: PrSignals): PrStatus {
 
 // ---- The merge box's one button (PLAN §2.6) ----
 
-export type MergeOutcome = 'Merge now' | 'Add to merge queue' | 'Turn on auto-merge'
-
 export type MergeOffer =
   /** No write controls: the host gave no actions facts (old host, local mode, GitHub couldn't say). */
   | { kind: 'hidden' }
-  /** Nothing to merge now, and why. */
+  /** Nothing to merge now, and why. Relay never defers a merge (no auto-merge, no merge queue). */
   | { kind: 'none'; reason: string }
-  /** Auto-merge is on (`method`, turned on by `by`): it can be turned off. */
-  | { kind: 'armed'; method: PrMergeMethod; by: string | null }
-  | {
-      kind: 'offer'
-      intent: 'merge' | 'auto'
-      outcome: MergeOutcome
-      /** What it does (protocol `expectOutcome`): the host refuses when GitHub would now do another. */
-      effect: 'merge' | 'queue' | 'auto'
-      /** The repository's allowed methods, in GitHub's order. */
-      methods: PrMergeMethod[]
-    }
+  /** Merge now, exactly the head the page shows; the repository's allowed methods, in GitHub's order. */
+  | { kind: 'offer'; methods: PrMergeMethod[] }
 
 const METHODS: readonly PrMergeMethod[] = ['merge', 'squash', 'rebase']
 const WRITERS: Record<string, true> = { ADMIN: true, MAINTAIN: true, WRITE: true }
@@ -231,22 +220,11 @@ const NO_MERGE: ReadonlyArray<(pr: ReviewPr, a: Actions) => string | null> = [
     a.mergeStateStatus === 'DIRTY' ? `Conflicts with ${pr.base}: resolve them first` : null,
 ]
 
-function outcomeOf(
-  a: Actions,
-): Pick<Extract<MergeOffer, { kind: 'offer' }>, 'intent' | 'outcome' | 'effect'> {
-  if (a.mergeQueue.required)
-    return { intent: 'auto', outcome: 'Add to merge queue', effect: 'queue' }
-  if (MERGES_NOW[a.mergeStateStatus])
-    return { intent: 'merge', outcome: 'Merge now', effect: 'merge' }
-  return { intent: 'auto', outcome: 'Turn on auto-merge', effect: 'auto' }
-}
-
-/** What the merge box offers for `pr`: hidden without host facts, the armed auto-merge, a reason, or one outcome. */
+/** What the merge box offers for `pr`: hidden without host facts, a reason, or Merge now. */
 export function mergeOfferOf(pr: ReviewPr): MergeOffer {
   const a = pr.actions
   if (a === undefined || pr.headSha === undefined) return { kind: 'hidden' }
-  if (a.autoMerge && pr.state === 'OPEN') return { kind: 'armed', ...a.autoMerge }
   const reason = NO_MERGE.map((r) => r(pr, a)).find((w) => w !== null)
   if (reason) return { kind: 'none', reason }
-  return { kind: 'offer', ...outcomeOf(a), methods: METHODS.filter((m) => a.methods[m]) }
+  return { kind: 'offer', methods: METHODS.filter((m) => a.methods[m]) }
 }

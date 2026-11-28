@@ -28,11 +28,9 @@ const ticketFixture = (name: string): Json =>
 const REVIEWS = path.join(__dirname, '..', 'fixtures', 'reviews')
 const reviewsFixture = (name: string): Json =>
   JsonSchema.parse(JSON.parse(fs.readFileSync(path.join(REVIEWS, `${name}.json`), 'utf8')))
-/** A PR commit's `result`: where a merge stands (a turned-on auto-merge or `auto` intent arms it). */
+/** A PR commit's `result`: a merge is immediate, so it reads back merged. */
 function mergeResult(m: Record<string, unknown>): Record<string, unknown> {
-  if (m.kind === 'autoMerge') return m.on === true ? { merge: 'autoMergeArmed' } : {}
-  if (m.kind !== 'merge') return {}
-  return { merge: m.intent === 'auto' ? 'autoMergeArmed' : 'merged' }
+  return m.kind === 'merge' ? { merge: 'merged' } : {}
 }
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'

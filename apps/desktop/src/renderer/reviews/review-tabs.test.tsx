@@ -286,7 +286,6 @@ const ACTIONS: NonNullable<ReviewPr['actions']> = {
   mergeable: 'MERGEABLE',
   mergeStateStatus: 'CLEAN',
   methods: { merge: true, squash: true, rebase: false },
-  autoMerge: null,
   mergeQueue: { required: false, inQueue: false, entryState: null },
   reviews: [{ login: 'noah', state: 'APPROVED', at: 1 }],
   checks: [
@@ -445,10 +444,8 @@ describe('PrView', () => {
     const mutation = {
       kind: 'merge',
       method: 'squash',
-      intent: 'merge',
       expectHead: HEAD,
       expectBase: 'main',
-      expectOutcome: 'merge',
     }
     expect(calls('reviews.prPrepare')).toEqual([
       { login: 'webdevike', mutation: expect.objectContaining(mutation) },
@@ -472,14 +469,22 @@ describe('PrView', () => {
         refused: { code: 'writesOff', message: 'Writes are off on the host' },
       },
     })
-    showPr(prOf({ actions: { ...ACTIONS, mergeStateStatus: 'BLOCKED' } }))
-    expect(screen.getByTestId('pr-merge-start')).toHaveTextContent('Turn on auto-merge')
+    showPr(prOf())
+    expect(screen.getByTestId('pr-merge-start')).toHaveTextContent('Merge now')
     fireEvent.click(screen.getByTestId('pr-merge-start'))
     fireEvent.click(await screen.findByTestId('pr-merge-confirm'))
     expect(await screen.findByTestId('pr-merge-note')).toHaveTextContent(
       'Writes are off on the host',
     )
     expect(calls('reviews.prCommit')).toHaveLength(0)
+  })
+
+  it('never offers auto-merge: a PR GitHub won’t merge right now shows why, with no button', () => {
+    showPr(prOf({ actions: { ...ACTIONS, mergeStateStatus: 'BLOCKED' } }))
+    expect(screen.queryByTestId('pr-merge-start')).toBeNull()
+    expect(screen.getByTestId('pr-merge-none')).toHaveTextContent(
+      'Required reviews or checks are missing',
+    )
   })
 
   it('hides merge, re-run, request review and reactions without the host’s actions facts', () => {

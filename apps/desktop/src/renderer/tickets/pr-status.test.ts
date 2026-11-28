@@ -64,7 +64,6 @@ const ACTIONS: NonNullable<ReviewPr['actions']> = {
   mergeable: 'MERGEABLE',
   mergeStateStatus: 'CLEAN',
   methods: { merge: true, squash: true, rebase: false },
-  autoMerge: null,
   mergeQueue: { required: false, inQueue: false, entryState: null },
   reviews: [{ login: 'noah', state: 'APPROVED', at: 1 }],
   checks: [
@@ -114,25 +113,27 @@ describe('mergeOfferOf', () => {
     expect(mergeOfferOf(prOf({}, { headSha: undefined }))).toEqual({ kind: 'hidden' })
   })
 
-  it('offers one outcome with the allowed methods', () => {
-    expect(mergeOfferOf(prOf({}))).toEqual({
-      kind: 'offer',
-      intent: 'merge',
-      outcome: 'Merge now',
-      effect: 'merge',
-      methods: ['merge', 'squash'],
-    })
-    expect(mergeOfferOf(prOf({ mergeStateStatus: 'BLOCKED' }))).toMatchObject({
-      intent: 'auto',
-      outcome: 'Turn on auto-merge',
-      effect: 'auto',
-    })
+  it('offers Merge now with the allowed methods only when GitHub merges it right now', () => {
+    expect(mergeOfferOf(prOf({}))).toEqual({ kind: 'offer', methods: ['merge', 'squash'] })
+    expect(mergeOfferOf(prOf({ mergeStateStatus: 'UNSTABLE' }))).toMatchObject({ kind: 'offer' })
+  })
+
+  it('never offers auto-merge or a merge queue: says why it can’t merge now', () => {
+    const reason = (pr: ReviewPr) => {
+      const o = mergeOfferOf(pr)
+      return o.kind === 'none' ? o.reason : o.kind
+    }
+    expect(reason(prOf({ mergeStateStatus: 'BLOCKED' }))).toBe(
+      'Required reviews or checks are missing',
+    )
+    expect(reason(prOf({ mergeStateStatus: 'BEHIND' }))).toBe('Behind the base branch')
+    expect(reason(prOf({ mergeStateStatus: 'UNKNOWN' }))).toBe(
+      'GitHub is still working out whether it can merge',
+    )
     const queue = { required: true, inQueue: false, entryState: null }
-    expect(mergeOfferOf(prOf({ mergeQueue: queue }))).toMatchObject({
-      intent: 'auto',
-      outcome: 'Add to merge queue',
-      effect: 'queue',
-    })
+    expect(reason(prOf({ mergeQueue: queue }))).toBe(
+      'This branch merges through a merge queue: add it on GitHub',
+    )
   })
 
   it('says why there is nothing to merge', () => {
@@ -153,12 +154,11 @@ describe('mergeOfferOf', () => {
     expect(reason(prOf({ mergeQueue: inQueue }))).toBe('In the merge queue')
   })
 
-  it('shows an armed auto-merge, never --admin', () => {
-    expect(mergeOfferOf(prOf({ autoMerge: { method: 'squash', by: 'iweber' } }))).toEqual({
-      kind: 'armed',
-      method: 'squash',
-      by: 'iweber',
-    })
+  it('ignores an auto-merge fact an older host still sends', () => {
+    const older = { autoMerge: { method: 'squash', by: 'iweber' } } as Partial<
+      NonNullable<ReviewPr['actions']>
+    >
+    expect(mergeOfferOf(prOf(older))).toEqual({ kind: 'offer', methods: ['merge', 'squash'] })
   })
 })
 

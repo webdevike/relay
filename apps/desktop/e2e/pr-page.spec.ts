@@ -9,7 +9,7 @@ import { FakeRelayHost } from './helpers/fake-relay-host'
 
 // The PR page against a fake Relay Host (`reviews.req` from fixtures/reviews, its PR from
 // fixtures/reviews/pr.json with `actions` facts): the same PrView from a ticket's PR route and from
-// Reviews; a merge confirmed with its head SHA and outcome is one gate `prPrepare` and one
+// Reviews; Merge now (never auto-merge) confirmed with its head SHA is one gate `prPrepare` and one
 // `prCommit` bound to that head; a refusal shows the reason and writes nothing; the folded sidebar
 // is kept; a host without `reviews.actions` shows no merge or re-run and gets no PR write.
 // No GitHub, Linear or Claude.
@@ -138,16 +138,16 @@ test('one PrView from a ticket and from Reviews; merge bound to the head; refusa
   const rail = shell.locator(sel('review-rail'))
   await expect(rail.locator(sel('pr-status-line'))).toContainText('Blocked')
   await expect(rail.locator(sel('pr-check-rerun'))).toHaveCount(1)
-  await expect(rail.locator(sel('pr-merge-start'))).toHaveText('Turn on auto-merge')
+  await expect(rail.locator(sel('pr-merge-start'))).toHaveText('Merge now')
 
-  // Merge: the confirm names the head and the outcome; one prepare, one commit, same head.
+  // Merge: the confirm names the head; one prepare, one commit, same head.
   await rail.locator(sel('pr-merge-start')).click()
   await expect(shell.locator(sel('pr-merge-Head'))).toHaveText(PR.headSha.slice(0, 7))
   await expect(shell.locator(sel('pr-merge-Base'))).toHaveText('main')
   expect(writes()).toHaveLength(0)
   await shell.locator(sel('pr-merge-confirm')).click()
-  // The fixture host reads the PR back unchanged afterwards, so the box returns to its offer.
   await expect.poll(() => writes().length, { timeout: 15_000 }).toBe(2)
+  await expect(rail.locator(sel('pr-merge-note'))).toHaveText('Merged.')
   const [prepare, commit, ...rest] = writes()
   expect(rest).toHaveLength(0)
   expect(prepare).toMatchObject({

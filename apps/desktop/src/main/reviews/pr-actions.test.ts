@@ -12,10 +12,8 @@ const MERGE = {
   repo: 'eCardSystems/api',
   number: 42,
   method: 'squash',
-  intent: 'merge',
   expectHead: H1,
   expectBase: 'main',
-  expectOutcome: 'merge',
 }
 const ME = 'webdevike'
 

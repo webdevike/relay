@@ -427,7 +427,7 @@ export interface PrActions {
 }
 
 /**
- * Merge, auto-merge, re-run, request review, reactions and PR comments as Isaac: only the host's
+ * Merge now, re-run, request review, reactions and PR comments as Isaac: only the host's
  * MutationGate writes them, so they go to the host whichever mode this Mac runs in, and only to a
  * host that lists REVIEWS_ACTIONS_FEATURE (an old host closes the socket on an unknown op).
  */

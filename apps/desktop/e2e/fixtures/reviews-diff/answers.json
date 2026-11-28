@@ -212,7 +212,6 @@
           "squash": true,
           "rebase": false
         },
-        "autoMerge": null,
         "mergeQueue": {
           "required": false,
           "inQueue": false,

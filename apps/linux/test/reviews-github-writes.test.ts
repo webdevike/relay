@@ -5,11 +5,9 @@ import { describe, expect, it } from "vitest";
 import type { PrMutation } from "@relay/protocol";
 import type { ToolResult, ToolRun } from "../src/reviews/exec";
 import { GitHub, ghGraphql } from "../src/reviews/github";
-import { githubExecutor, RelayAutoMerge, relayAutoMergeWatch } from "../src/reviews/github-writes";
+import { githubExecutor, StaleGithubCredential } from "../src/reviews/github-writes";
 import { PrGate, type GithubPin } from "../src/reviews/pr-gate";
 import { ReviewsService, DRY_RUN_ERROR, type PrWritesGate } from "../src/reviews/service";
-import { GithubSync } from "../src/tickets/github-sync";
-import type { TicketsStore } from "../src/tickets/store";
 import { systemClock } from "../src/session";
 
 const REPO = "eCardSystems/api";
@@ -30,7 +28,6 @@ interface FakePr {
   mergeable: string;
   queue: boolean;
   inQueue: boolean;
-  autoMerge: string | null;
   permission: string;
   methods: { merge: boolean; squash: boolean; rebase: boolean };
   requested: string[];
@@ -61,7 +58,6 @@ class FakeGh {
     mergeable: "MERGEABLE",
     queue: false,
     inQueue: false,
-    autoMerge: null,
     permission: "WRITE",
     methods: { merge: true, squash: true, rebase: false },
     requested: [],
@@ -69,6 +65,8 @@ class FakeGh {
     title: "Ship the board",
   };
   readonly runs = new Map<number, { head_sha: string; conclusion: string | null; run_attempt: number }>();
+  /** The Actions runs of the head's failed checks. */
+  failedRuns: number[] = [7];
   readonly reactions = new Map<string, { id: number; login: string; content: string }[]>();
   readonly issueComments: Listed[] = [];
   readonly reviewComments: Listed[] = [];
@@ -77,6 +75,8 @@ class FakeGh {
   loseNext = false;
   /** The next write never reaches GitHub and its answer is lost too. */
   dropNext = false;
+  /** Sees every call before gh answers it (a test moves the account mid-op). */
+  onCall: (args: readonly string[]) => void = () => undefined;
   /** Review/conversation comment ids that belong to another PR. */
   readonly foreign = new Set<number>();
   private nextId = 100;
@@ -84,6 +84,7 @@ class FakeGh {
   readonly run: ToolRun = (argv) => {
     const args = argv.slice(1);
     this.calls.push(args);
+    this.onCall(args);
     if (args[1] === "graphql") return Promise.resolve(this.graphql());
     return Promise.resolve(this.rest(args));
   };
@@ -111,7 +112,6 @@ class FakeGh {
         isInMergeQueue: p.inQueue,
         isMergeQueueEnabled: p.queue,
         mergeQueueEntry: p.inQueue ? { state: "QUEUED" } : null,
-        autoMergeRequest: p.autoMerge === null ? null : { mergeMethod: p.autoMerge, enabledBy: { login: "webdevike" } },
         latestReviews: { nodes: [{ author: { login: "todd" }, state: "APPROVED", submittedAt: "2026-11-27T10:00:00Z" }] },
         reviewRequests: { nodes: p.requested.map((login) => ({ requestedReviewer: { login } })) },
         commits: {
@@ -121,7 +121,7 @@ class FakeGh {
                 oid: p.head,
                 statusCheckRollup: {
                   contexts: {
-                    nodes: [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE", detailsUrl: "https://x", checkSuite: { workflowRun: { databaseId: 7, runNumber: 3, workflow: { name: "CI" } } } }],
+                    nodes: this.failedRuns.map((id) => ({ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE", detailsUrl: "https://x", checkSuite: { workflowRun: { databaseId: id, runNumber: 3, workflow: { name: "CI" } } } })),
                   },
                 },
               },
@@ -191,15 +191,8 @@ class FakeGh {
   }
 
   private merge(a: string[]): ToolResult {
-    if (a.includes("--disable-auto")) {
-      this.pr.autoMerge = null;
-      return ok();
-    }
     if (a[a.indexOf("--match-head-commit") + 1] !== this.pr.head) return no("GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)");
-    const method = (a.find((x) => ["--merge", "--squash", "--rebase"].includes(x)) ?? "--merge").slice(2).toUpperCase();
-    if (this.pr.queue) this.pr.inQueue = true;
-    else if (a.includes("--auto") && !["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(this.pr.mergeStateStatus)) this.pr.autoMerge = method;
-    else this.pr.state = "MERGED";
+    this.pr.state = "MERGED";
     return ok();
   }
 
@@ -239,15 +232,24 @@ interface Account {
 function setup(o: { writes?: boolean; dir?: string; gh?: FakeGh } = {}) {
   const gh = o.gh ?? new FakeGh();
   const dir = o.dir ?? mkdtempSync(join(tmpdir(), "relay-gh-writes-"));
-  const autoMerge = new RelayAutoMerge(dir);
   const account: Account = { login: ME, generation: 1, credential: "token-1" };
-  const exec = githubExecutor({ run: gh.run, gh: "gh", graphql: ghGraphql(gh.run, "gh", null), budget: null, login: () => ME, autoMerge });
+  const executor = (guard: () => Promise<void>) => githubExecutor({ run: gh.run, gh: "gh", graphql: ghGraphql(gh.run, "gh", null), budget: null, login: () => ME, guard });
+  /** The executor alone, its writes never stopped by a pin. */
+  const exec = executor(() => Promise.resolve());
   /** Asked right before each write; a test can move the account while a check runs. */
   let beforeWrite = (): void => undefined;
-  const pin = (): Promise<GithubPin | null> => Promise.resolve(account.login === null ? null : { login: account.login, generation: account.generation, credential: account.credential, github: exec });
   const current = (p: GithubPin): Promise<boolean> => {
     beforeWrite();
     return Promise.resolve(p.login === account.login && p.generation === account.generation && p.credential === account.credential);
+  };
+  /** As the tickets service pins it: the executor's guard asks `current` for this pin before every gh write. */
+  const pin = (): Promise<GithubPin | null> => {
+    if (account.login === null) return Promise.resolve(null);
+    const guard = async (): Promise<void> => {
+      if (!(await current(p))) throw new StaleGithubCredential();
+    };
+    const p: GithubPin = { login: account.login, generation: account.generation, credential: account.credential, github: executor(guard) };
+    return Promise.resolve(p);
   };
   const gate = new PrGate({ dir, writesEnabled: () => o.writes ?? true, pin, current, now: () => T0, log: () => undefined });
   /** prepare (when confirmed) then commit. */
@@ -256,11 +258,11 @@ function setup(o: { writes?: boolean; dir?: string; gh?: FakeGh } = {}) {
     const approvalId = prepared.approval?.id;
     return gate.commit(DEVICE, { opId: id, mutation: m, ...(approvalId === undefined ? {} : { approvalId }) }, ME);
   };
-  return { gh, dir, autoMerge, exec, gate, write, account, onWrite: (f: () => void) => (beforeWrite = f) };
+  return { gh, dir, exec, executor, gate, write, account, onWrite: (f: () => void) => (beforeWrite = f) };
 }
 
-const merge = (over: Partial<Extract<PrMutation, { kind: "merge" }>> = {}): PrMutation => ({ kind: "merge", repo: REPO, number: N, method: "squash", intent: "merge", expectHead: H1, expectBase: "main", expectOutcome: "merge", ...over });
-const AUTO = { intent: "auto", expectOutcome: "auto" } as const;
+const merge = (over: Partial<Extract<PrMutation, { kind: "merge" }>> = {}): PrMutation => ({ kind: "merge", repo: REPO, number: N, method: "squash", expectHead: H1, expectBase: "main", ...over });
+const STALE = "The host's GitHub sign-in or account changed while writing. Reload and try again.";
 
 describe("GitHub PR writes: argv per op", () => {
   it("merges with the method and the head it saw, never --admin", async () => {
@@ -268,19 +270,6 @@ describe("GitHub PR writes: argv per op", () => {
     const answer = await write(merge());
     expect(answer).toMatchObject({ ok: true, outcome: { state: "done", result: { merge: "merged" } } });
     expect(gh.writes()).toEqual([["pr", "merge", "42", "--repo", REPO, "--squash", "--match-head-commit", H1]]);
-  });
-
-  it("arms auto-merge with --auto, remembers the head, and turns it off with --disable-auto", async () => {
-    const { gh, write, autoMerge } = setup();
-    gh.pr.mergeStateStatus = "BLOCKED";
-    expect(await write(merge(AUTO))).toMatchObject({ ok: true, outcome: { result: { merge: "autoMergeArmed" } } });
-    expect(autoMerge.armedHead(`${REPO}#42`)).toBe(H1);
-    expect(await write({ kind: "autoMerge", repo: REPO, number: N, on: false, expectHead: H1 })).toMatchObject({ ok: true, outcome: { state: "done" } });
-    expect(gh.writes()).toEqual([
-      ["pr", "merge", "42", "--repo", REPO, "--squash", "--match-head-commit", H1, "--auto"],
-      ["pr", "merge", "42", "--repo", REPO, "--disable-auto"],
-    ]);
-    expect(autoMerge.armedHead(`${REPO}#42`)).toBeUndefined();
   });
 
   it("re-runs a failed run of the head at its attempt", async () => {
@@ -349,10 +338,19 @@ describe("GitHub PR writes: refusals", () => {
     const answer = await gate.commit(DEVICE, { opId: opId(), mutation: merge(), approvalId: prepared.approval?.id ?? "" }, ME);
     expect(answer.refused).toMatchObject({ code: "conflict", message: "It now merges into release, not main. Check it and confirm again." });
     expect((await gate.prepare(DEVICE, merge(), ME)).refused?.code).toBe("conflict");
-    gh.pr.base = "main";
-    gh.pr.mergeStateStatus = "BLOCKED";
-    expect((await gate.prepare(DEVICE, merge(AUTO), ME)).approval).toBeDefined();
-    expect((await gate.prepare(DEVICE, merge({ intent: "auto", expectOutcome: "queue" }), ME)).refused?.code).toBe("conflict");
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it("refuses when GitHub would no longer merge it at once by the commit (blocked or a merge queue now), writing nothing", async () => {
+    const { gh, gate } = setup();
+    for (const change of [{ mergeStateStatus: "BLOCKED" }, { queue: true }] satisfies Partial<FakePr>[]) {
+      Object.assign(gh.pr, { mergeStateStatus: "CLEAN", queue: false });
+      const prepared = await gate.prepare(DEVICE, merge(), ME);
+      expect(prepared.approval?.summary).toContain("Merge now");
+      Object.assign(gh.pr, change);
+      const answer = await gate.commit(DEVICE, { opId: opId(), mutation: merge(), approvalId: prepared.approval?.id ?? "" }, ME);
+      expect(answer.refused?.code).toBe("invalid");
+    }
     expect(gh.writes()).toEqual([]);
   });
 
@@ -372,15 +370,14 @@ describe("GitHub PR writes: refusals", () => {
     expect(gh.writes()).toEqual([]);
   });
 
-  it("refuses conflict when the outcome changed since the confirm (auto-merge would now merge at once)", async () => {
+  it("never offers auto-merge or a merge queue: a PR that can't merge now is refused with its reason", async () => {
     const { gh, gate } = setup();
     gh.pr.mergeStateStatus = "BLOCKED";
-    const m = merge(AUTO);
-    const prepared = await gate.prepare(DEVICE, m, ME);
-    expect(prepared.approval?.summary).toContain("Turn on auto-merge");
+    expect((await gate.prepare(DEVICE, merge(), ME)).refused).toEqual({ code: "invalid", message: "Required reviews or checks haven't passed yet" });
+    gh.pr.queue = true;
     gh.pr.mergeStateStatus = "CLEAN";
-    const answer = await gate.commit(DEVICE, { opId: opId(), mutation: m, approvalId: prepared.approval?.id ?? "" }, ME);
-    expect(answer.refused?.code).toBe("conflict");
+    expect((await gate.prepare(DEVICE, merge(), ME)).refused).toEqual({ code: "invalid", message: "This branch merges through a merge queue. Add it to the queue on GitHub." });
+    expect(gh.calls.some((a) => a.includes("--auto") || a.includes("--disable-auto"))).toBe(false);
     expect(gh.writes()).toEqual([]);
   });
 
@@ -391,7 +388,9 @@ describe("GitHub PR writes: refusals", () => {
     ["no method", { methods: { merge: true, squash: false, rebase: false } }, "invalid", "squash merges are off"],
     ["conflicts", { mergeable: "CONFLICTING" }, "invalid", "conflicts"],
     ["already merged", { state: "MERGED" }, "conflict", "already merged"],
-    ["queue needs Add to merge queue", { queue: true }, "conflict", "This branch merges through a queue; use Add to merge queue"],
+    ["behind", { mergeStateStatus: "BEHIND" }, "invalid", "behind its base"],
+    ["a merge queue", { queue: true }, "invalid", "merges through a merge queue"],
+    ["already in the queue", { inQueue: true }, "conflict", "already in the merge queue"],
   ] satisfies [string, Partial<FakePr>, string, string][])("refuses a merge when %s", async (_name, change, code, message) => {
     const { gh, write } = setup();
     Object.assign(gh.pr, change);
@@ -417,7 +416,6 @@ describe("GitHub PR writes: refusals", () => {
     const { gh, write } = setup({ writes: false });
     const kinds: PrMutation[] = [
       merge(),
-      { kind: "autoMerge", repo: REPO, number: N, on: true, method: "merge", expectHead: H1 },
       { kind: "rerun", repo: REPO, number: N, runId: 7, attempt: 1, headSha: H1 },
       { kind: "requestReview", repo: REPO, number: N, logins: ["todd"] },
       { kind: "react", repo: REPO, number: N, target: { kind: "prBody" }, emoji: "heart", on: true },
@@ -463,26 +461,69 @@ describe("GitHub PR writes: refusals", () => {
   });
 });
 
-describe("GitHub PR writes: outcomes and desired state", () => {
-  it("adds to the merge queue when the base requires one", async () => {
-    const { gh, write } = setup();
-    gh.pr.queue = true;
-    gh.pr.mergeStateStatus = "BLOCKED";
-    const answer = await write(merge({ intent: "auto", expectOutcome: "queue" }));
-    expect(answer).toMatchObject({ ok: true, outcome: { result: { merge: "queued" } } });
-    expect(gh.writes()).toEqual([["pr", "merge", "42", "--repo", REPO, "--squash", "--match-head-commit", H1, "--auto"]]);
+describe("GitHub PR writes: the pinned credential before every write", () => {
+  const kinds: PrMutation[] = [
+    merge(),
+    { kind: "rerun", repo: REPO, number: N, runId: 7, attempt: 1, headSha: H1 },
+    { kind: "requestReview", repo: REPO, number: N, logins: ["todd"] },
+    { kind: "react", repo: REPO, number: N, target: { kind: "prBody" }, emoji: "heart", on: true },
+    { kind: "react", repo: REPO, number: N, target: { kind: "issueComment", id: 11 }, emoji: "heart", on: false },
+    { kind: "comment", repo: REPO, number: N, body: "x" },
+    { kind: "reviewComment", repo: REPO, number: N, commitId: H1, path: "a", line: 1, side: "LEFT", body: "x" },
+    { kind: "reviewReply", repo: REPO, number: N, commentId: 555, body: "x" },
+  ];
+
+  it("asks the guard immediately before each kind's gh write, and sends nothing when it refuses", async () => {
+    const { gh, executor } = setup();
+    gh.runs.set(7, { head_sha: H1, conclusion: "failure", run_attempt: 1 });
+    gh.reactions.set(`repos/${REPO}/issues/comments/11/reactions`, [{ id: 5, login: ME, content: "heart" }]);
+    const order: string[] = [];
+    gh.onCall = (a) => order.push(a.join(" "));
+    const stale = executor(() => {
+      order.push("guard");
+      return Promise.reject(new StaleGithubCredential());
+    });
+    for (const m of kinds) await expect(stale.run(m, opId())).rejects.toMatchObject({ name: "ProviderRejected", publicMessage: STALE });
+    expect(gh.writes()).toEqual([]);
+    expect(order.filter((o) => o === "guard")).toHaveLength(kinds.length);
+    // The reactions' own reads come first; the guard is the last thing before the write.
+    expect(order.at(-1)).toBe("guard");
+    expect(order.filter((o) => o.includes("reactions"))).toHaveLength(2);
   });
 
-  it("no-ops auto-merge on when it is already on, and off when it is already off", async () => {
-    const { gh, write } = setup();
-    gh.pr.mergeStateStatus = "BLOCKED";
-    gh.pr.autoMerge = "SQUASH";
-    expect(await write({ kind: "autoMerge", repo: REPO, number: N, on: true, method: "squash", expectHead: H1 })).toMatchObject({ ok: true, outcome: { result: { merge: "autoMergeArmed" } } });
-    gh.pr.autoMerge = null;
-    expect(await write({ kind: "autoMerge", repo: REPO, number: N, on: false, expectHead: H1 })).toMatchObject({ ok: true, outcome: { state: "done" } });
+  it("stops a reaction when gh's credential changes during the executor's own read, with zero writes", async () => {
+    const { gh, write, account } = setup();
+    gh.onCall = (a) => {
+      if (a.includes("GET") && a.some((x) => x.endsWith("/reactions"))) account.credential = "token-2";
+    };
+    const answer = await write({ kind: "react", repo: REPO, number: N, target: { kind: "prBody" }, emoji: "+1", on: true });
+    expect(answer).toMatchObject({ ok: false, error: STALE, outcome: { state: "failed" } });
     expect(gh.writes()).toEqual([]);
   });
 
+  it("stops a write when the account changes during the check's read, with zero writes", async () => {
+    const { gh, write, account } = setup();
+    gh.onCall = (a) => {
+      if (a.some((x) => x.endsWith("/pulls/comments/555"))) account.generation += 1;
+    };
+    const answer = await write({ kind: "reviewReply", repo: REPO, number: N, commentId: 555, body: "x" });
+    expect(answer.ok).toBe(false);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it("refuses a retarget or a push between the confirm and the write, with zero writes", async () => {
+    const { gh, gate } = setup();
+    for (const change of [{ base: "release" }, { head: H2 }] satisfies Partial<FakePr>[]) {
+      Object.assign(gh.pr, { base: "main", head: H1 });
+      const prepared = await gate.prepare(DEVICE, merge(), ME);
+      Object.assign(gh.pr, change);
+      expect((await gate.commit(DEVICE, { opId: opId(), mutation: merge(), approvalId: prepared.approval?.id ?? "" }, ME)).refused?.code).toBe("conflict");
+    }
+    expect(gh.writes()).toEqual([]);
+  });
+});
+
+describe("GitHub PR writes: outcomes and desired state", () => {
   it("answers a repeated opId from the store with one merge", async () => {
     const { gh, write } = setup();
     const id = opId();
@@ -559,23 +600,27 @@ describe("PR read actions facts", () => {
   const raw = { number: N, title: "t", url: "u", state: "OPEN", isDraft: false, author: null, createdAt: "", updatedAt: "", body: "", baseRefName: "main", baseRefOid: "c".repeat(40), headRefName: "f", headRefOid: H1, additions: 0, deletions: 0, commits: [], files: [], reviewRequests: [], latestReviews: [], reviews: [], comments: [], assignees: [], labels: [], statusCheckRollup: [] };
   const compare = (argv: readonly string[]): boolean => argv.some((a) => a.includes("/compare/"));
 
-  it("adds merge, queue, review and check facts, with each failed run's attempt", async () => {
-    const gh = new FakeGh();
-    gh.pr.autoMerge = "SQUASH";
-    gh.runs.set(7, { head_sha: H1, conclusion: "failure", run_attempt: 2 });
-    const run: ToolRun = (argv, options) => {
+  /** gh for a PR read: the view and compare answered here, everything else by `gh`; `calls` records each argv. */
+  function prRun(gh: FakeGh, calls: string[][] = []): ToolRun {
+    return (argv, options) => {
+      calls.push(argv.slice(1));
       if (argv[1] === "pr" && argv[2] === "view") return Promise.resolve(ok(JSON.stringify(raw)));
       if (compare(argv)) return Promise.resolve(ok(""));
       return gh.run(argv, options);
     };
-    const pr = await new GitHub(run, "gh").pr(REPO, N);
+  }
+  const ON = (): boolean => true;
+
+  it("adds merge, queue, review and check facts, with each failed run's attempt", async () => {
+    const gh = new FakeGh();
+    gh.runs.set(7, { head_sha: H1, conclusion: "failure", run_attempt: 2 });
+    const pr = await new GitHub(prRun(gh), "gh", undefined, null, ON).pr(REPO, N);
     expect(pr.actions).toEqual({
       viewerLogin: ME,
       viewerPermission: "WRITE",
       mergeable: "MERGEABLE",
       mergeStateStatus: "CLEAN",
       methods: { merge: true, squash: true, rebase: false },
-      autoMerge: { method: "squash", by: "webdevike" },
       mergeQueue: { required: false, inQueue: false, entryState: null },
       reviews: [{ login: "todd", state: "APPROVED", at: Date.parse("2026-11-27T10:00:00Z") }],
       checks: [{ name: "test", state: "fail", url: "https://x", workflow: "CI", runId: 7, runNumber: 3, attempt: 2, headSha: H1 }],
@@ -585,57 +630,81 @@ describe("PR read actions facts", () => {
 
   it("leaves actions out when GitHub can't say, or already has another head than the page's", async () => {
     const run: ToolRun = (argv) => Promise.resolve(argv[2] === "view" ? ok(JSON.stringify(raw)) : compare(argv) ? ok("") : no("boom"));
-    expect((await new GitHub(run, "gh").pr(REPO, N)).actions).toBeUndefined();
+    expect((await new GitHub(run, "gh", undefined, null, ON).pr(REPO, N)).actions).toBeUndefined();
     const gh = new FakeGh();
     gh.pr.head = H2;
-    const moved: ToolRun = (argv, options) => (argv[2] === "view" ? Promise.resolve(ok(JSON.stringify(raw))) : compare(argv) ? Promise.resolve(ok("")) : gh.run(argv, options));
-    expect((await new GitHub(moved, "gh").pr(REPO, N)).actions).toBeUndefined();
-  });
-});
-
-describe("Relay-armed auto-merge", () => {
-  it("turns auto-merge off when the head moves and flags the PR for attention", async () => {
-    const { gh, dir, exec, autoMerge, write } = setup();
-    gh.pr.mergeStateStatus = "BLOCKED";
-    await write(merge(AUTO));
-    gh.pr.head = H2;
-    const watch = relayAutoMergeWatch(() => Promise.resolve(exec), autoMerge, () => undefined);
-    const ref = { repo: REPO, number: N };
-    await watch.headSeen(ref, H2, true);
-    expect(gh.writes().at(-1)).toEqual(["pr", "merge", "42", "--repo", REPO, "--disable-auto"]);
-    expect(watch.disarmed(ref)).toBe(true);
-    expect(gh.pr.autoMerge).toBeNull();
-    // The flag survives a restart; Relay arming it again clears it.
-    expect(new RelayAutoMerge(dir).isDisarmed(`${REPO}#42`)).toBe(true);
-    autoMerge.arm(`${REPO}#42`, H2);
-    expect(watch.disarmed(ref)).toBe(false);
+    expect((await new GitHub(prRun(gh), "gh", undefined, null, ON).pr(REPO, N)).actions).toBeUndefined();
   });
 
-  it("leaves auto-merge Relay didn't arm, or armed at the same head, alone, and waits for a verified account", async () => {
-    const { gh, exec, autoMerge } = setup();
-    const watch = relayAutoMergeWatch(() => Promise.resolve(exec), autoMerge, () => undefined);
-    await watch.headSeen({ repo: REPO, number: N }, H2, true);
-    autoMerge.arm(`${REPO}#42`, H1);
-    await watch.headSeen({ repo: REPO, number: N }, H1, true);
-    expect(gh.writes()).toEqual([]);
-    autoMerge.arm(`${REPO}#42`, H1);
-    const unverified = relayAutoMergeWatch(() => Promise.resolve(null), autoMerge, () => undefined);
-    await unverified.headSeen({ repo: REPO, number: N }, H2, true);
-    expect(gh.calls).toEqual([]);
-    expect(autoMerge.armedHead(`${REPO}#42`)).toBe(H1);
+  it("with PR actions off makes exactly the view and diff reads, and adds the action, reaction and review-line reads only when on", async () => {
+    const gh = new FakeGh();
+    gh.runs.set(7, { head_sha: H1, conclusion: "failure", run_attempt: 2 });
+    const off: string[][] = [];
+    const read = await new GitHub(prRun(gh, off), "gh").pr(REPO, N);
+    expect(off.map((a) => a.slice(0, 2))).toEqual([
+      ["pr", "view"],
+      ["api", `repos/${REPO}/compare/${"c".repeat(40)}...${H1}`],
+    ]);
+    expect([read.actions, read.reviewComments, read.bodyReactions]).toEqual([undefined, undefined, undefined]);
+    const on: string[][] = [];
+    await new GitHub(prRun(gh, on), "gh", undefined, null, ON).pr(REPO, N);
+    // + the actions facts, review comments and reactions (GraphQL), and the failed run's attempt.
+    expect(on.filter((a) => a[1] === "graphql")).toHaveLength(3);
+    expect(on.filter((a) => a.some((x) => x.includes("/actions/runs/")))).toHaveLength(1);
+    expect(on).toHaveLength(6);
   });
 
-  it("github-sync sets relayAutoMergeDisarmed from the watch on a facts read", async () => {
-    const ref = { repo: REPO, number: N };
-    const fact = { number: N, title: "t", url: "u", state: "OPEN", isDraft: false, updatedAt: "2026-11-27T12:00:00Z", headRefOid: H2, reviewDecision: null, mergeStateStatus: "CLEAN", viewerDidAuthor: true, author: { login: "webdevike" }, commits: { nodes: [] }, reviewRequests: { nodes: [] }, comments: { nodes: [] }, reviews: { nodes: [] }, reviewThreads: { nodes: [] } };
-    const seen: string[] = [];
-    const sync = new GithubSync(
-      () => Promise.resolve({ data: { p0: { pullRequest: fact } }, errors: [] }),
-      { linkedPrs: () => [ref], pr: () => undefined, setPr: (e: { input: { relayAutoMergeDisarmed: boolean } | null }) => seen.push(String(e.input?.relayAutoMergeDisarmed)) } as unknown as TicketsStore,
-      { disarmed: () => true, headSeen: (_r, head) => Promise.resolve(void seen.push(head)) },
-    );
-    await sync.pass("webdevike");
-    expect(seen).toEqual([H2, "true"]);
+  it("asks a bounded number of failed runs' attempts, two at a time", async () => {
+    const gh = new FakeGh();
+    gh.failedRuns = Array.from({ length: 12 }, (_, i) => i + 1);
+    for (const id of gh.failedRuns) gh.runs.set(id, { head_sha: H1, conclusion: "failure", run_attempt: 1 });
+    let open = 0;
+    let most = 0;
+    const base = prRun(gh);
+    const run: ToolRun = async (argv, options) => {
+      if (!argv.some((a) => a.includes("/actions/runs/"))) return base(argv, options);
+      most = Math.max(most, ++open);
+      await Promise.resolve();
+      open -= 1;
+      return base(argv, options);
+    };
+    const pr = await new GitHub(run, "gh", undefined, null, ON).pr(REPO, N);
+    expect(gh.calls.filter((a) => a.some((x) => x.includes("/actions/runs/")))).toHaveLength(6);
+    expect(most).toBe(2);
+    expect(pr.actions?.checks.filter((c) => c.attempt !== null)).toHaveLength(6);
+  });
+
+  it("reads PR extras only while the host's PR gate is open (REVIEWS_ACTIONS_FEATURE)", async () => {
+    const gh = new FakeGh();
+    const service = (gate: PrWritesGate | null, calls: string[][]) =>
+      new ReviewsService({
+        dir: mkdtempSync(join(tmpdir(), "relay-reviews-pr-")),
+        agentHome: null,
+        writes: true,
+        run: prRun(gh, calls),
+        gh: "gh",
+        claude: "claude",
+        fetch: () => Promise.reject(new Error("no network in tests")),
+        agents: { sessions: [], conversation: () => Promise.resolve(null), reply: () => Promise.resolve(), configure: () => Promise.resolve() },
+        launch: null,
+        sessionFile: () => null,
+        socketPath: "/tmp/x.sock",
+        tellAstra: () => Promise.resolve(),
+        broadcast: () => undefined,
+        clock: systemClock,
+        log: () => undefined,
+        prGate: () => gate,
+      });
+    const off: string[][] = [];
+    await service(null, off).handle({ kind: "pr", repo: REPO, number: N }, "d");
+    expect(off.map((a) => a.slice(0, 2))).toEqual([
+      ["pr", "view"],
+      ["api", `repos/${REPO}/compare/${"c".repeat(40)}...${H1}`],
+    ]);
+    const gate: PrWritesGate = { preparePr: () => Promise.resolve({ ok: true }), commitPr: () => Promise.resolve({ ok: true }) };
+    const on: string[][] = [];
+    await service(gate, on).handle({ kind: "pr", repo: REPO, number: N }, "d");
+    expect(on.filter((a) => a[1] === "graphql")).toHaveLength(3);
   });
 });
 
@@ -689,11 +758,11 @@ describe("Reviews prPrepare/prCommit", () => {
   });
 });
 
-describe("never --admin", () => {
-  it("no host source passes --admin to gh", () => {
+describe("never --admin, never auto-merge", () => {
+  it("no host source passes --admin, --auto or --disable-auto to gh", () => {
     const src = join(import.meta.dirname, "..", "src");
     const files = readdirSync(src, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".ts"));
-    const offenders = files.filter((f) => /["'`]--admin["'`]/.test(readFileSync(join(src, f), "utf8")));
+    const offenders = files.filter((f) => /["'`]--(admin|auto|disable-auto)["'`]/.test(readFileSync(join(src, f), "utf8")));
     expect(offenders).toEqual([]);
   });
 });

@@ -160,7 +160,6 @@ export function toAttentionInput(ref: TicketPrRef, raw: RawFacts, login: string)
     viewerIsAuthor: raw.viewerDidAuthor,
     viewerRequested: raw.reviewRequests.nodes.some((r) => r.requestedReviewer?.login === login),
     viewerReviewedHead: raw.reviews.nodes.some((r) => r.author?.login === login && r.commit?.oid === raw.headRefOid && r.state !== "PENDING"),
-    relayAutoMergeDisarmed: false,
   };
 }
 
@@ -168,19 +167,10 @@ const abortIf = (signal: AbortSignal | undefined): void => {
   if (signal?.aborted === true) throw new HostError("Sync stopped");
 };
 
-/** Relay-armed auto-merge (reviews/github-writes.ts): a push after Relay armed it turns it off again. */
-export interface AutoMergeWatch {
-  /** A push turned Relay's auto-merge off on this PR (Needs you: autoMergeOff). */
-  disarmed(ref: TicketPrRef): boolean;
-  /** The PR's head as just read; another head than the one Relay armed at disarms it. */
-  headSeen(ref: TicketPrRef, head: string, open: boolean): Promise<void>;
-}
-
 export class GithubSync {
   constructor(
     private readonly graphql: GhGraphql,
     private readonly store: TicketsStore,
-    private readonly autoMerge: AutoMergeWatch | null = null,
   ) {}
 
   /** Probes every linked PR; reads full facts for the ones whose fingerprint changed. */
@@ -212,17 +202,9 @@ export class GithubSync {
     const { data } = await this.graphql(batchQuery(batch.map((b) => b.ref), FACT_FIELDS));
     for (const [j, { ref, fingerprint }] of batch.entries()) {
       const node = nodeOf(data, j);
-      const input = node === null ? null : await this.watched(toAttentionInput(ref, node as unknown as RawFacts, login));
+      const input = node === null ? null : toAttentionInput(ref, node as unknown as RawFacts, login);
       this.store.setPr({ ref, fingerprint: node === null ? null : fingerprint, input, noAccess: node === null });
     }
-  }
-
-  /** The input with Relay's auto-merge disarmed when a push came after Relay armed it. */
-  private async watched(input: PrAttentionInput): Promise<PrAttentionInput> {
-    if (this.autoMerge === null) return input;
-    const ref = { repo: input.facts.repo, number: input.facts.number };
-    await this.autoMerge.headSeen(ref, input.facts.headSha, input.facts.state === "open");
-    return { ...input, relayAutoMergeDisarmed: this.autoMerge.disarmed(ref) };
   }
 }
 

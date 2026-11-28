@@ -120,11 +120,11 @@ describe("review comments", () => {
       if (!threads) return Promise.resolve({ code: 1, stdout: "", stderr: "boom", timedOut: false });
       return Promise.resolve(ok(`HTTP/2.0 200 OK\r\n\r\n${JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: THREADS } } } } })}`));
     };
-    const pr = await new GitHub(answer(true), "gh").pr("o/r", 7);
+    const pr = await new GitHub(answer(true), "gh", undefined, null, () => true).pr("o/r", 7);
     expect(calls.filter((c) => c === "threads")).toHaveLength(1);
     expect(pr.reviewComments?.map((c) => c.id)).toEqual([1, 2, 3]);
     expect(ReviewPr.safeParse(pr).success).toBe(true);
-    const without = await new GitHub(answer(false), "gh").pr("o/r", 7);
+    const without = await new GitHub(answer(false), "gh", undefined, null, () => true).pr("o/r", 7);
     expect(without.reviewComments).toBeUndefined();
 
     // A review comment's private GitHub image is fetched by the host and served from it: the
@@ -143,7 +143,7 @@ describe("review comments", () => {
       if (!query.includes("reviewThreads")) return answer(true)(argv, opts);
       return Promise.resolve(ok(`HTTP/2.0 200 OK\r\n\r\n${JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: withImage } } } } })}`));
     };
-    const local = await new GitHub(imaged, "gh", { media, fetchFn, linearKey: () => null }).pr("o/r", 7);
+    const local = await new GitHub(imaged, "gh", { media, fetchFn, linearKey: () => null }, null, () => true).pr("o/r", 7);
     expect(fetched).toContain(signed);
     const body = local.reviewComments?.[0]?.body ?? "";
     expect(body).toMatch(/^See !\[shot\]\(\/reviews\/media\/[0-9a-f]{40}\.png\/[0-9a-f]{32}\)$/);

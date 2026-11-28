@@ -147,7 +147,6 @@ export const ReviewPrActions = z.object({
   mergeStateStatus: z.string(),
   /** The repo's allowed merge methods. */
   methods: z.object({ merge: z.boolean(), squash: z.boolean(), rebase: z.boolean() }),
-  autoMerge: z.object({ method: PrMergeMethod, by: z.string().nullable() }).nullable(),
   /** `required`: the base branch merges through a queue; `inQueue`/`entryState`: this PR's place in it. */
   mergeQueue: z.object({ required: z.boolean(), inQueue: z.boolean(), entryState: z.string().nullable() }),
   /** The latest review per reviewer. */
@@ -454,27 +453,19 @@ export type PrReactionTarget = z.infer<typeof PrReactionTarget>;
 
 /** Every GitHub write Isaac can make on a PR from Relay (PLAN §5); never `--admin`. */
 export const PrMutation = z.discriminatedUnion("kind", [
-  /** `merge`: Merge now (refused when the base merges through a queue); `auto`: Add to merge queue or Turn on auto-merge. */
+  /**
+   * Merge now, exactly `expectHead` into `expectBase` (`--match-head-commit`): never auto-merge or a
+   * merge queue, which merge later at whatever head the PR has then. Fields older clients sent
+   * (`intent`, `expectOutcome`) are dropped on parse.
+   */
   z.object({
     kind: z.literal("merge"),
     repo: RepoName,
     number: PrNumber,
     method: PrMergeMethod,
-    intent: z.enum(["merge", "auto"]),
     expectHead: CommitSha,
     /** The base branch Isaac confirmed; another one refuses `conflict`. */
     expectBase: z.string().min(1).max(255),
-    /** What Isaac confirmed it does now: merge at once, join the queue, or arm auto-merge. */
-    expectOutcome: z.enum(["merge", "queue", "auto"]),
-  }),
-  /** Desired state: the host no-ops when auto-merge is already so. `method` is needed to turn it on. */
-  z.object({
-    kind: z.literal("autoMerge"),
-    repo: RepoName,
-    number: PrNumber,
-    on: z.boolean(),
-    method: PrMergeMethod.optional(),
-    expectHead: CommitSha,
   }),
   /** Re-run the failed jobs of one Actions run, refused unless it is a failed run of `headSha` at `attempt`. */
   z.object({
@@ -518,7 +509,7 @@ export const PrMutation = z.discriminatedUnion("kind", [
 export type PrMutation = z.infer<typeof PrMutation>;
 export type PrMutationKind = PrMutation["kind"];
 
-/** Kinds that need `prPrepare` then `prCommit {approvalId}`; `autoMerge` does when it turns it on. */
+/** Kinds that need `prPrepare` then `prCommit {approvalId}`. */
 export const CONFIRMED_PR_MUTATIONS: ReadonlySet<PrMutationKind> = new Set([
   "merge",
   "requestReview",
@@ -528,7 +519,7 @@ export const CONFIRMED_PR_MUTATIONS: ReadonlySet<PrMutationKind> = new Set([
 ]);
 
 export function prMutationConfirmed(mutation: PrMutation): boolean {
-  return mutation.kind === "autoMerge" ? mutation.on : CONFIRMED_PR_MUTATIONS.has(mutation.kind);
+  return CONFIRMED_PR_MUTATIONS.has(mutation.kind);
 }
 
 /**

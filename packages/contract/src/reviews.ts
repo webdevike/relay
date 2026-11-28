@@ -50,9 +50,6 @@ export const ReviewPrActionsSchema = z.object({
   /** BLOCKED, BEHIND, DIRTY, UNSTABLE, DRAFT, CLEAN, HAS_HOOKS, UNKNOWN. */
   mergeStateStatus: z.string(),
   methods: z.object({ merge: z.boolean(), squash: z.boolean(), rebase: z.boolean() }),
-  autoMerge: z
-    .object({ method: z.enum(['merge', 'squash', 'rebase']), by: z.string().nullable() })
-    .nullable(),
   mergeQueue: z.object({
     required: z.boolean(),
     inQueue: z.boolean(),
@@ -171,7 +168,6 @@ const PrRef = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/), number: z
 export const PrMutationInputSchema = z.looseObject({
   kind: z.enum([
     'merge',
-    'autoMerge',
     'rerun',
     'requestReview',
     'react',

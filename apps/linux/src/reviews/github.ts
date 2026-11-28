@@ -3,18 +3,19 @@
 // comment or a review.
 
 import { homedir } from "node:os";
-import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type PrMergeMethod, type ReviewActionCheck, type ReviewItem, type ReviewPr, type ReviewPrActions } from "@relay/protocol";
+import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type ReviewActionCheck, type ReviewComment, type ReviewItem, type ReviewPr, type ReviewPrActions } from "@relay/protocol";
 import { z } from "zod";
 import type { Budget } from "../tickets/budget";
 import type { ToolRun } from "./exec";
 import type { Fetch, ReviewMedia } from "./linear";
 import { isGithubUpload, isLinearUpload, localizeImages } from "./media";
 import { readReviewComments } from "./review-comments";
-import { readPrReactions, withReactions } from "./pr-reactions";
+import { readPrReactions, withReactions, type PrReactions } from "./pr-reactions";
 
 export const REVIEWS_ORG = "eCardSystems";
-/** Failed Actions runs whose attempt one PR read asks for. */
-const MAX_ATTEMPT_READS = 20;
+/** Failed Actions runs whose attempt one PR read asks for (Re-run failed), two at a time. */
+const MAX_ATTEMPT_READS = 6;
+const ATTEMPT_READS_AT_ONCE = 2;
 const GH_TIMEOUT_MS = 60_000;
 
 const ms = (iso: unknown): number => {
@@ -268,14 +269,13 @@ export function ghGraphql(run: ToolRun, gh: string, budget: Budget | null): GhGr
   };
 }
 
-// ---- PR actions facts (PLAN §2.6): what merge, auto-merge, request review and re-run act on ----
+// ---- PR actions facts (PLAN §2.6): what merge, request review and re-run act on ----
 
 const LIVE_CHECKS = `contexts(first: 100) { nodes { __typename
   ... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { databaseId runNumber workflow { name } } } }
   ... on StatusContext { context state targetUrl } } }`;
 const LIVE_FIELDS = `title state isDraft headRefOid baseRefName mergeable mergeStateStatus isInMergeQueue isMergeQueueEnabled
   mergeQueueEntry { state }
-  autoMergeRequest { mergeMethod enabledBy { login } }
   latestReviews(first: 50) { nodes { author { login } state submittedAt } }
   reviewRequests(first: 50) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }
   commits(last: 1) { nodes { commit { oid statusCheckRollup { ${LIVE_CHECKS} } } } }`;
@@ -318,7 +318,6 @@ const LiveRepo = z.object({
       isInMergeQueue: z.boolean(),
       isMergeQueueEnabled: z.boolean(),
       mergeQueueEntry: z.object({ state: z.string() }).nullable(),
-      autoMergeRequest: z.object({ mergeMethod: z.string(), enabledBy: GhLogin }).nullable(),
       latestReviews: z.object({ nodes: z.array(z.object({ author: GhLogin, state: z.string(), submittedAt: z.string().nullable() })) }),
       reviewRequests: z.object({ nodes: z.array(z.object({ requestedReviewer: z.object({ login: z.string().optional(), slug: z.string().optional() }).nullable() })) }),
       commits: z.object({
@@ -342,8 +341,6 @@ export interface PrLive {
   readonly actions: ReviewPrActions;
 }
 
-const METHODS: Record<string, PrMergeMethod> = { MERGE: "merge", SQUASH: "squash", REBASE: "rebase" };
-
 /** A check's Actions run, when it is one. */
 function runOf(c: z.infer<typeof LiveCheck>): Pick<ReviewActionCheck, "workflow" | "runId" | "runNumber"> {
   const run = c.checkSuite?.workflowRun ?? null;
@@ -365,14 +362,12 @@ function liveChecks(pr: LivePr): ReviewActionCheck[] {
 }
 
 function liveActions(repo: z.infer<typeof LiveRepo>, pr: LivePr, viewerLogin: string | null): ReviewPrActions {
-  const auto = pr.autoMergeRequest;
   return {
     viewerLogin,
     viewerPermission: repo.viewerPermission,
     mergeable: pr.mergeable,
     mergeStateStatus: pr.mergeStateStatus,
     methods: { merge: repo.mergeCommitAllowed, squash: repo.squashMergeAllowed, rebase: repo.rebaseMergeAllowed },
-    autoMerge: auto === null ? null : { method: METHODS[auto.mergeMethod] ?? "merge", by: auto.enabledBy?.login ?? null },
     mergeQueue: { required: pr.isMergeQueueEnabled, inQueue: pr.isInMergeQueue, entryState: pr.mergeQueueEntry?.state ?? null },
     reviews: pr.latestReviews.nodes.map((r) => ({ login: r.author?.login ?? "ghost", state: r.state, at: ms(r.submittedAt) })),
     checks: liveChecks(pr),
@@ -398,6 +393,14 @@ export async function readPrLive(graphql: GhGraphql, repo: string, number: numbe
   };
 }
 
+/** What a PR read adds while PR actions are offered; each null when GitHub can't say (or not asked). */
+interface PrExtras {
+  readonly actions: ReviewPrActions | null;
+  readonly reviewComments: ReviewComment[] | null;
+  readonly reactions: PrReactions | null;
+}
+const NO_EXTRAS: PrExtras = { actions: null, reviewComments: null, reactions: null };
+
 export class GitHub {
   constructor(
     private readonly run: ToolRun,
@@ -406,6 +409,12 @@ export class GitHub {
     private readonly images?: { media: ReviewMedia; fetchFn: Fetch; linearKey: () => string | null },
     /** The GitHub budget shared with the tickets sync; null: unpaced. */
     private readonly budget: Budget | null = null,
+    /**
+     * Whether a PR read also asks for its actions facts, reactions and review (line) comments: only
+     * while this host offers PR actions (REVIEWS_ACTIONS_FEATURE). Otherwise a PR read makes the
+     * same gh calls it always did.
+     */
+    private readonly prActions: () => boolean = () => false,
   ) {}
 
   private call(args: readonly string[]): Promise<string> {
@@ -452,13 +461,8 @@ export class GitHub {
 
   async pr(repo: string, number: number): Promise<ReviewPr> {
     const raw = JSON.parse(await this.call(["pr", "view", String(number), "-R", repo, "--json", PR_JSON_FIELDS])) as RawPr;
-    const graphql = ghGraphql(this.run, this.gh, this.budget);
-    const [diff, actions, reviewComments, reactions] = await Promise.all([
-      this.diffAt(repo, raw.baseRefOid, raw.headRefOid),
-      this.actions(repo, number, raw.headRefOid),
-      readReviewComments(graphql, repo, number).catch(() => null),
-      readPrReactions(graphql, repo, number).catch(() => null),
-    ]);
+    const extras = this.prActions() ? this.extras(repo, number, raw.headRefOid) : NO_EXTRAS;
+    const [diff, { actions, reviewComments, reactions }] = await Promise.all([this.diffAt(repo, raw.baseRefOid, raw.headRefOid), extras]);
     const read = toPr(repo, raw, diff);
     const pr = {
       ...(reactions === null ? read : withReactions(read, reactions)),
@@ -482,6 +486,17 @@ export class GitHub {
     return { ...pr, body, timeline, ...(comments === null ? {} : { reviewComments: comments }) };
   }
 
+  /** What the PR actions surface adds to a read: actions facts, review (line) comments and reactions, each null when GitHub can't say. */
+  private async extras(repo: string, number: number, head: string): Promise<PrExtras> {
+    const graphql = ghGraphql(this.run, this.gh, this.budget);
+    const [actions, reviewComments, reactions] = await Promise.all([
+      this.actions(repo, number, head),
+      readReviewComments(graphql, repo, number).catch(() => null),
+      readPrReactions(graphql, repo, number).catch(() => null),
+    ]);
+    return { actions, reviewComments, reactions };
+  }
+
   /**
    * The PR's actions facts at `head` (the commit the page shows), each failed Actions run with its
    * attempt; null when GitHub can't say or already has another head (the page then hides the actions).
@@ -491,12 +506,22 @@ export class GitHub {
       const live = await readPrLive(ghGraphql(this.run, this.gh, this.budget), repo, number);
       if (live === null || live.headSha !== head) return null;
       const failed = [...new Set(live.actions.checks.flatMap((c) => (c.state === "fail" && c.runId !== null ? [c.runId] : [])))].slice(0, MAX_ATTEMPT_READS);
-      const attempts = new Map(await Promise.all(failed.map(async (id) => [id, await this.runAttempt(repo, id)] as const)));
+      const attempts = await this.runAttempts(repo, failed);
       const checks = live.actions.checks.map((c) => (c.runId === null ? c : { ...c, attempt: attempts.get(c.runId) ?? null }));
       return { ...live.actions, checks };
     } catch {
       return null;
     }
+  }
+
+  /** Each run's attempt, `ATTEMPT_READS_AT_ONCE` reads at a time. */
+  private async runAttempts(repo: string, ids: readonly number[]): Promise<Map<number, number | null>> {
+    const attempts = new Map<number, number | null>();
+    for (let i = 0; i < ids.length; i += ATTEMPT_READS_AT_ONCE) {
+      const read = await Promise.all(ids.slice(i, i + ATTEMPT_READS_AT_ONCE).map(async (id) => [id, await this.runAttempt(repo, id)] as const));
+      for (const [id, attempt] of read) attempts.set(id, attempt);
+    }
+    return attempts;
   }
 
   /** An Actions run's attempt (REST; GraphQL has none); null when gh can't say. */

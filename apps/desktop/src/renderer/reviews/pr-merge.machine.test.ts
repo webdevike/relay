@@ -14,13 +14,7 @@ import {
 const HEAD = 'a'.repeat(40)
 const NEW_HEAD = 'b'.repeat(40)
 const PR: MergePr = { repo: 'o/r', number: 42, base: 'main', headSha: HEAD, login: 'webdevike' }
-const NOW = { method: 'squash', intent: 'merge', outcome: 'Merge now', effect: 'merge' } as const
-const AUTO = {
-  method: 'squash',
-  intent: 'auto',
-  outcome: 'Turn on auto-merge',
-  effect: 'auto',
-} as const
+const NOW = { method: 'squash' } as const
 
 function start(
   prepare: (m: MergeMutation) => Promise<PrepareResult>,
@@ -47,7 +41,7 @@ const approve = (): Promise<PrepareResult> =>
 const value = (a: { getSnapshot(): { value: unknown } }) => a.getSnapshot().value
 
 describe('prMergeMachine', () => {
-  it('confirm prepares then commits once, bound to the confirmed head, base, outcome and login', async () => {
+  it('confirm prepares then commits once, bound to the confirmed head, base and login', async () => {
     const { actor, prepares, commits } = start(approve, () => Promise.resolve({ kind: 'merged' }))
     actor.send({ type: 'merge.start', pr: PR, plan: NOW })
     expect(value(actor)).toBe('confirming')
@@ -59,10 +53,8 @@ describe('prMergeMachine', () => {
       repo: 'o/r',
       number: 42,
       method: 'squash',
-      intent: 'merge',
       expectHead: HEAD,
       expectBase: 'main',
-      expectOutcome: 'merge',
     }
     expect(prepares).toHaveBeenCalledExactlyOnceWith(mutation)
     expect(commits).toHaveBeenCalledExactlyOnceWith({
@@ -85,14 +77,9 @@ describe('prMergeMachine', () => {
   it('a new head during the confirm goes stale; reconfirm binds the new head', async () => {
     const { actor, commits } = start(approve, () => Promise.resolve({ kind: 'merged' }))
     actor.send({ type: 'merge.start', pr: PR, plan: NOW })
-    actor.send({ type: 'merge.facts', pr: PR, outcome: 'Merge now', armed: null })
+    actor.send({ type: 'merge.facts', pr: PR, offered: true })
     expect(value(actor)).toBe('confirming')
-    actor.send({
-      type: 'merge.facts',
-      pr: { ...PR, headSha: NEW_HEAD },
-      outcome: 'Merge now',
-      armed: null,
-    })
+    actor.send({ type: 'merge.facts', pr: { ...PR, headSha: NEW_HEAD }, offered: true })
     expect(value(actor)).toBe('stale')
     expect(actor.getSnapshot().context.message).toBe(CHANGED)
     expect(actor.getSnapshot().can({ type: 'merge.confirm', opId: 'op-1' })).toBe(false)
@@ -104,7 +91,7 @@ describe('prMergeMachine', () => {
     expect(commits.mock.calls[0]![0].opId).toBe('op-2')
   })
 
-  it('a changed outcome while the gate approves goes stale and never commits', async () => {
+  it('a read GitHub would no longer merge now, while the gate approves, goes stale and never commits', async () => {
     // (Promise.withResolvers is past this app's TS lib target.)
     let approveNow!: (r: PrepareResult) => void
     const gate = {
@@ -118,7 +105,7 @@ describe('prMergeMachine', () => {
     actor.send({ type: 'merge.start', pr: PR, plan: NOW })
     actor.send({ type: 'merge.confirm', opId: 'op-1' })
     expect(value(actor)).toBe('preparing')
-    actor.send({ type: 'merge.facts', pr: PR, outcome: 'Turn on auto-merge', armed: null })
+    actor.send({ type: 'merge.facts', pr: PR, offered: false })
     expect(value(actor)).toBe('stale')
     gate.resolve({ kind: 'approved', approvalId: 'ap-1' })
     await Promise.resolve()
@@ -126,7 +113,7 @@ describe('prMergeMachine', () => {
     expect(commits).not.toHaveBeenCalled()
   })
 
-  it('the host’s conflict refusal (head moved) is stale too', async () => {
+  it('the host’s conflict refusal (head moved or retargeted) is stale too', async () => {
     const { actor } = start(approve, () =>
       Promise.resolve({ kind: 'refused', code: 'conflict', message: 'Head moved' }),
     )
@@ -187,47 +174,11 @@ describe('prMergeMachine', () => {
     )
   })
 
-  it.each([
-    ['merged', 'merged'],
-    ['queued', 'queued'],
-    ['autoMergeArmed', 'autoMergeArmed'],
-  ] as const)('the host’s read-back %s lands in %s', async (kind, state) => {
-    const { actor } = start(approve, () => Promise.resolve({ kind }))
-    actor.send({ type: 'merge.start', pr: PR, plan: kind === 'merged' ? NOW : AUTO })
+  it('a write the host answered without a merge is a failure, never a deferred merge', async () => {
+    const { actor } = start(approve, () => Promise.resolve({ kind: 'done' }))
+    actor.send({ type: 'merge.start', pr: PR, plan: NOW })
     actor.send({ type: 'merge.confirm', opId: 'op-1' })
-    await waitFor(actor, (s) => s.matches(state))
-  })
-
-  it('disarms an armed auto-merge with one unconfirmed write', async () => {
-    const { actor, prepares, commits } = start(approve, () => Promise.resolve({ kind: 'done' }))
-    actor.send({
-      type: 'merge.facts',
-      pr: PR,
-      outcome: null,
-      armed: { method: 'squash', by: 'me' },
-    })
-    expect(value(actor)).toBe('autoMergeArmed')
-    actor.send({ type: 'merge.disarm', opId: 'op-9' })
-    await waitFor(actor, (s) => s.matches('idle'))
-    expect(prepares).not.toHaveBeenCalled()
-    expect(commits).toHaveBeenCalledExactlyOnceWith({
-      opId: 'op-9',
-      approvalId: null,
-      mutation: { kind: 'autoMerge', repo: 'o/r', number: 42, on: false, expectHead: HEAD },
-      login: 'webdevike',
-    })
-  })
-
-  it('a refused disarm stays armed with the reason', async () => {
-    const { actor } = start(approve, () =>
-      Promise.resolve({ kind: 'refused', code: 'writesOff', message: 'Writes are off' }),
-    )
-    actor.send({ type: 'merge.facts', pr: PR, outcome: null, armed: { method: 'merge', by: null } })
-    actor.send({ type: 'merge.disarm', opId: 'op-9' })
-    await waitFor(actor, (s) => s.matches('autoMergeArmed') && s.context.message !== null)
-    expect(actor.getSnapshot().context.message).toBe('Writes are off')
-    // A read without auto-merge (turned off on GitHub, or by the host on a new head) goes idle.
-    actor.send({ type: 'merge.facts', pr: PR, outcome: 'Merge now', armed: null })
-    expect(value(actor)).toBe('idle')
+    await waitFor(actor, (s) => s.matches('failed'))
+    expect(actor.getSnapshot().context.message).toBe('Nothing was written')
   })
 })

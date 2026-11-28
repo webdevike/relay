@@ -1,15 +1,13 @@
 # Merging a pull request from its page (desktop)
 
-The merge box on a PR's page (`apps/desktop/src/renderer/reviews/pr-merge.machine.ts`, run by `MergeBox.tsx`). Its one button offers the outcome GitHub's facts allow ("Merge now", "Add to merge queue" or "Turn on auto-merge"); Isaac confirms it with the repo and PR, head short SHA, base and method in view, and the host's write gate approves and writes it bound to that head (`gh pr merge --match-head-commit`, never `--admin`). The opId is minted at the confirm and reused by every retry, so a lost answer never merges twice.
+The merge box on a PR's page (`apps/desktop/src/renderer/reviews/pr-merge.machine.ts`, run by `MergeBox.tsx`). Its one button is Merge now, offered only when GitHub would merge the PR right now; otherwise the box says why (required reviews or checks missing, behind its base, a merge queue, ...). Relay never arms auto-merge or joins a merge queue: GitHub merges those later at whatever head the PR has then, so they can't be bound to the head Isaac reviewed. Isaac confirms with the repo and PR, head short SHA, base and method in view, and the host's write gate approves it and merges exactly that head at once (`gh pr merge --match-head-commit`, never `--admin` or `--auto`). The opId is minted at the confirm and reused by every retry, so a lost answer never merges twice.
 
-- **idle**: nothing in flight; each PR read (`merge.facts`) keeps the head current, and an auto-merge already on shows as armed.
-- **confirming**: the confirm is open with the exact outcome for the head Isaac saw.
-- **stale**: a newer read has another head or would offer another outcome (or the host refused with `conflict`); nothing is written until Isaac confirms the new one (`merge.reconfirm`, a new opId at its confirm).
-- **preparing**: the gate approves the merge for that head (single use, 120 s).
-- **merging**: the write; the host reads the PR back and answers what happened.
-- **merged** / **queued**: merged now, or in the merge queue.
-- **autoMergeArmed**: auto-merge is on for this head (the host turns it off when new commits land); Turn off sends `autoMerge {on: false}` without a confirm.
-- **disarming**: turning auto-merge off; a refusal or failure stays armed with the reason.
+- **idle**: nothing in flight; each PR read (`merge.facts`) keeps the head current.
+- **confirming**: the confirm is open for the head Isaac saw.
+- **stale**: a newer read has another head or GitHub would no longer merge it right now (or the host refused with `conflict`: a push or a retarget); nothing is written until Isaac confirms the new one (`merge.reconfirm`, a new opId at its confirm).
+- **preparing**: the gate approves the merge for that head and base (single use, 120 s).
+- **merging**: the write; the host checks its GitHub sign-in again right before it, then reads the PR back and answers what happened.
+- **merged**: merged now.
 - **refused**: the gate said no (writes off, identity, no permission); the reason shows and nothing was written.
 - **failed**: the write didn't happen or its answer was lost ("Checking whether it merged"); Retry asks again with the same opId (and the same approval when there is one).
 

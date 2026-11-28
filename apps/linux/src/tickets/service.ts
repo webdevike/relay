@@ -12,7 +12,7 @@ import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type 
 import { ticketsFeatures, type HostConfig } from "../host-config";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
-import { githubExecutor, RelayAutoMerge, relayAutoMergeWatch } from "../reviews/github-writes";
+import { githubExecutor, StaleGithubCredential } from "../reviews/github-writes";
 import { PrGate, type GithubPin, type PrCommitRequest } from "../reviews/pr-gate";
 import { linearGql, type Fetch, type LinearGql } from "../reviews/linear";
 import type { TicketsRelaying } from "../seams";
@@ -103,8 +103,6 @@ export class TicketsService implements TicketsRelaying {
   private readonly prGate: PrGate | null;
   private readonly actor: TicketsSyncActor;
   private readonly summaries: SummaryCache | null;
-  /** The PRs whose auto-merge Relay turned on (reviews/github-writes.ts). */
-  private readonly autoMerge: RelayAutoMerge;
   private linearNames: readonly string[] = [];
   private errors: TicketsStatus["errors"] = { linear: null, github: null };
   /** The account changed (or was never confirmed this run): writes wait for a full cycle. */
@@ -127,9 +125,7 @@ export class TicketsService implements TicketsRelaying {
     this.seen = new SeenStore(deps.dir);
     this.anchors = new AnchorStore(deps.dir, deps.now);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
-    this.autoMerge = new RelayAutoMerge(deps.dir);
-    const watch = deps.ghWrites === undefined ? null : relayAutoMergeWatch(async () => (await this.ghPin())?.github ?? null, this.autoMerge, deps.log);
-    this.github = new GithubSync(deps.ghGraphql, this.store, watch);
+    this.github = new GithubSync(deps.ghGraphql, this.store);
     this.gate =
       deps.gate ??
       new MutationGate({
@@ -445,8 +441,13 @@ export class TicketsService implements TicketsRelaying {
       this.actor.send({ type: "sync.now" });
       return null;
     }
-    const github = githubExecutor({ run, gh: w.gh, graphql: ghGraphql(run, w.gh, budget), budget, login: () => login, autoMerge: this.autoMerge });
-    return { login, generation: this.generation, credential: sha256(token), github };
+    // The guard runs right before each gh write: a credential or account change after any read stops it.
+    const guard = async (): Promise<void> => {
+      if (!(await this.ghCurrent(pin))) throw new StaleGithubCredential();
+    };
+    const github = githubExecutor({ run, gh: w.gh, graphql: ghGraphql(run, w.gh, budget), budget, login: () => login, guard });
+    const pin: GithubPin = { login, generation: this.generation, credential: sha256(token), github };
+    return pin;
   }
 
   /** Whether a pinned PR write may still go out: same generation, same verified login, same gh credential. */

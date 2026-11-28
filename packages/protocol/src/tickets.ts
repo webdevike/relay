@@ -255,6 +255,7 @@ export const WaitingMention = z.object({
 });
 export type WaitingMention = z.infer<typeof WaitingMention>;
 
+/** `autoMergeOff` is no longer raised (Relay never arms auto-merge); kept so an older host's cards still parse. */
 export const NeedsYouKind = z.enum(["waiting", "agent", "merge", "review", "autoMergeOff"]);
 export type NeedsYouKind = z.infer<typeof NeedsYouKind>;
 
@@ -539,8 +540,8 @@ export const TicketOutcome = z.object({
       key: TicketKey.optional(),
       url: Url.optional(),
       error: Short.optional(),
-      /** A PR merge (reviews `prCommit`), read back after the write. */
-      merge: z.enum(["merged", "queued", "autoMergeArmed"]).optional(),
+      /** A PR merge (reviews `prCommit`), read back after the write; an older host's other values read as absent. */
+      merge: z.literal("merged").optional().catch(undefined),
       /** `applyPlan`: each row's own outcome. */
       rows: z
         .array(

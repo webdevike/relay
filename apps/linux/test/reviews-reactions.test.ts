@@ -84,7 +84,7 @@ describe("PR reactions", () => {
         if (!reactions) return Promise.resolve({ code: 1, stdout: "", stderr: "boom", timedOut: false });
         return Promise.resolve(ok(`HTTP/2.0 200 OK\r\n\r\n${JSON.stringify({ data: { repository: PR } })}`));
       };
-    const pr = await new GitHub(answer(true), "gh").pr("o/r", 7);
+    const pr = await new GitHub(answer(true), "gh", undefined, null, () => true).pr("o/r", 7);
     expect(calls).toEqual(["reactions"]);
     expect(pr.bodyReactions).toEqual([{ emoji: "🎉", users: ["noah"] }]);
     const comments = pr.timeline.filter((t) => t.kind === "comment");
@@ -93,7 +93,7 @@ describe("PR reactions", () => {
     expect(comments[2]?.reactions).toBeUndefined();
     expect(ReviewPr.safeParse(pr).success).toBe(true);
 
-    const without = await new GitHub(answer(false), "gh").pr("o/r", 7);
+    const without = await new GitHub(answer(false), "gh", undefined, null, () => true).pr("o/r", 7);
     expect(without.bodyReactions).toBeUndefined();
     expect(without.timeline.filter((t) => t.kind === "comment").map((c) => c.id)).toEqual([101, 102, undefined]);
   });

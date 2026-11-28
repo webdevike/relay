@@ -1,25 +1,24 @@
 // GitHub PR writes as Isaac (PLAN §2.6, §5): the MutationGate's GitHub executor, built per op over a
 // gh pinned to one credential (the gate's GithubPin), so check, write and reconcile all act as the
 // login the device saw. check() re-reads the PR and the target and refuses when the write no longer
-// applies (another head or base than the one Isaac saw, an outcome other than the one he confirmed,
-// a draft, no permission, a method the repo turned off, a comment on another PR); its revision binds
-// the approval to head, base and outcome, and its confirm shows the exact text. run() is one exact
-// `gh` argv per kind and never the admin override; reconcile() only reads GitHub back after a lost
-// response (the gate never sends a GitHub write twice on its own). A refusal reaches clients in the
-// host's words, never gh's stderr. Auto-merge Relay turns on is remembered with its head
-// (`automerge.json`), so a push after it can turn it off again (github-sync, `relayAutoMergeWatch`).
+// applies (another head or base than the one Isaac saw, a PR GitHub won't merge right now, a draft,
+// no permission, a method the repo turned off, a comment on another PR); its revision binds the
+// approval to head and base, and its confirm shows the exact text. run() is one exact `gh` argv per
+// kind and never the admin override, and every one of them asks `guard` (is the pinned credential
+// still the host's?) immediately before it goes out, after any read the op made first. Merges are
+// immediate and bound to the reviewed head (`--match-head-commit`): Relay never arms auto-merge or
+// joins a merge queue, since GitHub merges those later at whatever head the PR has then.
+// reconcile() only reads GitHub back after a lost response (the gate never sends a GitHub write
+// twice on its own). A refusal reaches clients in the host's words, never gh's stderr.
 
-import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
 import type { PrMutation } from "@relay/protocol";
 import { z } from "zod";
 import type { ProviderBudget } from "../tickets/budget";
-import { ProviderRejected, publicError } from "../tickets/errors";
+import { ProviderRejected } from "../tickets/errors";
 import type { CheckResult, MutationExecutor } from "../tickets/gate";
-import type { AutoMergeWatch } from "../tickets/github-sync";
 import type { OpResult } from "../tickets/ops-store";
-import { readJson, writeJson, type ToolRun } from "./exec";
+import type { ToolRun } from "./exec";
 import { ghCall, readPrLive, type GhGraphql, type PrLive } from "./github";
 
 const GH_WRITE_TIMEOUT_MS = 60_000;
@@ -42,56 +41,10 @@ const invalid = (message: string): Refusal => ({ ok: false, code: "invalid", mes
 /** `repo#n (Title)`: how a confirm names the PR, by what GitHub says now. */
 const named = (m: { repo: string; number: number }, pr: PrLive): string => `${prKey(m)} (${pr.title})`;
 
-// ---- Relay-armed auto-merge ----
-
-const AutoMergeFile = z.object({
-  v: z.literal(1),
-  /** `repo#n` -> the head Relay turned auto-merge on at. */
-  armed: z.record(z.string(), z.string()),
-  /** `repo#n` -> the head that turned it off again (Needs you: autoMergeOff). */
-  disarmed: z.record(z.string(), z.string()),
-});
-type AutoMergeState = z.infer<typeof AutoMergeFile>;
-
-/** `<tickets dir>/automerge.json`: the PRs whose auto-merge Relay turned on, and the ones a push turned off. */
-export class RelayAutoMerge {
-  private readonly file: string;
-  private state: AutoMergeState;
-
-  constructor(dir: string) {
-    this.file = join(dir, "automerge.json");
-    const parsed = AutoMergeFile.safeParse(readJson(this.file, null));
-    this.state = parsed.success ? parsed.data : { v: 1, armed: {}, disarmed: {} };
-  }
-
-  armedHead(key: string): string | undefined {
-    return this.state.armed[key];
-  }
-
-  isDisarmed(key: string): boolean {
-    return this.state.disarmed[key] !== undefined;
-  }
-
-  arm(key: string, head: string): void {
-    const { [key]: _was, ...disarmed } = this.state.disarmed;
-    this.save({ v: 1, armed: { ...this.state.armed, [key]: head }, disarmed });
-  }
-
-  /** Isaac turned it off, or the PR closed: Relay no longer watches it. */
-  forget(key: string): void {
-    const { [key]: _armed, ...armed } = this.state.armed;
-    const { [key]: _disarmed, ...disarmed } = this.state.disarmed;
-    this.save({ v: 1, armed, disarmed });
-  }
-
-  disarm(key: string, head: string): void {
-    const { [key]: _armed, ...armed } = this.state.armed;
-    this.save({ v: 1, armed, disarmed: { ...this.state.disarmed, [key]: head } });
-  }
-
-  private save(next: AutoMergeState): void {
-    this.state = next;
-    writeJson(this.file, next);
+/** The pinned gh credential or account changed before a write went out: that write was not sent. */
+export class StaleGithubCredential extends ProviderRejected {
+  constructor() {
+    super("reviews: GitHub credential changed before the write", "The host's GitHub sign-in or account changed while writing. Reload and try again.");
   }
 }
 
@@ -107,7 +60,8 @@ export interface GithubWritesDeps {
   readonly budget: ProviderBudget | null;
   /** The pinned gh login: Isaac's reactions and comments are found by it, and confirms name it. */
   readonly login: () => string;
-  readonly autoMerge: RelayAutoMerge;
+  /** Asked immediately before every write; throws StaleGithubCredential when the pin is no longer the host's. */
+  readonly guard: () => Promise<void>;
 }
 
 /** What a refused write says to clients, per gh command (never gh's own stderr). */
@@ -118,8 +72,9 @@ const REFUSED: Record<string, string> = {
   "run rerun": "GitHub refused the re-run; nothing was started.",
 };
 
-/** One write; a refusal GitHub answered is ProviderRejected (nothing written), anything else a lost response. */
+/** One write, after the pin check; a refusal GitHub answered is ProviderRejected (nothing written), anything else a lost response. */
 async function ghWrite(d: GithubWritesDeps, args: readonly string[]): Promise<string> {
+  await d.guard();
   const res = await d.run([d.gh, ...args], { cwd: homedir(), timeoutMs: GH_WRITE_TIMEOUT_MS });
   const what = args.slice(0, 2).join(" ");
   if (res.timedOut) throw new Error(`gh ${what} took too long`);
@@ -143,12 +98,9 @@ function jsonLines<T>(out: string, schema: z.ZodType<T>): T[] {
     });
 }
 
-// ---- Merge and auto-merge ----
+// ---- Merge ----
 
-/** What a merge does now: merge at once, join the base's merge queue, or arm auto-merge. */
-export type MergeOutcome = "merge" | "queue" | "auto";
-const OUTCOME_WORDS: Record<MergeOutcome, string> = { merge: "Merge now", queue: "Add to merge queue", auto: "Turn on auto-merge" };
-/** gh merges these at once (`--auto` too). */
+/** GitHub merges these at once. */
 const MERGEABLE_NOW = new Set(["CLEAN", "HAS_HOOKS", "UNSTABLE"]);
 const WRITERS = new Set(["ADMIN", "MAINTAIN", "WRITE"]);
 const BLOCKED_WHY: Record<string, string> = {
@@ -159,94 +111,45 @@ const BLOCKED_WHY: Record<string, string> = {
   UNKNOWN: "GitHub is still working out whether it can merge. Try again in a moment.",
 };
 
-export function mergeOutcome(pr: PrLive, intent: "merge" | "auto"): MergeOutcome {
-  if (pr.actions.mergeQueue.required) return "queue";
-  return intent === "merge" || MERGEABLE_NOW.has(pr.actions.mergeStateStatus) ? "merge" : "auto";
-}
+type MergeRule = (pr: PrLive, m: Of<"merge">) => Refusal | null;
 
-interface MergeAsk {
-  readonly repo: string;
-  readonly number: number;
-  readonly method: "merge" | "squash" | "rebase";
-  readonly intent: "merge" | "auto";
-  readonly expectHead: string;
-  /** The base and outcome Isaac confirmed (absent: turning auto-merge on, which binds the head only). */
-  readonly expectBase?: string;
-  readonly expectOutcome?: MergeOutcome;
-}
-type MergeRule = (pr: PrLive, m: MergeAsk) => Refusal | null;
-
-/** In order: the first that applies refuses. */
+/** In order: the first that applies refuses. Only a merge GitHub makes right now, at the head Isaac saw. */
 const MERGE_RULES: readonly MergeRule[] = [
   (pr) => (pr.state === "MERGED" ? conflict("This PR is already merged") : null),
   (pr) => (pr.state !== "OPEN" ? invalid("This PR is closed") : null),
   (pr, m) => (pr.headSha !== m.expectHead ? conflict(`New commits since you looked (now ${short(pr.headSha)}). Check them and confirm again.`) : null),
-  (pr, m) => (m.expectBase !== undefined && pr.base !== m.expectBase ? conflict(`It now merges into ${pr.base}, not ${m.expectBase}. Check it and confirm again.`) : null),
+  (pr, m) => (pr.base !== m.expectBase ? conflict(`It now merges into ${pr.base}, not ${m.expectBase}. Check it and confirm again.`) : null),
   (pr) => (pr.draft ? invalid("This PR is a draft. Mark it ready for review first.") : null),
   (pr, m) => (WRITERS.has(pr.actions.viewerPermission ?? "") ? null : invalid(`Your GitHub account can't merge in ${m.repo}`)),
-  (pr, m) => (pr.actions.mergeQueue.required && m.intent === "merge" ? conflict("This branch merges through a queue; use Add to merge queue") : null),
   (pr) => (pr.actions.mergeQueue.inQueue ? conflict("This PR is already in the merge queue") : null),
-  (pr, m) => (pr.actions.mergeQueue.required || pr.actions.methods[m.method] ? null : invalid(`${m.method} merges are off in ${m.repo}`)),
+  // gh would turn auto-merge on to join a queue, which merges later at whatever head the PR has then.
+  (pr) => (pr.actions.mergeQueue.required ? invalid("This branch merges through a merge queue. Add it to the queue on GitHub.") : null),
+  (pr, m) => (pr.actions.methods[m.method] ? null : invalid(`${m.method} merges are off in ${m.repo}`)),
   (pr) => (pr.actions.mergeable === "CONFLICTING" ? invalid("It has merge conflicts") : null),
-  (pr, m) => (m.intent === "merge" && !MERGEABLE_NOW.has(pr.actions.mergeStateStatus) ? invalid(BLOCKED_WHY[pr.actions.mergeStateStatus] ?? `GitHub won't merge it yet (${pr.actions.mergeStateStatus})`) : null),
+  (pr) => (MERGEABLE_NOW.has(pr.actions.mergeStateStatus) ? null : invalid(BLOCKED_WHY[pr.actions.mergeStateStatus] ?? `GitHub won't merge it yet (${pr.actions.mergeStateStatus})`)),
 ];
 
-/** The approval binds head, base and outcome: a push, a retarget or a different outcome at commit refuses. */
-function checkMerge(pr: PrLive, m: MergeAsk): CheckResult {
+/** The approval binds head and base: a push, a retarget, or a PR GitHub no longer merges now refuses at commit. */
+function checkMerge(pr: PrLive, m: Of<"merge">): CheckResult {
   for (const rule of MERGE_RULES) {
     const refused = rule(pr, m);
     if (refused !== null) return refused;
   }
-  const outcome = mergeOutcome(pr, m.intent);
-  if (m.expectOutcome !== undefined && outcome !== m.expectOutcome) return conflict(`GitHub would now ${OUTCOME_WORDS[outcome].toLowerCase()} instead. Check it and confirm again.`);
-  const how = outcome === "queue" ? "" : ` (${m.method})`;
-  return { ok: true, revision: `${pr.headSha}|${pr.base}|${outcome}`, summary: `${OUTCOME_WORDS[outcome]}: ${named(m, pr)} at ${short(pr.headSha)} into ${pr.base}${how}` };
+  return { ok: true, revision: `${pr.headSha}|${pr.base}`, summary: `Merge now: ${named(m, pr)} at ${short(pr.headSha)} into ${pr.base} (${m.method})` };
 }
 
-function checkAutoMerge(pr: PrLive, m: Of<"autoMerge">): CheckResult {
-  if (!m.on) return pr.state === "OPEN" ? { ok: true, revision: "off", summary: `Turn off auto-merge on ${named(m, pr)}` } : invalid("This PR is closed");
-  if (m.method === undefined) return invalid("Pick a merge method to turn on auto-merge");
-  if (pr.actions.autoMerge !== null && pr.headSha === m.expectHead) return { ok: true, revision: `${pr.headSha}|${pr.base}|armed`, summary: `Auto-merge is already on for ${named(m, pr)}` };
-  return checkMerge(pr, { ...m, method: m.method, intent: "auto" });
-}
-
-/** Where a merge stands once gh answered; Relay remembers auto-merge it armed with the head. */
-async function mergeResult(d: GithubWritesDeps, m: MergeAsk): Promise<OpResult> {
+/** An immediate merge of exactly the head Isaac confirmed (`--match-head-commit`; never --auto or --admin). */
+async function runMerge(d: GithubWritesDeps, m: Of<"merge">): Promise<OpResult> {
+  await ghWrite(d, ["pr", "merge", String(m.number), "--repo", m.repo, `--${m.method}`, "--match-head-commit", m.expectHead]);
   const pr = await readPrLive(d.graphql, m.repo, m.number);
-  if (pr?.state === "MERGED") return { merge: "merged" };
-  if (pr?.actions.mergeQueue.inQueue === true) return { merge: "queued" };
-  if (pr?.actions.autoMerge == null) throw new Error("GitHub doesn't show the merge yet");
-  d.autoMerge.arm(prKey(m), m.expectHead);
-  return { merge: "autoMergeArmed" };
+  if (pr?.state !== "MERGED") throw new Error("GitHub doesn't show the merge yet");
+  return { merge: "merged" };
 }
 
-async function runMerge(d: GithubWritesDeps, m: MergeAsk): Promise<OpResult> {
-  if (m.intent === "auto") {
-    // Desired state: auto-merge already on is no write.
-    const pr = await readPrLive(d.graphql, m.repo, m.number);
-    if (pr?.actions.autoMerge != null) return { merge: "autoMergeArmed" };
-  }
-  const auto = m.intent === "auto" ? ["--auto"] : [];
-  await ghWrite(d, ["pr", "merge", String(m.number), "--repo", m.repo, `--${m.method}`, "--match-head-commit", m.expectHead, ...auto]);
-  return mergeResult(d, m);
-}
-
-async function runAutoMerge(d: GithubWritesDeps, m: Of<"autoMerge">): Promise<OpResult> {
-  if (m.on) return runMerge(d, { ...m, method: m.method ?? "merge", intent: "auto" });
-  const pr = await readPrLive(d.graphql, m.repo, m.number);
-  if (pr?.actions.autoMerge != null) await ghWrite(d, ["pr", "merge", String(m.number), "--repo", m.repo, "--disable-auto"]);
-  d.autoMerge.forget(prKey(m));
-  return {};
-}
-
-async function reconcileMerge(d: GithubWritesDeps, m: Of<"merge"> | Of<"autoMerge">): Promise<Reconciled> {
+async function reconcileMerge(d: GithubWritesDeps, m: Of<"merge">): Promise<Reconciled> {
   const pr = await readPrLive(d.graphql, m.repo, m.number);
   if (pr === null) return "unknown";
-  const off = m.kind === "autoMerge" && !m.on;
-  if (off) return pr.actions.autoMerge === null ? "done" : "notDone";
-  const landed = pr.state === "MERGED" || pr.actions.mergeQueue.inQueue;
-  const armed = m.kind === "autoMerge" || m.intent === "auto" ? pr.actions.autoMerge !== null : false;
-  return landed || armed ? "done" : "notDone";
+  return pr.state === "MERGED" ? "done" : "notDone";
 }
 
 // ---- Re-run ----
@@ -400,7 +303,6 @@ type Reconciles = { [K in Kind]: (d: GithubWritesDeps, m: Of<K>, startedAt: numb
 
 const CHECKS: Checks = {
   merge: (_d, pr, m) => checkMerge(pr, m),
-  autoMerge: (_d, pr, m) => checkAutoMerge(pr, m),
   rerun: checkRerun,
   requestReview: (_d, pr, m) => (pr.state === "OPEN" ? { ok: true, revision: `${pr.headSha}|${pr.base}`, summary: `Ask ${m.logins.join(", ")} to review ${named(m, pr)}` } : invalid("This PR is closed")),
   react: checkReact,
@@ -411,7 +313,6 @@ const CHECKS: Checks = {
 
 const RUNS: Runs = {
   merge: runMerge,
-  autoMerge: runAutoMerge,
   rerun: async (d, m) => {
     await ghWrite(d, ["run", "rerun", String(m.runId), "--failed", "--repo", m.repo]);
     return {};
@@ -431,7 +332,6 @@ const RUNS: Runs = {
 
 const RECONCILES: Reconciles = {
   merge: reconcileMerge,
-  autoMerge: reconcileMerge,
   rerun: async (d, m) => ((await runFacts(d, m)).run_attempt > m.attempt ? "done" : "notDone"),
   requestReview: async (d, m) => {
     const pr = await readPrLive(d.graphql, m.repo, m.number);
@@ -455,34 +355,5 @@ export function githubExecutor(d: GithubWritesDeps): MutationExecutor<PrMutation
     },
     run: (m) => (RUNS[m.kind] as (d: GithubWritesDeps, m: PrMutation) => Promise<OpResult>)(d, m),
     reconcile: (m, _opId, startedAt) => (RECONCILES[m.kind] as (d: GithubWritesDeps, m: PrMutation, startedAt: number) => Promise<Reconciled>)(d, m, startedAt),
-  };
-}
-
-/**
- * github-sync's hook: a new head on a PR Relay armed auto-merge for turns it off through an executor
- * pinned to the verified gh account (`exec`; null: none verified now, so the next cycle tries again)
- * and flags it.
- */
-export function relayAutoMergeWatch(exec: () => Promise<MutationExecutor<PrMutation> | null>, store: RelayAutoMerge, log: (line: string) => void): AutoMergeWatch {
-  return {
-    disarmed: (ref) => store.isDisarmed(prKey(ref)),
-    async headSeen(ref, head, open) {
-      const key = prKey(ref);
-      const armedAt = store.armedHead(key);
-      if (armedAt === undefined || armedAt === head) return;
-      if (!open) {
-        store.forget(key);
-        return;
-      }
-      try {
-        const pinned = await exec();
-        if (pinned === null) return;
-        await pinned.run({ kind: "autoMerge", repo: ref.repo, number: ref.number, on: false, expectHead: head }, randomUUID());
-        store.disarm(key, head);
-        log(`tickets: ${key} got new commits (${short(head)}): Relay's auto-merge turned off`);
-      } catch (error) {
-        log(`tickets: ${key} auto-merge could not be turned off: ${publicError(error, "GitHub")}`);
-      }
-    },
   };
 }

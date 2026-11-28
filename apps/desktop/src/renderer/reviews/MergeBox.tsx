@@ -1,8 +1,8 @@
-// The PR sidebar's merge box (PLAN §2.6): one button with the outcome GitHub's facts allow ("Merge
-// now", "Add to merge queue", "Turn on auto-merge"), the repository's allowed methods, and a
-// confirm naming the repo and PR, head short SHA, base and method. The write is the host gate's
-// (prMergeMachine over `reviews.prPrepare`/`reviews.prCommit`), bound to that head, never
-// `--admin`. Hidden when the host sent no actions facts.
+// The PR sidebar's merge box (PLAN §2.6): one Merge now button with the repository's allowed
+// methods, and a confirm naming the repo and PR, head short SHA, base and method. The write is the
+// host gate's (prMergeMachine over `reviews.prPrepare`/`reviews.prCommit`): an immediate merge of
+// that head, never `--admin`, never auto-merge or a merge queue. When GitHub won't merge it right
+// now the box says why. Hidden when the host sent no actions facts.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, SegmentedControl } from '@mantine/core'
 import { useActorRef, useSelector } from '@xstate/react'
@@ -66,7 +66,7 @@ function ConfirmMerge({
   onCancel,
 }: {
   pr: MergePr
-  plan: { method: MergeMethod; outcome: string; headSha: string }
+  plan: { method: MergeMethod; headSha: string }
   busy: boolean
   onConfirm: () => void
   onCancel: () => void
@@ -78,7 +78,7 @@ function ConfirmMerge({
     ['Method', METHOD_WORD[plan.method]],
   ]
   return (
-    <EvaModal opened onClose={onCancel} title={`${plan.outcome}?`} size={440}>
+    <EvaModal opened onClose={onCancel} title="Merge now?" size={440}>
       <dl className="eva-rv-merge-facts" data-testid="pr-merge-facts">
         {rows.map(([k, v]) => (
           <div key={k}>
@@ -97,7 +97,7 @@ function ConfirmMerge({
           Cancel
         </Button>
         <Button loading={busy} onClick={onConfirm} data-testid="pr-merge-confirm">
-          {plan.outcome}
+          Merge now
         </Button>
       </div>
     </EvaModal>
@@ -124,28 +124,22 @@ function Notice({
 const selectState = (s: { value: unknown }) => s.value as string
 const selectContext = (s: { context: PrMergeContext }) => s.context
 
-/** The plan the button starts: the offer's outcome with the picked (still allowed) method. */
+/** The plan the button starts: Merge now with the picked (still allowed) method. */
 function planOf(offer: MergeOffer, method: MergeMethod | null): Plan | null {
   if (offer.kind !== 'offer') return null
-  const m = method && offer.methods.includes(method) ? method : firstMethod(offer)
-  return { method: m, intent: offer.intent, outcome: offer.outcome, effect: offer.effect }
+  return { method: method && offer.methods.includes(method) ? method : firstMethod(offer) }
 }
 
-/** States a write lands in; arriving from `merging` or `disarming` reads the PR again. */
-const LANDED: Record<string, true> = {
-  merged: true,
-  queued: true,
-  autoMergeArmed: true,
-  idle: true,
-}
+/** States a merge lands in; arriving from `merging` reads the PR again. */
+const LANDED: Record<string, true> = { merged: true, idle: true }
 /** States the confirm stays open in (busy while the gate approves and the merge is written). */
 const CONFIRM_OPEN: Record<string, true> = { confirming: true, preparing: true, merging: true }
 
 type MergeActor = ActorRefFrom<typeof prMergeMachine>
 type Plan = Omit<MergePlan, 'headSha'>
 
-/** The machine for this PR, told every read's head, outcome and auto-merge; a landed write reads again. */
-function useMerge(pr: ReviewPr, offer: MergeOffer, plan: Plan | null, onChanged: () => void) {
+/** The machine for this PR, told every read's head and whether Merge now is offered; a landed write reads again. */
+function useMerge(pr: ReviewPr, offer: MergeOffer, onChanged: () => void) {
   const actor = useActorRef(liveMachine)
   const state = useSelector(actor, selectState)
   const ctx = useSelector(actor, selectContext)
@@ -156,19 +150,18 @@ function useMerge(pr: ReviewPr, offer: MergeOffer, plan: Plan | null, onChanged:
     headSha: pr.headSha ?? '',
     login: pr.actions?.viewerLogin ?? '',
   }
-  const armed = offer.kind === 'armed' ? { method: offer.method, by: offer.by } : null
-  const outcome = plan?.outcome ?? null
+  const offered = offer.kind === 'offer'
   useEffect(() => {
-    actor.send({ type: 'merge.facts', pr: facts, outcome, armed })
-  }, [actor, pr.headSha, pr.updatedAt, outcome, armed?.method])
+    actor.send({ type: 'merge.facts', pr: facts, offered })
+  }, [actor, pr.headSha, pr.updatedAt, offered])
 
   const was = useRef(state)
   useEffect(() => {
-    const wrote = was.current === 'merging' || was.current === 'disarming'
+    const wrote = was.current === 'merging'
     was.current = state
     if (wrote && LANDED[state]) onChanged()
   }, [state])
-  return { actor, state, ctx, facts, armed }
+  return { actor, state, ctx, facts }
 }
 
 /** The box's buttons as machine events (each Isaac action mints its own opId). */
@@ -179,7 +172,6 @@ function actionsOf(actor: MergeActor, plan: Plan | null, facts: MergePr) {
     onCancel: () => actor.send({ type: 'merge.cancel' }),
     onRetry: () => actor.send({ type: 'merge.retry' }),
     onDismiss: () => actor.send({ type: 'merge.dismiss' }),
-    onDisarm: () => actor.send({ type: 'merge.disarm', opId: crypto.randomUUID() }),
   }
 }
 
@@ -187,7 +179,7 @@ export function MergeBox({ pr, onChanged }: { pr: ReviewPr; onChanged: () => voi
   const offer = mergeOfferOf(pr)
   const [method, setMethod] = useState<MergeMethod | null>(null)
   const plan = planOf(offer, method)
-  const { actor, state, ctx, facts, armed } = useMerge(pr, offer, plan, onChanged)
+  const { actor, state, ctx, facts } = useMerge(pr, offer, onChanged)
   if (offer.kind === 'hidden') return null
   return (
     <div className="eva-rv-merge" data-testid="pr-merge" data-state={state}>
@@ -199,7 +191,6 @@ export function MergeBox({ pr, onChanged }: { pr: ReviewPr; onChanged: () => voi
         onPick={setMethod}
         {...actionsOf(actor, plan, facts)}
         canReconfirm={plan !== null}
-        armedMethod={ctx.armed?.method ?? armed?.method ?? null}
       />
       <OpenConfirm actor={actor} state={state} ctx={ctx} />
     </div>
@@ -239,17 +230,12 @@ interface BodyProps {
   onCancel: () => void
   onRetry: () => void
   onDismiss: () => void
-  onDisarm: () => void
   canReconfirm: boolean
-  armedMethod: MergeMethod | null
 }
 
 /** What the box says in each state of the machine (the confirm is the modal above). */
 const BODIES: Record<string, (p: BodyProps) => ReactNode> = {
   merged: () => <Notice text="Merged." tone="ok" />,
-  queued: () => <Notice text="Added to the merge queue." tone="ok" />,
-  autoMergeArmed: (p) => <Armed p={p} />,
-  disarming: (p) => <Armed p={p} busy />,
   stale: (p) => (
     <Notice text={p.message ?? ''} tone="bad">
       {p.canReconfirm ? (
@@ -279,29 +265,6 @@ const BODIES: Record<string, (p: BodyProps) => ReactNode> = {
       </Button>
     </Notice>
   ),
-}
-
-function Armed({ p, busy = false }: { p: BodyProps; busy?: boolean }) {
-  const how = p.armedMethod ? ` (${METHOD_WORD[p.armedMethod].toLowerCase()})` : ''
-  return (
-    <>
-      <Notice
-        text={`Auto-merge is on${how}: it merges when the checks and reviews pass.`}
-        tone="ok"
-      >
-        <Button
-          size="compact-xs"
-          variant="subtle"
-          loading={busy}
-          onClick={p.onDisarm}
-          data-testid="pr-merge-disarm"
-        >
-          Turn off
-        </Button>
-      </Notice>
-      {p.message ? <Notice text={p.message} tone="bad" /> : null}
-    </>
-  )
 }
 
 function MergeBody(p: BodyProps) {
@@ -334,7 +297,7 @@ function MergeBody(p: BodyProps) {
         onClick={p.onStart}
         data-testid="pr-merge-start"
       >
-        {p.offer.outcome}
+        Merge now
       </Button>
     </>
   )

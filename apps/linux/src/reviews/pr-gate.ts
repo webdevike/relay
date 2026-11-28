@@ -5,8 +5,9 @@
 // store (a repeated opId answers its stored outcome, only to the login and device that started it;
 // one left unknown is only read back from GitHub, never sent again); the executor's live check; for
 // a confirmed kind a single-use approval bound to the device, the login, the account generation,
-// the kind, the payload hash and the revision check() saw at prepare (head, base and outcome for a
-// merge); and right before the side effect, the pin is checked again.
+// the kind, the payload hash and the revision check() saw at prepare (head and base for a merge);
+// and right before the side effect, the pin is checked again, then once more by the executor
+// immediately before each gh write it sends (after any read it made first).
 //
 // Approvals and op records are the tickets gate's own (`Approvals`, `OpsStore`); GitHub's op records
 // live apart (`<tickets dir>/github/ops.json`), so the Linear gate's store stays its own.
