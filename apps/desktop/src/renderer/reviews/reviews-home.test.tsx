@@ -21,7 +21,43 @@ let approveState: 'ready' | 'sent' = 'ready'
 /** GitHub's live draft flag for #173 (the queue's cached search row says draft). */
 let live173Draft = true
 
+/** The PR read for a row: a local read (no host actions facts). */
+const prOf = (number: number) => ({
+  repo: ROW.repo,
+  number,
+  title: number === 173 ? 'Astra draft' : ROW.title,
+  url: `https://github.com/${ROW.repo}/pull/${number}`,
+  state: 'OPEN',
+  draft: number !== 172,
+  author: { login: 'sam', avatarUrl: null },
+  createdAt: Date.now() - 60_000,
+  updatedAt: Date.now() - 60_000,
+  body: '',
+  base: 'main',
+  head: 'fix',
+  additions: 1,
+  deletions: 0,
+  reviewers: [],
+  assignees: [],
+  labels: [],
+  milestone: null,
+  projects: [],
+  participants: ['sam'],
+  commits: [],
+  timeline: [],
+  checks: [],
+  files: [],
+  diff: '',
+})
+
+/** The PR page's reads: the PR and Done. */
+const prAnswer = (ch: string, number: number) => {
+  if (ch === 'reviews.pr') return { ok: true, value: prOf(number) }
+  return { ok: true, value: { [prOf(172).url]: Date.now() } }
+}
+
 const invoke = vi.fn(async (ch: string, arg?: { number?: number }) => {
+  if (ch === 'reviews.pr' || ch === 'reviews.done') return prAnswer(ch, arg?.number ?? 172)
   if (ch === 'reviews.queue') {
     return {
       ok: true,
@@ -211,5 +247,33 @@ describe('Reviews home (nothing selected)', () => {
     rows = []
     wrap()
     expect(await screen.findByTestId('reviews-home-empty')).toBeTruthy()
+  })
+})
+
+describe('Reviews page with a pull request picked', () => {
+  it('shows the PR page (Guide, Diff, Comments and the sidebar); Done marks it handled', async () => {
+    wrap()
+    fireEvent.click(await screen.findByTestId('review-row-172'))
+    expect(await screen.findByTestId('review-detail')).toBeInTheDocument()
+    for (const t of ['guide', 'diff', 'comments']) {
+      expect(screen.getByTestId(`review-tab-${t}`)).toBeInTheDocument()
+    }
+    expect(screen.getByTestId('review-rail')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('review-done'))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('reviews.done', {
+        url: prOf(172).url,
+        updatedAt: expect.any(Number),
+        done: true,
+      }),
+    )
+    await waitFor(() => expect(reviewsStore.getState().selected?.number).not.toBe(172))
+  })
+
+  it('keeps Approve on an auto-work draft, sent straight to Astra', async () => {
+    wrap()
+    fireEvent.click(await screen.findByTestId('review-row-173'))
+    fireEvent.click(await screen.findByTestId('review-approve'))
+    await waitFor(() => expect(screen.getByTestId('review-approve')).toHaveTextContent('Approved'))
   })
 })

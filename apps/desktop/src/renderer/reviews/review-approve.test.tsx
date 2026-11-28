@@ -22,7 +22,7 @@ vi.mock('../ipc', () => ({
 vi.mock('../navigation/open-link', () => ({ openLink: () => {} }))
 
 import type { ReviewPr } from '@evaos/contract'
-import { Detail } from './ReviewsPage'
+import { PrView } from './PrView'
 
 const PR = {
   repo: 'eCardSystems/api',
@@ -55,7 +55,7 @@ const PR = {
 const show = () =>
   render(
     <MantineProvider>
-      <Detail
+      <PrView
         pr={PR}
         fetchedAt={Date.now()}
         now={Date.now()}

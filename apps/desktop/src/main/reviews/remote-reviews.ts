@@ -13,7 +13,9 @@ import {
   LinearTicketSchema,
   ReviewApproveSchema,
   ReviewGuideSchema,
+  ReviewCommentSchema,
   ReviewPrActionsSchema,
+  ReviewPrSchema,
   ReviewWorkSchema,
   type AstraItem,
   type LinearIssue,
@@ -106,6 +108,8 @@ const HostPr = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   body: z.string(),
+  /** Absent from older hosts; a shape this app can't read is left out (no reaction chips). */
+  bodyReactions: ReviewPrSchema.shape.bodyReactions.catch(undefined),
   base: z.string(),
   head: z.string(),
   /** Absent from older hosts. */
@@ -124,6 +128,8 @@ const HostPr = z.object({
       body: z.string(),
       state: z.string().nullable(),
       at: z.number(),
+      id: z.number().optional().catch(undefined),
+      reactions: ReviewPrSchema.shape.bodyReactions.catch(undefined),
     }),
   ),
   checks: z.array(z.object({ name: z.string(), state: z.string(), url: z.string().nullable() })),
@@ -138,6 +144,8 @@ const HostPr = z.object({
   diff: z.string(),
   /** Absent from older hosts; a shape this app can't read is left out (the actions stay hidden). */
   actions: ReviewPrActionsSchema.optional().catch(undefined),
+  /** Absent from older hosts; a shape this app can't read is left out (no inline threads). */
+  reviewComments: z.array(ReviewCommentSchema).optional().catch(undefined),
 })
 
 const HostSlackThread = z.object({
@@ -299,7 +307,17 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
   const timeline = pr.timeline.flatMap((t) =>
     t.kind === 'commit'
       ? []
-      : [{ kind: t.kind, author: t.author, body: t.body, state: t.state, at: t.at }],
+      : [
+          {
+            kind: t.kind,
+            author: t.author,
+            body: t.body,
+            state: t.state,
+            at: t.at,
+            ...(t.id === undefined ? {} : { id: t.id }),
+            ...(t.reactions === undefined ? {} : { reactions: t.reactions }),
+          },
+        ],
   )
   const commits = pr.timeline.flatMap((t) =>
     t.kind === 'commit'
@@ -336,6 +354,8 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
     files: pr.files,
     diff: pr.diff,
     ...(pr.actions === undefined ? {} : { actions: pr.actions }),
+    ...(pr.bodyReactions === undefined ? {} : { bodyReactions: pr.bodyReactions }),
+    ...(pr.reviewComments === undefined ? {} : { reviewComments: pr.reviewComments }),
   }
 }
 
@@ -568,12 +588,17 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   })
 
   handle(ctx, 'reviews.pr', async ({ repo, number }) => {
-    const pr = toPr(HostPr.parse((await host.req({ kind: 'pr', repo, number })).pr))
-    const [body, timeline] = await Promise.all([
+    const read = toPr(HostPr.parse((await host.req({ kind: 'pr', repo, number })).pr))
+    // A host without the gate's PR actions gets no write from this app: its controls stay hidden.
+    const { actions, ...rest } = read
+    const pr = d.frames.hostHas(REVIEWS_ACTIONS_FEATURE) && actions ? { ...rest, actions } : rest
+    const [body, timeline, reviewComments] = await Promise.all([
       local(pr.body),
       Promise.all(pr.timeline.map(async (t) => ({ ...t, body: await local(t.body) }))),
+      pr.reviewComments &&
+        Promise.all(pr.reviewComments.map(async (c) => ({ ...c, body: await local(c.body) }))),
     ])
-    return { ...pr, body, timeline }
+    return { ...pr, body, timeline, ...(reviewComments ? { reviewComments } : {}) }
   })
 
   handle(ctx, 'reviews.guide', async ({ repo, number, headSha }) =>

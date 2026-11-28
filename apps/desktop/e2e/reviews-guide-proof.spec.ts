@@ -133,7 +133,7 @@ test('the Reviews PR page: Guide, conversation images and Files over reviews.req
   await shot(shell, 'guide-end')
 
   // Files: every changed file, the deleted one included, as a diff.
-  await shell.locator(sel('review-tab-files')).click()
+  await shell.locator(sel('review-tab-diff')).click()
   const files = shell.locator(sel('review-files'))
   await expect(files).toBeVisible()
   await expect(files).toContainText('src/old.ts')

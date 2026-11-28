@@ -8,7 +8,8 @@ import { useReplacePlace } from '../pages/place-host'
 import { backOr } from '../navigation/nav-history'
 import { LinearDetail } from './LinearDetail'
 import { SlackDetail } from './SlackDetail'
-import { Detail, markDone } from './ReviewsPage'
+import { markDone } from './ReviewsPage'
+import { PrView } from './PrView'
 import { reviewIdOf, reviewRefOfPlace, reviewTitleOf, type ReviewRef } from './review-place'
 import {
   loadQueue,
@@ -140,7 +141,7 @@ export function ReviewPage({ place }: { place: Place }) {
   } else if (item?.kind === 'pr' && pr) {
     const row = item.row
     body = (
-      <Detail
+      <PrView
         pr={pr.pr}
         fetchedAt={pr.at}
         now={now}
