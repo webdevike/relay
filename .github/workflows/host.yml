@@ -1,0 +1,33 @@
+name: host
+
+# The Linux host (apps/linux) and the wire protocol: protocol tests and typecheck, and the host suites
+# for tickets, Reviews, sessions and host config. The host's own typecheck and canvas-pacing (a
+# bun:test file) are left out until their baseline failures are fixed.
+on:
+  push:
+    paths: ["apps/linux/**", "packages/protocol/**", "pnpm-lock.yaml", ".github/workflows/host.yml"]
+  pull_request:
+    paths: ["apps/linux/**", "packages/protocol/**", "pnpm-lock.yaml", ".github/workflows/host.yml"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The root workspace's packageManager (pnpm 9).
+      - uses: pnpm/action-setup@v4
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Protocol tests
+        working-directory: packages/protocol
+        run: pnpm test
+      - name: Protocol typecheck
+        working-directory: packages/protocol
+        run: pnpm typecheck
+      - name: Host suites (tickets incl. host-config opt-in, Reviews, session)
+        working-directory: apps/linux
+        run: pnpm exec vitest run test/tickets- test/reviews test/session.test.ts
