@@ -202,7 +202,7 @@ export interface StoreFileView {
   readonly sync: { readonly watermark: number | null; readonly cursor: unknown };
 }
 
-export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh } = {}): TicketsHarness {
+export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh; summaryWriter?: (prompt: string) => Promise<string> } = {}): TicketsHarness {
   let now = T0;
   const clock = new SimulatedClock();
   const budgets = providerBudgets(() => now);
@@ -226,6 +226,7 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
     log: () => undefined,
     sync: { clock, timing: { random: () => 0.5 } },
     gate,
+    ...(o.summaryWriter && { summaryWriter: o.summaryWriter }),
   });
   service.onPush = (m) => pushes.push(m);
   return {

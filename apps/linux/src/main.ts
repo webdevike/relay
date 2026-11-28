@@ -169,6 +169,7 @@ import { SamRunner } from "./studio/sam";
 import { StudioService, type StudioMessage } from "./studio/service";
 import { defaultStudioDir } from "./studio/store";
 import { bunRun, defaultReviewsDir, resolveClaude, resolveGh } from "./reviews/exec";
+import { claudeWriter } from "./reviews/guide";
 import { linearKey } from "./reviews/linear";
 import { goodopsSource } from "./query/goodops";
 import { liveRender } from "./query/openui";
@@ -991,6 +992,7 @@ function serve(
         budgets,
         writes: ticketsOn.writes,
         log,
+        summaryWriter: claudeWriter(bunRun, resolveClaude()),
       });
   const meetings = meetingsService({
     agentHome,

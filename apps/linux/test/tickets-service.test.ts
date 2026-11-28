@@ -28,12 +28,29 @@ describe("tickets opt-in (host.json)", () => {
 });
 
 describe("TicketsService ops", () => {
-  it("answers summary, plan and replan as not available yet", async () => {
+  it("answers plan and replan as not available yet", async () => {
     const h = started();
     await h.settled();
-    expect(await h.service.handle("desk", { kind: "summary", key: "ENG-1" })).toEqual({ ok: false, error: "Not available yet" });
     expect(await h.service.handle("desk", { kind: "plan", rows: [] })).toEqual({ ok: false, error: "Not available yet" });
     expect(await h.service.handle("desk", { kind: "replan", projectId: "project-1" })).toEqual({ ok: false, error: "Not available yet" });
+  });
+
+  it("summarizes a synced ticket once per snapshot; without Claude it answers an error", async () => {
+    const text = "The ticket adds a board. It is in progress and the next step is review.";
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const writer = vi.fn((_: string) => Promise.resolve(text));
+    const h = ticketsHarness({ linear, summaryWriter: writer });
+    h.service.start();
+    await h.settled();
+    const answer = await h.service.handle("desk", { kind: "summary", key: "ENG-1" });
+    expect(answer).toEqual({ ok: true, summary: { key: "ENG-1", text, at: T0 } });
+    await h.service.handle("desk", { kind: "summary", key: "ENG-1" });
+    expect(writer).toHaveBeenCalledTimes(1);
+    expect(await h.service.handle("desk", { kind: "summary", key: "ENG-9" })).toEqual({ ok: false, error: "ENG-9 is not on the board" });
+    const bare = started();
+    await bare.settled();
+    expect(await bare.service.handle("desk", { kind: "summary", key: "ENG-1" })).toEqual({ ok: false, error: "Claude is not available on this host" });
   });
 
   it("seen answers the visit before and stores now", async () => {
