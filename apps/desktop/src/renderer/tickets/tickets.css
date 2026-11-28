@@ -349,6 +349,12 @@ button.eva-tk-prow:hover {
   flex-direction: column;
 }
 
+/* Held to the page's height, so its tab scrolls inside (the diff list, comments) and the file tree
+   and sidebar stay put; as a column item it would otherwise grow to its content. */
+.eva-tk-pr > .eva-rv-detail {
+  min-height: 0;
+}
+
 /* A narrow pane (the page's own width, not the window's): a slimmer sidebar, then under the main column. */
 @container eva-tk (max-width: 960px) {
   .eva-tk-body {

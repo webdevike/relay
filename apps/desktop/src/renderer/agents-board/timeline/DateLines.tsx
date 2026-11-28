@@ -12,11 +12,14 @@ export interface ChartArea {
   /** Rows as shown (open summaries' children), for a ticket row's y. */
   rowTop(id: string): number | null
   rowHeight: number
+  /** The chart's sticky time scale (same x origin as the area), where line labels sit; null if not found. */
+  scale: HTMLElement | null
 }
 
 /**
  * Portals `render(area)` into the chart's own scrolling `.wx-area` (SVAR-owned, found inside
- * `host`, our container), placed with the same scale math SVAR uses for bars:
+ * `host`, our container; its sibling `.wx-scale` is the sticky time scale above the rows), placed
+ * with the same scale math SVAR uses for bars:
  * `round(_scales.diff(date, _scales.start, lengthUnit) * cellWidth)`. Re-found whenever the
  * scale (zoom), the visible rows or the panel layout changes. This relies on SVAR's internal
  * `_scales`/`_tasks` state: the version is pinned (2.8.3) and an e2e check guards line x == bar edge.
@@ -34,13 +37,14 @@ export function ChartOverlay({
 }) {
   const [scales, setScales] = useState<Scales | undefined>(() => api.getState()._scales)
   const [rows, setRows] = useState(() => api.getState()._tasks)
-  const [node, setNode] = useState<HTMLElement | null>(null)
+  const [nodes, setNodes] = useState<{ area: HTMLElement; scale: HTMLElement | null } | null>(null)
   useEffect(() => api.getReactiveState()._scales!.subscribe((s) => setScales(s as Scales)), [api])
   useEffect(() => api.getReactiveState()._tasks.subscribe((t) => setRows(t)), [api])
   useLayoutEffect(() => {
-    setNode(host.querySelector<HTMLElement>('.wx-chart .wx-area'))
+    const area = host.querySelector<HTMLElement>('.wx-chart .wx-area')
+    setNodes(area ? { area, scale: host.querySelector<HTMLElement>('.wx-chart .wx-scale') } : null)
   }, [host, scales, layoutKey])
-  if (!node || !scales) return null
+  if (!nodes || !scales) return null
   const { cellWidth = 1, cellHeight = 1 } = api.getState()
   const area: ChartArea = {
     xOf: (day) =>
@@ -50,20 +54,41 @@ export function ChartOverlay({
       return i < 0 ? null : i * cellHeight
     },
     rowHeight: cellHeight,
+    scale: nodes.scale,
   }
-  return createPortal(render(area), node)
+  return createPortal(render(area), nodes.area)
 }
 
-/** Milestone targets (end of the target day) and today: SVAR MIT ignores `markers`. */
+/**
+ * Milestone targets (end of the target day) and today: SVAR MIT ignores `markers`. Lines run down
+ * the rows; their labels sit on the time scale, where they never cover a bar's text.
+ */
 export function DateLines({ lines, area }: { lines: readonly DateLine[]; area: ChartArea }) {
-  return lines.map((l) => (
-    <div
-      key={l.id}
-      className={`rb-line rb-line-${l.kind}`}
-      data-line={l.id}
-      style={{ left: area.xOf(l.at) }}
-    >
-      <span className="rb-line-label">{l.label}</span>
-    </div>
-  ))
+  return (
+    <>
+      {lines.map((l) => (
+        <div
+          key={l.id}
+          className={`rb-line rb-line-${l.kind}`}
+          data-line={l.id}
+          style={{ left: area.xOf(l.at) }}
+        />
+      ))}
+      {area.scale
+        ? createPortal(
+            lines.map((l) => (
+              <span
+                key={l.id}
+                className={`rb-line-label rb-line-label-${l.kind}`}
+                data-line-label={l.id}
+                style={{ left: area.xOf(l.at) }}
+              >
+                {l.label}
+              </span>
+            )),
+            area.scale,
+          )
+        : null}
+    </>
+  )
 }
