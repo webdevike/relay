@@ -758,14 +758,18 @@ export class FakeRelayHost {
   }
 
   /** The synced board (`e2e/fixtures/tickets/board.json`): rev, board and status. */
-  readonly tickets: { rev: number; board: { tickets: Json[] }; status: Json } = (() => {
-    const f = ticketFixture('board')
-    return {
-      rev: Number(f.rev),
-      board: z.object({ tickets: z.array(JsonSchema) }).parse(f.board),
-      status: JsonSchema.parse(f.status),
-    }
-  })()
+  readonly tickets: { rev: number; board: { tickets: Json[]; teams?: Json[] }; status: Json } =
+    (() => {
+      const f = ticketFixture('board')
+      return {
+        rev: Number(f.rev),
+        // Teams too: a drag maps a column to one of the team's states.
+        board: z
+          .object({ tickets: z.array(JsonSchema), teams: z.array(JsonSchema).optional() })
+          .parse(f.board),
+        status: JsonSchema.parse(f.status),
+      }
+    })()
   /** Every `tickets.*` frame the app sent, in order (an old host must see none). */
   readonly ticketFrames: Json[] = []
   /** Every `prepare` and `commit` op (`id`: the rid, `cmd`: the op), in order. */

@@ -160,7 +160,8 @@ export function createHostTickets(
     const tickets: TicketBoardFacts[] = view.board.tickets.filter((t) => !gone.has(t.key))
     tickets.push(...d.data.upserts)
     if (d.data.status) status = d.data.status
-    view = { rev: d.data.rev, board: { tickets }, status: status ?? view.status }
+    // Deltas carry no teams: keep the snapshot's.
+    view = { rev: d.data.rev, board: { ...view.board, tickets }, status: status ?? view.status }
     notify([...d.data.upserts.map((t) => t.key), ...d.data.tombstones], d.data.status ?? undefined)
   }
 
