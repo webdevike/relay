@@ -280,10 +280,15 @@ export const TicketsBoard = z.object({
 });
 export type TicketsBoard = z.infer<typeof TicketsBoard>;
 
-/** The ticket page: board facts plus description and every comment (oldest first). */
+/** The ticket page: board facts plus description and its comments (oldest first). */
 export const TicketDetail = TicketBoardFacts.extend({
   description: Ticket.shape.description,
   comments: z.array(TicketComment).max(MAX_TICKET_COMMENTS),
+  /**
+   * Set when the host bounded the page (about 1 MiB) or answered from its cache during an outage:
+   * the description was cut, and how many older comments were left out (open it in Linear for them).
+   */
+  clipped: z.object({ description: z.boolean(), comments: Count }).optional(),
 });
 export type TicketDetail = z.infer<typeof TicketDetail>;
 

@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ticketsFeatures, type HostConfig } from "../src/host-config";
@@ -24,6 +24,51 @@ describe("tickets opt-in (host.json)", () => {
     expect(ticketsFeatures(config({ tickets: true, ticketsWrites: true }), {})).toEqual({ sync: true, writes: true });
     expect(ticketsFeatures(config({ tickets: true, ticketsWrites: true }), { RELAY_REVIEWS_DRY_RUN: "1" })).toEqual({ sync: true, writes: false });
     expect(ticketsFeatures(config({ ticketsWrites: true }), {})).toEqual({ sync: false, writes: false });
+  });
+});
+
+describe("TicketsService bounds and reads", () => {
+  /** ENG-1 at the protocol's limits: a 100,000-unit description of 4-byte characters, 250 comments of 20,000 characters. */
+  function maxSize(): TicketsHarness {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const at = (i: number): string => new Date(T0 - (250 - i) * MIN).toISOString();
+    const user = { id: "user-other", name: "Robin Sample", avatarUrl: null };
+    const comment = (i: number) => ({ id: `c-${String(i)}`, body: `${String(i)} ${"x".repeat(19_990)}`, url: `https://linear.app/acme/issue/ENG-1#c-${String(i)}`, createdAt: at(i), editedAt: null, resolvedAt: null, quotedText: null, documentContentId: null, parent: null, user, resolvingUser: null, reactionData: [] });
+    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), description: "😀".repeat(50_000), comments: { nodes: Array.from({ length: 250 }, (_, i) => comment(i)) } });
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    return h;
+  }
+
+  it("keeps a maximum-size issue within the cache's byte caps", async () => {
+    const h = maxSize();
+    await h.settled();
+    expect(statSync(join(h.dir, "tickets.json")).size).toBeLessThan(64 * 1024);
+  });
+
+  it("bounds the ticket page near 1 MiB, newest comments kept, and says what it left out", async () => {
+    const h = maxSize();
+    await h.settled();
+    const page = (await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })).ticket;
+    expect(Buffer.byteLength(JSON.stringify(page), "utf8")).toBeLessThan(1.1 * 1024 * 1024);
+    expect(page?.description).toBe("😀".repeat(50_000));
+    expect(page?.comments.at(-1)?.id).toBe("c-249");
+    expect(page?.clipped).toEqual({ description: false, comments: 250 - (page?.comments.length ?? 0) });
+    expect(page?.clipped?.comments).toBeGreaterThan(0);
+  });
+
+  it("answers board, subscribe and an unchanged ticket page without rewriting tickets.json", async () => {
+    const h = started();
+    await h.settled();
+    await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
+    const rev = (await h.service.handle("desk", { kind: "board" })).rev;
+    rmSync(join(h.dir, "tickets.json"));
+    await h.service.handle("desk", { kind: "board" });
+    await h.service.handle("phone", { kind: "subscribe", on: true });
+    await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
+    expect(existsSync(join(h.dir, "tickets.json"))).toBe(false);
+    expect((await h.service.handle("desk", { kind: "board" })).rev).toBe(rev);
   });
 });
 

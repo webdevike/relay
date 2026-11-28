@@ -7,7 +7,7 @@
 // `tickets.status`) go through `onPush`, which the server sends only to sockets that subscribed.
 
 import { createHash } from "node:crypto";
-import { TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { MAX_TICKET_COMMENTS, TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketDetail, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
@@ -21,7 +21,7 @@ import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
 import { linearExecutor } from "./linear-writes";
-import { HandledStore, SeenStore, TicketsStore, type IssueEntry } from "./store";
+import { boundComments, clipBytes, HandledStore, SeenStore, TicketsStore, type IssueEntry } from "./store";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
 
 export type TicketsPush = Extract<ServerMessage, { t: "tickets.snapshot" | "tickets.delta" | "tickets.status" }>;
@@ -61,6 +61,10 @@ const clip = (s: string | null): string | null => (s === null ? null : s.slice(0
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 /** A key is compared by its hash; the key itself is never kept. */
 const sha256 = (s: string): string => createHash("sha256").update(s).digest("hex");
+/** A ticket page stays near 1 MiB: its description (UTF-8 bytes), each comment body, all comment bodies (newest kept). */
+const MAX_DETAIL_DESCRIPTION_BYTES = 256 * 1024;
+const MAX_DETAIL_COMMENT_BYTES = 64 * 1024;
+const MAX_DETAIL_COMMENTS_BYTES = 768 * 1024;
 
 export class TicketsService implements TicketsRelaying {
   readonly writes: boolean;
@@ -117,6 +121,8 @@ export class TicketsService implements TicketsRelaying {
     this.actor.subscribe(() => {
       this.onTransition();
     });
+    // What devices get first: the stored cards as the next rev (later reads answer it as is).
+    this.publish();
   }
 
   start(): void {
@@ -176,14 +182,13 @@ export class TicketsService implements TicketsRelaying {
     return (typeof value === "string" ? value : Object.keys(value)[0]) as TicketsStatus["freshness"]["state"];
   }
 
-  /** The board at its rev: pending changes go out as a delta first, so the answer matches the rev. */
+  /** The published board at its rev: every change publishes itself, so a read does no work and no disk. */
   private boardAnswer(): Answer {
-    this.publish();
     return { ok: true, board: this.board(), rev: this.store.rev, status: this.status() };
   }
 
   private board(): TicketsBoard {
-    return { tickets: this.store.board((e) => this.facts(e)), teams: [...this.store.sync.teams] };
+    return { tickets: this.store.board(), teams: [...this.store.sync.teams] };
   }
 
   private async detail(key: string): Promise<Answer> {
@@ -205,7 +210,16 @@ export class TicketsService implements TicketsRelaying {
       return { ok: false, error: `${key} is not in Linear or this account can't see it` };
     }
     this.publish();
-    return { ok: true, ticket: { ...this.facts(entry), description: entry.ticket.description, comments: entry.comments.slice(-500) } };
+    return { ok: true, ticket: this.detailFrame(entry) };
+  }
+
+  /** The ticket page within the detail byte bounds: the description cut, then the oldest comments left out. */
+  private detailFrame(entry: IssueEntry): TicketDetail {
+    const description = clipBytes(entry.ticket.description, MAX_DETAIL_DESCRIPTION_BYTES);
+    const { comments, dropped } = boundComments(entry.comments.slice(-MAX_TICKET_COMMENTS), MAX_DETAIL_COMMENT_BYTES, MAX_DETAIL_COMMENTS_BYTES);
+    const clipped = { description: description.length < entry.ticket.description.length || entry.clipped?.description === true, comments: dropped + Math.max(0, entry.comments.length - MAX_TICKET_COMMENTS) + (entry.clipped?.comments ?? 0) };
+    const detail = { ...this.facts(entry), description, comments };
+    return clipped.description || clipped.comments > 0 ? { ...detail, clipped } : detail;
   }
 
   private watch(deviceId: string, op: Op<"watch">): Answer {

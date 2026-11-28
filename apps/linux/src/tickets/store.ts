@@ -3,7 +3,10 @@
 // (`handled.json`) and seen watermarks (`seen.json`). Every file is versioned `{v: 1}`; an older host
 // ignores them, a file of another version starts empty. The board is revisioned: `publish` compares
 // each card's facts with what devices last got and answers one delta (upserts, tombstones) with the
-// next `rev`.
+// next `rev`, and keeps those cards, so a read (`board`, subscribe) answers the published revision
+// without recomputing or touching the disk. The file is written only when something in it changed.
+// Byte caps keep the hot cache bounded: a retained description, each retained comment and all of
+// one issue's retained comments are cut to fixed UTF-8 sizes (the ticket page reads them live).
 
 import { join } from "node:path";
 import { MAX_TICKETS, Ticket, TicketComment, type TicketBoardFacts, type TicketPrRef, type TicketTeam } from "@relay/protocol";
@@ -13,11 +16,25 @@ import { EMPTY_HANDLED, type HandledState, type LinearNotice, type PrAttentionIn
 import type { HostIdentity } from "./identity";
 
 export const MAX_STORED_PRS = 200;
+/** UTF-8 bytes of a description kept in the hot cache. */
+export const MAX_STORED_DESCRIPTION_BYTES = 8 * 1024;
+/** UTF-8 bytes of one comment body kept in the hot cache (a quote: a quarter of it). */
+export const MAX_STORED_COMMENT_BYTES = 4 * 1024;
+/** UTF-8 bytes of one issue's kept comment bodies together, newest first. */
+export const MAX_STORED_COMMENTS_BYTES = 32 * 1024;
+
+/** What the host left out of an issue: the description was cut, `comments` older comments dropped. */
+export interface Clipped {
+  readonly description: boolean;
+  readonly comments: number;
+}
 
 export interface IssueEntry {
   readonly ticket: Ticket;
   /** The newest comments, oldest first (the ticket page reads all of them live). */
   readonly comments: readonly TicketComment[];
+  /** Set when the cache or a frame bound cut it. */
+  readonly clipped?: Clipped | undefined;
 }
 
 /** One PR's last probe and facts; `input` null: never read or no access. */
@@ -52,7 +69,11 @@ export interface SyncState {
 
 const EMPTY_SYNC: SyncState = { identity: null, cursor: null, watermark: null, reconciledAt: null, notices: [], noticesAt: null, lastSyncAt: null, teams: [], teamsAt: null };
 
-const Entry = z.object({ ticket: Ticket, comments: z.array(TicketComment) });
+const Entry = z.object({
+  ticket: Ticket,
+  comments: z.array(TicketComment),
+  clipped: z.object({ description: z.boolean(), comments: z.number().int().nonnegative() }).optional(),
+});
 const StoreFile = z.object({
   v: z.literal(1),
   rev: z.number().int().nonnegative(),
@@ -71,14 +92,54 @@ export interface BoardDelta {
   readonly tombstones: string[];
 }
 
+/** `s` cut to at most `max` UTF-8 bytes, at a character boundary. */
+export function clipBytes(s: string, max: number): string {
+  // A UTF-16 unit is at most 3 UTF-8 bytes: short strings need no encoding.
+  if (s.length * 3 <= max) return s;
+  const buf = Buffer.from(s, "utf8");
+  if (buf.length <= max) return s;
+  let cut = max;
+  while (cut > 0 && ((buf[cut] ?? 0) & 0xc0) === 0x80) cut--;
+  return buf.subarray(0, cut).toString("utf8");
+}
+
+/**
+ * The newest comments whose bodies fit `budget` UTF-8 bytes together (each body first cut to
+ * `each`, a quote to a quarter of it), oldest first, and how many older ones were left out.
+ */
+export function boundComments(comments: readonly TicketComment[], each: number, budget: number): { comments: TicketComment[]; dropped: number } {
+  const kept: TicketComment[] = [];
+  let left = budget;
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const c = comments[i] as TicketComment;
+    const body = clipBytes(c.body, each);
+    const size = Buffer.byteLength(body, "utf8");
+    if (size > left) break;
+    left -= size;
+    kept.push({ ...c, body, quotedText: c.quotedText === null ? null : clipBytes(c.quotedText, Math.floor(each / 4)) });
+  }
+  return { comments: kept.reverse(), dropped: comments.length - kept.length };
+}
+
+/** An issue as the hot cache keeps it: description, comments and their total cut to the byte caps. */
+function retained(entry: IssueEntry): IssueEntry {
+  const description = clipBytes(entry.ticket.description, MAX_STORED_DESCRIPTION_BYTES);
+  const { comments, dropped } = boundComments(entry.comments, MAX_STORED_COMMENT_BYTES, MAX_STORED_COMMENTS_BYTES);
+  const clipped = { description: description.length < entry.ticket.description.length || entry.clipped?.description === true, comments: dropped + (entry.clipped?.comments ?? 0) };
+  const ticket = description === entry.ticket.description ? entry.ticket : { ...entry.ticket, description };
+  return clipped.description || clipped.comments > 0 ? { ticket, comments, clipped } : { ticket, comments };
+}
+
 function loadIssues(raw: Record<string, unknown>): Map<string, IssueEntry> {
   const issues = new Map<string, IssueEntry>();
   for (const [key, value] of Object.entries(raw)) {
     const parsed = Entry.safeParse(value);
-    if (parsed.success) issues.set(key, parsed.data);
+    if (parsed.success) issues.set(key, retained(parsed.data));
   }
   return issues;
 }
+
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 export class TicketsStore {
   private readonly path: string;
@@ -88,8 +149,10 @@ export class TicketsStore {
   /** Keys gone from the board in the last 24 h, and whether Linear stopped answering them. */
   private readonly tombstones: Map<string, { at: number; accessLost: boolean }>;
   sync: SyncState;
-  /** The facts devices last got, as JSON, by key: what `publish` compares against. */
-  private readonly published = new Map<string, string>();
+  /** The cards devices last got, with their JSON, by key: what `publish` compares and `board` answers. */
+  private readonly published = new Map<string, { readonly json: string; readonly card: TicketBoardFacts }>();
+  /** Something in tickets.json changed since it was last written. */
+  private dirty = false;
 
   constructor(
     readonly dir: string,
@@ -118,15 +181,21 @@ export class TicketsStore {
     return [...this.issues.values()];
   }
 
+  /** Keeps the issue cut to the byte caps; an unchanged one changes nothing. */
   upsert(entry: IssueEntry): void {
-    this.issues.set(entry.ticket.key, entry);
-    this.tombstones.delete(entry.ticket.key);
+    const kept = retained(entry);
+    const key = kept.ticket.key;
+    if (this.tombstones.delete(key)) this.dirty = true;
+    if (same(this.issues.get(key), kept)) return;
+    this.issues.set(key, kept);
+    this.dirty = true;
   }
 
   /** Gone from the board: out of membership, over the cap, or `accessLost` (Linear no longer answers it). */
   tombstone(key: string, accessLost = false): void {
     this.issues.delete(key);
     this.tombstones.set(key, { at: this.now(), accessLost });
+    this.dirty = true;
   }
 
   /** Lost access within the last 24 h: not read again by key until then. */
@@ -136,7 +205,11 @@ export class TicketsStore {
 
   purgeTombstones(keepMs: number): void {
     const cutoff = this.now() - keepMs;
-    for (const [key, t] of this.tombstones) if (t.at < cutoff) this.tombstones.delete(key);
+    for (const [key, t] of this.tombstones) {
+      if (t.at >= cutoff) continue;
+      this.tombstones.delete(key);
+      this.dirty = true;
+    }
   }
 
   pr(ref: TicketPrRef): PrEntry | undefined {
@@ -144,7 +217,10 @@ export class TicketsStore {
   }
 
   setPr(entry: PrEntry): void {
-    this.prs.set(prId(entry.ref), entry);
+    const id = prId(entry.ref);
+    if (same(this.prs.get(id), entry)) return;
+    this.prs.set(id, entry);
+    this.dirty = true;
   }
 
   /** PRs the stored tickets link, newest tickets first, capped; PR entries no ticket links are dropped. */
@@ -152,12 +228,19 @@ export class TicketsStore {
     const refs = new Map<string, TicketPrRef>();
     const tickets = this.entries().sort((a, b) => b.ticket.updatedAt - a.ticket.updatedAt);
     for (const { ticket } of tickets) for (const ref of ticket.prs) if (refs.size < MAX_STORED_PRS) refs.set(prId(ref), ref);
-    for (const id of this.prs.keys()) if (!refs.has(id)) this.prs.delete(id);
+    for (const id of this.prs.keys()) {
+      if (refs.has(id)) continue;
+      this.prs.delete(id);
+      this.dirty = true;
+    }
     return [...refs.values()];
   }
 
   setSync(patch: Partial<SyncState>): void {
+    const keys = Object.keys(patch) as (keyof SyncState)[];
+    if (keys.every((k) => same(this.sync[k], patch[k]))) return;
     this.sync = { ...this.sync, ...patch };
+    this.dirty = true;
   }
 
   /** Another account: every issue, PR, cursor and watermark goes; the identity is kept. */
@@ -166,6 +249,7 @@ export class TicketsStore {
     this.prs.clear();
     this.tombstones.clear();
     this.sync = { ...EMPTY_SYNC, identity };
+    this.dirty = true;
   }
 
   /** Over MAX_TICKETS: the least recently updated tickets not in `keep` are tombstoned. */
@@ -177,14 +261,14 @@ export class TicketsStore {
     for (const e of order.slice(0, this.issues.size - MAX_TICKETS)) this.tombstone(e.ticket.key);
   }
 
-  /** The board as devices see it, with every card's facts from `facts`. */
-  board(facts: (entry: IssueEntry) => TicketBoardFacts): TicketBoardFacts[] {
-    return this.entries().map(facts);
+  /** The board at `rev` as devices last got it: no recomputation, no disk. */
+  board(): TicketBoardFacts[] {
+    return [...this.published.values()].map((p) => p.card);
   }
 
   /**
    * Cards whose facts changed since the last publish, and keys gone: one delta with the next rev,
-   * or null when nothing changed. Saves the store either way.
+   * or null when nothing changed. Writes the store only when something in it changed.
    */
   publish(facts: (entry: IssueEntry) => TicketBoardFacts, keep: ReadonlySet<string>): BoardDelta | null {
     this.cap(keep);
@@ -192,15 +276,18 @@ export class TicketsStore {
     for (const entry of this.issues.values()) {
       const card = facts(entry);
       const json = JSON.stringify(card);
-      if (this.published.get(card.key) === json) continue;
-      this.published.set(card.key, json);
+      if (this.published.get(card.key)?.json === json) continue;
+      this.published.set(card.key, { json, card });
       upserts.push(card);
     }
     const tombstones = [...this.published.keys()].filter((key) => !this.issues.has(key));
     for (const key of tombstones) this.published.delete(key);
     const changed = upserts.length > 0 || tombstones.length > 0;
     const base = this.rev;
-    if (changed) this.rev += 1;
+    if (changed) {
+      this.rev += 1;
+      this.dirty = true;
+    }
     this.save();
     return changed ? { rev: this.rev, base, upserts, tombstones } : null;
   }
@@ -208,17 +295,23 @@ export class TicketsStore {
   /** Marks every card published at the current rev (a snapshot went out). */
   markPublished(facts: (entry: IssueEntry) => TicketBoardFacts): void {
     this.published.clear();
-    for (const entry of this.issues.values()) this.published.set(entry.ticket.key, JSON.stringify(facts(entry)));
+    for (const entry of this.issues.values()) {
+      const card = facts(entry);
+      this.published.set(card.key, { json: JSON.stringify(card), card });
+    }
   }
 
   /** A snapshot-worthy change (wipe): the next rev with nothing to diff against. */
   bump(): void {
     this.rev += 1;
     this.published.clear();
+    this.dirty = true;
     this.save();
   }
 
+  /** Writes tickets.json when something in it changed since the last write. */
   save(): void {
+    if (!this.dirty) return;
     writeJson(this.path, {
       v: 1,
       rev: this.rev,
@@ -227,6 +320,7 @@ export class TicketsStore {
       tombstones: Object.fromEntries(this.tombstones),
       sync: this.sync,
     });
+    this.dirty = false;
   }
 }
 
