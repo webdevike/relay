@@ -20,6 +20,10 @@ import { defaultTabs, type PinKind } from '@evaos/chat-core/artifacts'
 import { pinId, splitPins } from '@evaos/chat-core/pins'
 import { FIXTURES_DIR } from './paths'
 
+const TICKETS = path.join(__dirname, '..', 'fixtures', 'tickets')
+const ticketFixture = (name: string): Json =>
+  JsonSchema.parse(JSON.parse(fs.readFileSync(path.join(TICKETS, `${name}.json`), 'utf8')))
+
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 type Json = Record<string, unknown>
@@ -752,6 +756,107 @@ export class FakeRelayHost {
     if (push) this.broadcast({ t: 'meeting.shot', id, shot })
   }
 
+  /** The synced board (`e2e/fixtures/tickets/board.json`): rev, board and status. */
+  readonly tickets: { rev: number; board: { tickets: Json[] }; status: Json } = (() => {
+    const f = ticketFixture('board')
+    return {
+      rev: Number(f.rev),
+      board: z.object({ tickets: z.array(JsonSchema) }).parse(f.board),
+      status: JsonSchema.parse(f.status),
+    }
+  })()
+  /** Every `tickets.*` frame the app sent, in order (an old host must see none). */
+  readonly ticketFrames: Json[] = []
+  /** Every `prepare` and `commit` op (`id`: the rid, `cmd`: the op), in order. */
+  readonly mutations: Received[] = []
+  /** Devices that sent `tickets.subscribe` (pushes go only to them). */
+  private readonly ticketSubs = new Set<Peer>()
+  /** The next `prepare` or `commit` is refused by the gate with this code. */
+  private refusal: string | null = null
+  /** The next `tickets.req` gets no answer (a lost response). */
+  private loseNext = false
+
+  refuseNext(code: string): void {
+    this.refusal = code
+  }
+  loseNextResponse(): void {
+    this.loseNext = true
+  }
+
+  /** Applies a change to the board and pushes it as one `tickets.delta` to subscribed devices. */
+  pushDelta(change: {
+    upserts?: Json[]
+    tombstones?: string[]
+    status?: Json
+    base?: number
+  }): void {
+    const upserts = change.upserts ?? []
+    const tombstones = change.tombstones ?? []
+    const gone = new Set([...tombstones, ...upserts.map((t) => String(t.key))])
+    const base = change.base ?? this.tickets.rev
+    this.tickets.board.tickets = [
+      ...this.tickets.board.tickets.filter((t) => !gone.has(String(t.key))),
+      ...upserts,
+    ]
+    if (change.status) this.tickets.status = change.status
+    this.tickets.rev += 1
+    const frame = { t: 'tickets.delta', rev: this.tickets.rev, base, upserts, tombstones }
+    for (const p of this.ticketSubs)
+      p.send(change.status ? { ...frame, status: change.status } : frame)
+  }
+
+  private ticketsReq(peer: Peer, rid: string, op: Json): void {
+    const write = op.kind === 'prepare' || op.kind === 'commit'
+    if (write) this.mutations.push({ id: rid, cmd: op, status: null })
+    if (this.loseNext) {
+      this.loseNext = false
+      return
+    }
+    const refused = write ? this.refusal : null
+    this.refusal = refused ? null : this.refusal
+    const answer = refused
+      ? { ok: false, refused: { code: refused, message: `Refused: ${refused}` } }
+      : this.ticketsAnswer(peer, op)
+    peer.send({ t: 'tickets.res', rid, ...answer })
+    if (op.kind === 'subscribe' && op.on === true)
+      peer.send({ t: 'tickets.snapshot', ...this.tickets })
+  }
+
+  private ticketsAnswer(peer: Peer, op: Json): Json {
+    switch (op.kind) {
+      case 'subscribe':
+        if (op.on === true) this.ticketSubs.add(peer)
+        else this.ticketSubs.delete(peer)
+        return { ok: true, ...this.tickets }
+      case 'board':
+        return { ok: true, ...this.tickets }
+      case 'ticket': {
+        const key = String(op.key)
+        if (!fs.existsSync(path.join(TICKETS, `${key}.json`)))
+          return { ok: false, error: `No ${key}` }
+        return { ok: true, ticket: ticketFixture(key) }
+      }
+      case 'seen':
+        return { ok: true, previousSeenAt: null }
+      case 'summary':
+        return { ok: true, summary: { key: op.key, text: 'A synthetic summary.', at: Date.now() } }
+      case 'prepare':
+        return {
+          ok: true,
+          approval: {
+            id: `approval-${this.mutations.length}`,
+            expiresAt: Date.now() + 120_000,
+            summary: `Write ${String(JsonSchema.parse(op.mutation).kind)}`,
+          },
+        }
+      case 'commit':
+        return { ok: true, outcome: { opId: op.opId, state: 'done' } }
+      default:
+        // watch, sync, handled, plan: accepted.
+        return { ok: true }
+    }
+  }
+
   private meetingsReq(peer: Peer, rid: string, op: Json): void {
     this.meetingOps.push(op)
     const id = String(op.id)
@@ -1437,6 +1542,9 @@ export class FakeRelayHost {
           recordings: this.meetings.recordings,
           digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
         })
+      case 'tickets.req':
+        this.ticketFrames.push(f)
+        return this.ticketsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'meetings.req':
         return this.meetingsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'studio.req':
