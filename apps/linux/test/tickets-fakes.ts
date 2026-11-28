@@ -212,6 +212,8 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
   const gate = {
     prepare: vi.fn(() => Promise.resolve({ ok: true, approval: { id: "approval-1", expiresAt: now + 120_000, summary: "ok" } })),
     commit: vi.fn(() => Promise.resolve({ ok: true, outcome: { opId: "00000000-0000-4000-8000-000000000000", state: "done" as const } })),
+    preparePr: vi.fn(() => Promise.resolve({ ok: true, approval: { id: "approval-pr", expiresAt: now + 120_000, summary: "ok" } })),
+    commitPr: vi.fn(() => Promise.resolve({ ok: true, outcome: { opId: "00000000-0000-4000-8000-000000000000", state: "done" as const } })),
     invalidate: vi.fn(),
   };
   const pushes: TicketsPush[] = [];

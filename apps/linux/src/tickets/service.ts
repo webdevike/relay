@@ -6,15 +6,16 @@
 // `handle(deviceId, op)` answers every `tickets.req`. Pushes (`tickets.snapshot`, `tickets.delta`,
 // `tickets.status`) go through `onPush`, which the server sends only to sockets that subscribed.
 
-import { TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
+import { TERMINAL_TICKET_STATE_TYPES, type Attention, type PrMutation, type ServerMessage, type TicketBoardFacts, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import type { ToolRun } from "../reviews/exec";
 import { ghCall, ghGraphql, type GhGraphql } from "../reviews/github";
+import { githubExecutor, RelayAutoMerge, relayAutoMergeWatch } from "../reviews/github-writes";
 import { linearGql, type Fetch, type LinearGql } from "../reviews/linear";
 import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { RateLimited, type Budgets } from "./budget";
-import { MutationGate, type GateIdentity } from "./gate";
+import { MutationGate, type CommitRequest, type GateIdentity } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
@@ -29,7 +30,7 @@ type Answer = Omit<TicketsResult, "rid">;
 type Op<K extends TicketsOp["kind"]> = Extract<TicketsOp, { kind: K }>;
 
 /** The gate as the service uses it (MutationGate; a stub in tests). */
-export type TicketsGate = Pick<MutationGate, "prepare" | "commit" | "invalidate">;
+export type TicketsGate = Pick<MutationGate, "prepare" | "commit" | "preparePr" | "commitPr" | "invalidate">;
 
 export interface TicketsServiceDeps {
   /** `$XDG_CONFIG_HOME/relay/tickets`: tickets.json, handled.json, seen.json, ops.json. */
@@ -51,6 +52,8 @@ export interface TicketsServiceDeps {
   readonly gate?: TicketsGate;
   /** Writes ticket summaries (`claudeWriter`); absent: `summary` answers an error. */
   readonly summaryWriter?: SummaryWriter;
+  /** gh for PR writes (reviews `prPrepare`/`prCommit`); absent: the gate refuses them. */
+  readonly ghWrites?: { readonly run: ToolRun; readonly gh: string };
 }
 
 const UNAVAILABLE: Answer = { ok: false, error: "Not available yet" };
@@ -89,7 +92,12 @@ export class TicketsService implements TicketsRelaying {
     this.seen = new SeenStore(deps.dir);
     this.plan = new PlanStore(deps.dir);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
-    this.github = new GithubSync(deps.ghGraphql, this.store);
+    const autoMerge = new RelayAutoMerge(deps.dir);
+    const github =
+      deps.ghWrites === undefined
+        ? undefined
+        : githubExecutor({ ...deps.ghWrites, graphql: deps.ghGraphql, budget: deps.budgets.github, login: () => this.gateIdentity().ghLogin, autoMerge });
+    this.github = new GithubSync(deps.ghGraphql, this.store, github === undefined ? null : relayAutoMergeWatch(github, autoMerge, deps.log));
     this.gate =
       deps.gate ??
       new MutationGate({
@@ -97,6 +105,7 @@ export class TicketsService implements TicketsRelaying {
         writesEnabled: () => deps.writes,
         identity: () => this.gateIdentity(),
         linear: linearExecutor(deps.gql, () => this.gateIdentity().linearViewerId),
+        ...(github === undefined ? {} : { github }),
         now: deps.now,
         log: deps.log,
       });
@@ -247,6 +256,18 @@ export class TicketsService implements TicketsRelaying {
   private async commit(deviceId: string, op: Op<"commit">): Promise<Answer> {
     const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, this.gateIdentity());
     // The board shows the write once Linear has it: one coalesced cycle.
+    if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
+    return answer;
+  }
+
+  /** A confirmed PR write's approval (reviews `prPrepare`), as the identity this host acts as. */
+  preparePr(deviceId: string, mutation: PrMutation): Promise<Answer> {
+    return this.gate.preparePr({ deviceId }, mutation, this.gateIdentity());
+  }
+
+  /** A PR write (reviews `prCommit`); the board's PR facts follow in one coalesced cycle. */
+  async commitPr(deviceId: string, req: CommitRequest<PrMutation>): Promise<Answer> {
+    const answer = await this.gate.commitPr({ deviceId }, req, this.gateIdentity());
     if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
     return answer;
   }
@@ -416,6 +437,7 @@ export function hostTicketsService(o: HostTicketsOptions): TicketsService {
     },
     budgets: o.budgets,
     writes: o.writes,
+    ghWrites: { run: o.run, gh: o.gh },
     summaryWriter: o.summaryWriter,
     now: () => Date.now(),
     log: o.log,

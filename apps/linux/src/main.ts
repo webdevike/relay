@@ -977,6 +977,8 @@ function serve(
         clock: systemClock,
         log,
         budgets,
+        // PR actions go through the tickets MutationGate, open only with features.ticketsWrites.
+        prGate: () => (tickets?.writes === true ? tickets : null),
       });
   // Synced Linear tickets for the Board: explicit opt-in (host.json features.tickets, ticketsWrites).
   const ticketsOn = ticketsFeatures(config);

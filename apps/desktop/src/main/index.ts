@@ -268,6 +268,7 @@ function bootstrap(): void {
               sessionFile: (id) => chat.sessionFile(id),
             }
           : null,
+        chat.frames,
       )
       // Rooms on the phone: the Relay Host relays this app's rooms and the phone's commands.
       const rooms = registerRoomsIpc(ctx)

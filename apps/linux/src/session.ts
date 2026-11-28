@@ -28,6 +28,7 @@ import {
   CANVAS_FILES_FEATURE,
   TICKETS_FEATURE,
   TICKETS_WRITES_FEATURE,
+  REVIEWS_ACTIONS_FEATURE,
   REVIEWS_ASSISTANTS_FEATURE,
   STATS_FEATURE,
   toHex,
@@ -1024,7 +1025,7 @@ export class ClientSession {
           });
           break;
         }
-        void reviews.handle(message.op).then((result) => {
+        void reviews.handle(message.op, deviceId).then((result) => {
           if (!this.closed) this.sink.send({ t: "reviews.res", rid: message.rid, ...result });
         });
         break;
@@ -1481,11 +1482,12 @@ export class ClientSession {
     });
   }
 
-  /** TICKETS_FEATURE when the host syncs tickets; TICKETS_WRITES_FEATURE when its gate is open too. */
+  /** TICKETS_FEATURE when the host syncs tickets; TICKETS_WRITES_FEATURE when its gate is open too, and REVIEWS_ACTIONS_FEATURE when Reviews runs to use it. */
   private ticketsFeatures(): string[] {
     const tickets = this.deps.tickets ?? null;
     if (tickets === null) return [];
-    return tickets.writes ? [TICKETS_FEATURE, TICKETS_WRITES_FEATURE] : [TICKETS_FEATURE];
+    if (!tickets.writes) return [TICKETS_FEATURE];
+    return [TICKETS_FEATURE, TICKETS_WRITES_FEATURE, ...(this.deps.reviews === null ? [] : [REVIEWS_ACTIONS_FEATURE])];
   }
 
   private drops(): DropBox {

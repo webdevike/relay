@@ -36,6 +36,44 @@ export const ReviewCheckSchema = z.object({
   url: z.string().nullable(),
 })
 
+/**
+ * Merge, review and check facts for PR actions (relay protocol ReviewPrActions); absent from older
+ * hosts, local reads and when GitHub could not say.
+ */
+export const ReviewPrActionsSchema = z.object({
+  /** ADMIN, MAINTAIN, WRITE, TRIAGE, READ; null when GitHub does not say. */
+  viewerPermission: z.string().nullable(),
+  /** MERGEABLE, CONFLICTING, UNKNOWN. */
+  mergeable: z.string(),
+  /** BLOCKED, BEHIND, DIRTY, UNSTABLE, DRAFT, CLEAN, HAS_HOOKS, UNKNOWN. */
+  mergeStateStatus: z.string(),
+  methods: z.object({ merge: z.boolean(), squash: z.boolean(), rebase: z.boolean() }),
+  autoMerge: z
+    .object({ method: z.enum(['merge', 'squash', 'rebase']), by: z.string().nullable() })
+    .nullable(),
+  mergeQueue: z.object({
+    required: z.boolean(),
+    inQueue: z.boolean(),
+    entryState: z.string().nullable(),
+  }),
+  /** The latest review per reviewer. */
+  reviews: z.array(z.object({ login: z.string(), state: z.string(), at: z.number() })),
+  /** Checks with their Actions identity; `attempt` is set for failed Actions runs only. */
+  checks: z.array(
+    z.object({
+      name: z.string(),
+      state: z.string(),
+      url: z.string().nullable(),
+      workflow: z.string().nullable(),
+      runId: z.number().nullable(),
+      runNumber: z.number().nullable(),
+      attempt: z.number().nullable(),
+      headSha: z.string(),
+    }),
+  ),
+})
+export type ReviewPrActions = z.infer<typeof ReviewPrActionsSchema>
+
 export const ReviewPrSchema = z.object({
   repo: z.string(),
   number: z.number(),
@@ -89,10 +127,42 @@ export const ReviewPrSchema = z.object({
   ),
   /** `gh pr diff` output (unified, every file). */
   diff: z.string(),
+  /** PR action facts from the host (remote reads); absent otherwise. */
+  actions: ReviewPrActionsSchema.optional(),
 })
 export type ReviewPr = z.infer<typeof ReviewPrSchema>
 
 const PrRef = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/), number: z.number().int() })
+
+/** protocol PrMutation; main checks it against the protocol schema before it goes out. */
+export const PrMutationInputSchema = z.looseObject({
+  kind: z.enum([
+    'merge',
+    'autoMerge',
+    'rerun',
+    'requestReview',
+    'react',
+    'comment',
+    'reviewComment',
+    'reviewReply',
+  ]),
+})
+
+/** The host gate's answer to a PR action, or why there is no host to ask. */
+export const PrActionAnswerSchema = z.union([
+  z.object({
+    source: z.literal('host'),
+    ok: z.boolean(),
+    /** One line when the write failed (with `outcome`) or the host could not check GitHub. */
+    error: z.string().optional(),
+    approval: z.looseObject({}).optional(),
+    outcome: z.looseObject({}).optional(),
+    /** The gate said no; nothing was written (protocol TicketsRefusalCode). */
+    refused: z.object({ code: z.string(), message: z.string() }).optional(),
+  }),
+  z.object({ unavailable: z.string() }),
+])
+export type PrActionAnswer = z.infer<typeof PrActionAnswerSchema>
 
 const GuideSide = z.enum(['old', 'new'])
 
@@ -413,6 +483,25 @@ export const reviewsInvoke = {
       body: z.string().max(65_000),
     }).strict(),
     output: z.object({ ok: z.literal(true) }),
+  },
+  /**
+   * A confirmed PR action's approval from the host's write gate (protocol TicketApproval), or the
+   * gate's refusal. Only sent to a host with `reviews.actions`; otherwise `unavailable`.
+   */
+  'reviews.prPrepare': {
+    input: z.object({ mutation: PrMutationInputSchema }).strict(),
+    output: PrActionAnswerSchema,
+  },
+  /** The PR write (protocol TicketOutcome, `result.merge` for a merge), or the refusal; retries reuse `opId`. */
+  'reviews.prCommit': {
+    input: z
+      .object({
+        approvalId: z.string().min(1).max(200).optional(),
+        opId: z.string().uuid(),
+        mutation: PrMutationInputSchema,
+      })
+      .strict(),
+    output: PrActionAnswerSchema,
   },
   /**
    * Asks an assistant (`agent`, Astra when absent) about an item in that item's own session with

@@ -16,8 +16,13 @@
 // Done: an item marked Done stays hidden until it changes again (its `updatedAt` moves past the
 // one recorded with Done).
 //
-// Pure module: zod only, no imports from the rest of the protocol (index.ts re-exports it).
+// PR actions (REVIEWS_ACTIONS_FEATURE, PLAN §2.6): `prPrepare {mutation}` / `prCommit {approvalId?,
+// opId, mutation}` write to GitHub as Isaac through the host's MutationGate, with the tickets
+// family's approval, outcome and refusal shapes. A merge binds to the head Isaac saw (`expectHead`).
+//
+// Pure module: zod only; the only protocol import is tickets.ts (also pure), for the gate's shapes.
 import { z } from "zod";
+import { TicketApproval, TicketOpId, TicketOutcome, TicketsRefusalCode } from "./tickets";
 
 const ms = z.number().finite();
 const nonEmpty = z.string().min(1);
@@ -112,6 +117,43 @@ export const ReviewCheck = z.object({
 });
 export type ReviewCheck = z.infer<typeof ReviewCheck>;
 
+export const PR_MERGE_METHODS = ["merge", "squash", "rebase"] as const;
+export const PrMergeMethod = z.enum(PR_MERGE_METHODS);
+export type PrMergeMethod = z.infer<typeof PrMergeMethod>;
+
+/** A check with its Actions identity; `attempt` is read only for a failed Actions run (Re-run failed). */
+export const ReviewActionCheck = z.object({
+  name: z.string(),
+  state: ReviewCheck.shape.state,
+  url: z.string().nullable(),
+  workflow: z.string().nullable(),
+  runId: z.number().int().nullable(),
+  runNumber: z.number().int().nullable(),
+  attempt: z.number().int().nullable(),
+  /** The commit the check ran on (the PR's head when read). */
+  headSha: z.string(),
+});
+export type ReviewActionCheck = z.infer<typeof ReviewActionCheck>;
+
+/** What the PR page's merge box, reviewers and checks act on; absent from older hosts. */
+export const ReviewPrActions = z.object({
+  /** ADMIN, MAINTAIN, WRITE, TRIAGE, READ; null when GitHub does not say. */
+  viewerPermission: z.string().nullable(),
+  /** MERGEABLE, CONFLICTING, UNKNOWN. */
+  mergeable: z.string(),
+  /** BLOCKED, BEHIND, DIRTY, UNSTABLE, DRAFT, CLEAN, HAS_HOOKS, UNKNOWN. */
+  mergeStateStatus: z.string(),
+  /** The repo's allowed merge methods. */
+  methods: z.object({ merge: z.boolean(), squash: z.boolean(), rebase: z.boolean() }),
+  autoMerge: z.object({ method: PrMergeMethod, by: z.string().nullable() }).nullable(),
+  /** `required`: the base branch merges through a queue; `inQueue`/`entryState`: this PR's place in it. */
+  mergeQueue: z.object({ required: z.boolean(), inQueue: z.boolean(), entryState: z.string().nullable() }),
+  /** The latest review per reviewer. */
+  reviews: z.array(z.object({ login: z.string(), state: z.string(), at: ms })),
+  checks: z.array(ReviewActionCheck),
+});
+export type ReviewPrActions = z.infer<typeof ReviewPrActions>;
+
 export const ReviewPr = z.object({
   repo: z.string(),
   number: z.number().int(),
@@ -160,6 +202,8 @@ export const ReviewPr = z.object({
   /** `gh pr diff` (unified, every file), cut at `MAX_REVIEW_DIFF`. */
   diff: z.string(),
   diffTruncated: z.boolean(),
+  /** Merge, review and check facts for PR actions; absent from older hosts and when GitHub could not say. */
+  actions: ReviewPrActions.optional(),
 });
 export type ReviewPr = z.infer<typeof ReviewPr>;
 
@@ -343,6 +387,104 @@ const Body = z.string().min(1).max(MAX_REVIEW_TEXT);
  * to a host whose `welcome.features` has REVIEWS_ASSISTANTS_FEATURE.
  */
 const ItemAssistant = z.string().regex(/^[a-z][a-z0-9-]*$/).max(64);
+const PrNumber = z.number().int().positive();
+/** A full commit SHA (SHA-1 or SHA-256 repos). */
+const CommitSha = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/);
+/** A user login or an `org/team` slug; never starts with `-` (it becomes a gh argument). */
+const ReviewerLogin = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\]|\/[A-Za-z0-9][\w.-]*)?$/)
+  .max(100);
+/** A comment's REST id. */
+const GithubId = z.number().int().positive();
+
+/** GitHub's reaction content values. */
+export const GITHUB_REACTIONS = ["+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes"] as const;
+export const GithubReaction = z.enum(GITHUB_REACTIONS);
+export type GithubReaction = z.infer<typeof GithubReaction>;
+
+/** Where a reaction goes: the PR's body, a conversation comment, or a review (line) comment. Reviews have none. */
+export const PrReactionTarget = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("prBody") }),
+  z.object({ kind: z.literal("issueComment"), id: GithubId }),
+  z.object({ kind: z.literal("reviewComment"), id: GithubId }),
+]);
+export type PrReactionTarget = z.infer<typeof PrReactionTarget>;
+
+/** Every GitHub write Isaac can make on a PR from Relay (PLAN §5); never `--admin`. */
+export const PrMutation = z.discriminatedUnion("kind", [
+  /** `merge`: Merge now (refused when the base merges through a queue); `auto`: Add to merge queue or Turn on auto-merge. */
+  z.object({
+    kind: z.literal("merge"),
+    repo: RepoName,
+    number: PrNumber,
+    method: PrMergeMethod,
+    intent: z.enum(["merge", "auto"]),
+    expectHead: CommitSha,
+  }),
+  /** Desired state: the host no-ops when auto-merge is already so. `method` is needed to turn it on. */
+  z.object({
+    kind: z.literal("autoMerge"),
+    repo: RepoName,
+    number: PrNumber,
+    on: z.boolean(),
+    method: PrMergeMethod.optional(),
+    expectHead: CommitSha,
+  }),
+  /** Re-run the failed jobs of one Actions run, refused unless it is a failed run of `headSha` at `attempt`. */
+  z.object({
+    kind: z.literal("rerun"),
+    repo: RepoName,
+    number: PrNumber,
+    runId: GithubId,
+    attempt: z.number().int().positive(),
+    headSha: CommitSha,
+  }),
+  z.object({
+    kind: z.literal("requestReview"),
+    repo: RepoName,
+    number: PrNumber,
+    logins: z.array(ReviewerLogin).min(1).max(15),
+  }),
+  /** Desired state: the host no-ops when Isaac's reaction is already so. */
+  z.object({
+    kind: z.literal("react"),
+    repo: RepoName,
+    number: PrNumber,
+    target: PrReactionTarget,
+    emoji: GithubReaction,
+    on: z.boolean(),
+  }),
+  z.object({ kind: z.literal("comment"), repo: RepoName, number: PrNumber, body: Body }),
+  /** A new review thread on one line of the diff. */
+  z.object({
+    kind: z.literal("reviewComment"),
+    repo: RepoName,
+    number: PrNumber,
+    commitId: CommitSha,
+    path: z.string().min(1).max(1000),
+    line: z.number().int().positive(),
+    side: z.enum(["LEFT", "RIGHT"]),
+    body: Body,
+  }),
+  /** A reply in a review thread (`commentId`: its root's REST id). */
+  z.object({ kind: z.literal("reviewReply"), repo: RepoName, number: PrNumber, commentId: GithubId, body: Body }),
+]);
+export type PrMutation = z.infer<typeof PrMutation>;
+export type PrMutationKind = PrMutation["kind"];
+
+/** Kinds that need `prPrepare` then `prCommit {approvalId}`; `autoMerge` does when it turns it on. */
+export const CONFIRMED_PR_MUTATIONS: ReadonlySet<PrMutationKind> = new Set([
+  "merge",
+  "requestReview",
+  "comment",
+  "reviewComment",
+  "reviewReply",
+]);
+
+export function prMutationConfirmed(mutation: PrMutation): boolean {
+  return mutation.kind === "autoMerge" ? mutation.on : CONFIRMED_PR_MUTATIONS.has(mutation.kind);
+}
 
 /**
  * Approve on an eCard auto-work draft PR: its ledger on the host is at "9 PR (draft)" with the move
@@ -435,6 +577,15 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prList"), list: z.enum(["completed", "created"]) }),
   /** One PR's state, checks and reviews as `gh pr view --json PR_VIEW_FIELDS` reports them; answers `view`. */
   z.object({ kind: z.literal("prView"), repo: RepoName, number: z.number().int().positive() }),
+  /** A confirmed PR action's approval (only to a host with REVIEWS_ACTIONS_FEATURE); answers `approval` or `refused`. */
+  z.object({ kind: z.literal("prPrepare"), mutation: PrMutation }),
+  /** The PR write; answers `outcome` or `refused`. A repeated `opId` answers the stored outcome. */
+  z.object({
+    kind: z.literal("prCommit"),
+    approvalId: z.string().min(1).max(200).optional(),
+    opId: TicketOpId,
+    mutation: PrMutation,
+  }),
 ]);
 export type ReviewsOp = z.infer<typeof ReviewsOp>;
 
@@ -461,6 +612,12 @@ export const ReviewsResult = z.object({
   prs: z.object({ items: z.array(ReviewItem).max(50), total: z.number().int().nonnegative() }).optional(),
   /** Answer to `prView`: gh's JSON of `PR_VIEW_FIELDS`, as gh wrote it. */
   view: z.record(z.string(), z.unknown()).optional(),
+  /** The gate said no (`prPrepare`/`prCommit`); nothing was written. */
+  refused: z.object({ code: TicketsRefusalCode, message: z.string().max(2000) }).optional(),
+  /** Answer to `prPrepare`. */
+  approval: TicketApproval.optional(),
+  /** Answer to `prCommit`; `result.merge` says where a merge stands. */
+  outcome: TicketOutcome.optional(),
 });
 export type ReviewsResult = z.infer<typeof ReviewsResult>;
 

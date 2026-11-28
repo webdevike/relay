@@ -2253,6 +2253,30 @@ describe("tickets", () => {
     expect(writes.sink.last()).toMatchObject({ t: "welcome", features: ["tickets", "tickets.writes"] });
   });
 
+  it("advertises reviews.actions only with the gate open and Reviews running, and hands PR ops the device id", async () => {
+    const devices: string[] = [];
+    const reviews: ReviewsRelaying = {
+      handle: (_op, deviceId) => {
+        devices.push(deviceId);
+        return Promise.resolve({ ok: false, refused: { code: "writesOff", message: "off" } });
+      },
+      openMedia: () => null,
+      observe: () => undefined,
+    };
+    const open = harness({ tickets: fakeTickets(true).tickets, reviews });
+    pair(open);
+    expect(open.sink.last()).toMatchObject({ t: "welcome", features: expect.arrayContaining(["tickets", "tickets.writes", "reviews.actions"]) });
+    const sent = open.sink.sent.length;
+    const mutation = { kind: "comment" as const, repo: "o/r", number: 1, body: "hi" };
+    open.session.receive({ t: "reviews.req", rid: "p1", op: { kind: "prPrepare", mutation } });
+    await open.sink.sentCount(sent + 1);
+    expect(devices).toEqual(["phone-1"]);
+    expect(open.sink.last()).toEqual({ t: "reviews.res", rid: "p1", ok: false, refused: { code: "writesOff", message: "off" } });
+    const closed = harness({ tickets: fakeTickets(false).tickets, reviews });
+    pair(closed);
+    expect(closed.sink.last()).toMatchObject({ t: "welcome", features: expect.not.arrayContaining(["reviews.actions"]) });
+  });
+
   it("only a socket that subscribed wants pushes, until it unsubscribes", async () => {
     const { tickets } = fakeTickets(false);
     const subscribed = harness({ tickets });
