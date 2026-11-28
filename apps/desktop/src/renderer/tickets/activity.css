@@ -1,0 +1,114 @@
+/* The ticket page's description and activity (Activity.tsx); comment rows reuse reviews.css's eva-rv-l*. */
+.eva-tk-description {
+  font-size: var(--eva-fz-body);
+  line-height: 1.6;
+}
+.eva-tk-activity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-tk-activity-head {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  font-weight: 600;
+  padding-bottom: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-tk-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  margin-top: var(--mantine-spacing-xs);
+}
+.eva-tk-comment {
+  scroll-margin: var(--mantine-spacing-xl);
+}
+.eva-tk-comment[data-flash] {
+  animation: eva-tk-flash 1.6s ease-out 1;
+}
+@keyframes eva-tk-flash {
+  0%,
+  30% {
+    background: var(--eva-c-accent-background);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.eva-tk-quoted {
+  margin: 0;
+  margin-left: calc(var(--mantine-spacing-xs) * 2.6);
+  padding-left: var(--mantine-spacing-xs);
+  border-left: 2px solid var(--eva-c-border);
+  color: var(--eva-c-muted-foreground);
+  white-space: pre-wrap;
+}
+.eva-tk-edit {
+  padding-left: calc(var(--mantine-spacing-xs) * 2.6);
+}
+.eva-tk-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-tk-reactions:empty {
+  display: none;
+}
+/* With no reactions yet, the add button shows when the comment is hovered or focused. */
+.eva-tk-comment:not(:hover, :focus-within) .eva-tk-reactions:not(:has(.eva-tk-reaction)) {
+  visibility: hidden;
+}
+.eva-tk-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.8);
+  height: 22px;
+  border: 1px solid var(--eva-c-border);
+  border-radius: 999px;
+  font-size: var(--eva-fz-label);
+}
+.eva-tk-reaction[data-mine] {
+  border-color: var(--eva-c-accent);
+  background: var(--eva-c-accent-background);
+}
+.eva-tk-reaction:hover:not(:disabled) {
+  border-color: var(--eva-c-accent);
+}
+.eva-tk-picker {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-tk-pick {
+  font-size: 18px;
+  padding: calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius-sm);
+}
+.eva-tk-pick:hover {
+  background: var(--eva-hover);
+}
+.eva-tk-resolved {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: calc(var(--mantine-spacing-xs) * 0.8) calc(var(--mantine-spacing-xs) * 0.4);
+  border-bottom: 1px solid var(--eva-c-border);
+  min-width: 0;
+}
+.eva-tk-resolved-icon {
+  color: var(--eva-c-success);
+  flex: none;
+}
+.eva-tk-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+}
+.eva-tk-newissue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+}

@@ -2,6 +2,9 @@ import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Tooltip } from '@mantine/core'
 import { PointerSensor, useDraggable, useSensor, useSensors } from '@dnd-kit/core'
 import type { AgentCard } from '@evaos/contract'
+import type { Place } from '@evaos/shell-core'
+import { openPlace } from '../navigation/navigate'
+import { cardPlace, waitingPlace } from '../tickets/ticket-place'
 import { CardChips, CardKeyRow, StatusCircle } from './CardChips'
 import { WaitChip } from './WaitChip'
 import { useAgentsBoard } from './agents-store'
@@ -18,7 +21,10 @@ export function useCardSensors() {
   return useSensors(useSensor(PointerSensor, { activationConstraint: { distance: DRAG_DISTANCE } }))
 }
 
-/** What a card looks like, also under the pointer while it is dragged. */
+/**
+ * What a card looks like, also under the pointer while it is dragged. The waiting chip opens the
+ * comment (or the PR it is on) and a PR chip that PR's page; a card without a page opens itself.
+ */
 export function CardFace({
   card,
   now,
@@ -31,6 +37,7 @@ export function CardFace({
   const handled = useAgentsBoard((s) => s.handled)
   const waiting = waitingOf(card, handled)
   const foot = footLabel(card, now)
+  const openAt = (place: Place | null): void => (place ? openPlace(place) : onOpen())
   return (
     <>
       <CardKeyRow card={card} />
@@ -40,10 +47,14 @@ export function CardFace({
       </div>
       {waiting ? (
         <div className="eva-ab-chips">
-          <WaitChip waiting={waiting} now={now} onOpen={onOpen} />
+          <WaitChip
+            waiting={waiting}
+            now={now}
+            onOpen={() => openAt(waitingPlace(card, waiting))}
+          />
         </div>
       ) : null}
-      <CardChips card={card} onOpenPr={onOpen} />
+      <CardChips card={card} onOpenPr={(pr) => openAt(cardPlace(card, { pr }))} />
       {foot ? <div className="eva-ab-foot">{foot}</div> : null}
     </>
   )

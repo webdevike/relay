@@ -23,7 +23,9 @@ export type FixedPage =
  * both saved like native tabs.rs. `review:<kind>:<id>` is one
  * Reviews item (a pull request, Linear issue or Slack thread) as its own place, so it opens in
  * its own tab or pane; the app defines the id (`review:pr:owner/repo#12`). `room:<id>` is one room
- * under Assistants > Rooms (`rooms` is the New room page).
+ * under Assistants > Rooms (`rooms` is the New room page). `ticket:<KEY>` is one Linear ticket's
+ * page (`ticket:item/<id>` a ledger-only work item, `ticket:<KEY>/pr/<owner>/<repo>/<n>` one of
+ * its pull requests, `#comment-<id>` a comment to show); the app defines the id after `ticket:`.
  */
 export type PageKey =
   | FixedPage
@@ -32,6 +34,7 @@ export type PageKey =
   | `board:${string}`
   | `review:${string}`
   | `room:${string}`
+  | `ticket:${string}`
 
 export const SETTINGS_SECTIONS = [
   'Theme',
@@ -80,12 +83,12 @@ export function pageKey(page: PageKey): string {
   return page
 }
 
+/** Pages that carry an id after their prefix; an empty id is no page. */
+const ID_PREFIXES = ['agent:', 'board:', 'review:', 'room:', 'ticket:'] as const
+
 export function pageFromKey(key: string): PageKey | null {
   if (key.startsWith('workspace:')) return key as PageKey
-  if (key.startsWith('agent:') && key.length > 'agent:'.length) return key as PageKey
-  if (key.startsWith('board:') && key.length > 'board:'.length) return key as PageKey
-  if (key.startsWith('review:') && key.length > 'review:'.length) return key as PageKey
-  if (key.startsWith('room:') && key.length > 'room:'.length) return key as PageKey
+  if (ID_PREFIXES.some((p) => key.startsWith(p) && key.length > p.length)) return key as PageKey
   return FIXED_PAGES.includes(key) ? (key as PageKey) : null
 }
 

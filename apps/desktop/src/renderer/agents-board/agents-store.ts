@@ -2,7 +2,7 @@ import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { AgentBoard, AgentColumn } from '@evaos/contract'
 import { invoke, on } from '../ipc'
-import { bindPref, parseBool } from '../ui-prefs'
+import { bindPref } from '../ui-prefs'
 import {
   DEFAULT_FILTERS,
   DEFAULT_HIDDEN,
@@ -20,10 +20,8 @@ import {
 export interface AgentsBoardState {
   board: AgentBoard | null
   error: string | null
-  /** The card whose side panel is open. */
+  /** The card last opened (its page), marked on the board when Isaac comes back. */
   selected: string | null
-  /** The panel is folded to a strip beside the board; opening a card unfolds it. */
-  collapsed: boolean
   filters: BoardFilters
   /** Columns folded into the Hidden columns group, in board order. */
   hidden: AgentColumn[]
@@ -37,7 +35,6 @@ export const agentsBoardStore = createStore<AgentsBoardState>(() => ({
   board: null,
   error: null,
   selected: null,
-  collapsed: false,
   filters: DEFAULT_FILTERS,
   hidden: [...DEFAULT_HIDDEN],
   handled: new Set(),
@@ -88,11 +85,7 @@ export function setBoardFilters(patch: Partial<BoardFilters>): void {
 }
 
 export function selectCard(id: string | null): void {
-  agentsBoardStore.setState({ selected: id, collapsed: false })
-}
-
-export function collapsePanel(collapsed: boolean): void {
-  agentsBoardStore.setState({ collapsed })
+  agentsBoardStore.setState({ selected: id })
 }
 
 export function hideColumn(col: AgentColumn): void {
@@ -145,13 +138,8 @@ export async function setWaitingHandled(w: CardWaiting, undo: boolean): Promise<
   return error
 }
 
-// The panel fold and the hidden columns are the user's choices: kept in layout.json. The search
-// words and the waiting toggle are a moment's question and start empty.
-bindPref(agentsBoardStore, 'agents.collapsed', {
-  select: (s) => s.collapsed,
-  apply: (collapsed) => ({ collapsed }),
-  parse: parseBool,
-})
+// The hidden columns are the user's choice: kept in layout.json. The search words and the waiting
+// toggle are a moment's question and start empty.
 bindPref<AgentsBoardState, AgentColumn[]>(agentsBoardStore, 'agents.hiddenColumns', {
   select: (s) => s.hidden,
   apply: (hidden) => ({ hidden }),

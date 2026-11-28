@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { Markdown } from '../chat/markdown/Markdown'
-import { linearDisplay } from './LinearDetail'
+import { linearDisplay } from '../tickets/Composer'
 
 describe('Linear mentions in Reviews', () => {
   it('render as a mention, not a link', () => {
