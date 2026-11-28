@@ -1,7 +1,7 @@
-// New issue from a comment (PLAN T2.5): the modal is the confirm. Title and description are
-// prefilled and editable; team and project are the source ticket's, the state is the team's
-// `Todo` (exact name; otherwise Isaac picks). One `createIssue` write (`id: opId`), linked to the
-// comment by `sourceCommentId` and `referenceCommentId`.
+// New issue from a comment (PLAN T2.5). Title and description are prefilled and editable; team and
+// project are the source ticket's, the state is the team's `Todo` (exact name; otherwise Isaac
+// picks). Create asks the host's gate first; the modal then shows what it approved and Create in
+// Linear writes it: one `createIssue` (`id: opId`), linked by `sourceCommentId`/`referenceCommentId`.
 import { useEffect, useState } from 'react'
 import { Button, Select, TextInput, Textarea } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -14,6 +14,7 @@ import {
 import { invoke } from '../ipc'
 import { EvaModal } from '../overlay'
 import { issueTitleOf, todoState } from './activity-model'
+import { ApprovalNote } from './ApprovalNote'
 import { MutationNotice } from './Composer'
 import { useTicketMutation } from './use-mutation'
 
@@ -49,12 +50,15 @@ function useTeamStates(teamId: string, opened: boolean): States | string | null 
 export function NewIssueModal({
   comment,
   detail,
+  viewerId,
   onClose,
   onCreated,
 }: {
   /** The comment it comes from; null: closed. */
   comment: TicketComment | null
   detail: TicketDetail
+  /** The Linear account the page shows (`tickets.status` identity). */
+  viewerId: string | null
   onClose: () => void
   onCreated: (outcome: TicketOutcome) => void
 }) {
@@ -62,7 +66,7 @@ export function NewIssueModal({
   const [body, setBody] = useState('')
   const [stateId, setStateId] = useState<string | null>(null)
   const states = useTeamStates(detail.team.id, comment !== null)
-  const write = useTicketMutation((o) => {
+  const write = useTicketMutation(viewerId, (o) => {
     onCreated(o)
     onClose()
   })
@@ -75,11 +79,7 @@ export function NewIssueModal({
   useEffect(() => {
     if (Array.isArray(states)) setStateId((s) => s ?? todoState(states)?.id ?? null)
   }, [states])
-  // This modal is the confirm: once the gate approves the exact issue, it is written.
   const { view, confirm } = write
-  useEffect(() => {
-    if (view.kind === 'confirming') confirm()
-  }, [view.kind, confirm])
 
   const create = (): void => {
     if (!comment || !stateId || !title.trim()) return
@@ -99,7 +99,8 @@ export function NewIssueModal({
     write.cancel()
     onClose()
   }
-  const busy = view.kind === 'preparing' || view.kind === 'committing' || view.kind === 'confirming'
+  const busy = view.kind === 'preparing' || view.kind === 'committing'
+  const approved = view.kind === 'confirming' ? view.approval : null
   const options = Array.isArray(states) ? states.map((s) => ({ value: s.id, label: s.name })) : []
   return (
     <EvaModal opened={comment !== null} onClose={close} title="New issue from comment" size={520}>
@@ -133,6 +134,7 @@ export function NewIssueModal({
           {`In ${detail.team.key}${detail.project ? `, project ${detail.project.name}` : ''}, linked to this comment. `}
           {`${ISSUE_TEMPLATE} isn’t applied: the host doesn’t list Linear templates yet.`}
         </div>
+        {approved ? <ApprovalNote approval={approved} /> : null}
         <MutationNotice view={view} onRetry={write.retry} onDismiss={write.cancel} />
         <div className="eva-rv-modal-actions">
           <Button variant="default" onClick={close}>
@@ -141,10 +143,10 @@ export function NewIssueModal({
           <Button
             loading={busy}
             disabled={!stateId || !title.trim()}
-            onClick={create}
+            onClick={approved ? confirm : create}
             data-testid="new-issue-create"
           >
-            Create issue
+            {approved ? 'Create in Linear' : 'Create issue'}
           </Button>
         </div>
       </div>

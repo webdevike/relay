@@ -115,6 +115,7 @@ describe('board view', () => {
       lastSyncAt: NOW - 2 * 60_000,
       writes: true,
       syncAs: 'Isaac Weber (eCard), GitHub webdevike',
+      viewerId: 'user-me',
     }
     expect(freshnessLabel(host, NOW)).toBe('Synced 2m ago')
     expect(freshnessLabel({ ...host, lastSyncAt: NOW }, NOW)).toBe('Synced just now')

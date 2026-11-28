@@ -23,7 +23,7 @@ const pushAstra = (item: AstraItem): void =>
   })
 vi.mock('@mantine/notifications', () => ({ notifications: { show: () => {}, hide: () => {} } }))
 
-import { Activity, TicketDescription } from './Activity'
+import { Activity, TicketDescription, clippedWords } from './Activity'
 import type { TicketData } from './ticket-data'
 
 const pal = { id: 'u-pal', name: 'Pal Lee', avatarUrl: null }
@@ -173,6 +173,7 @@ describe('Activity', () => {
     await userEvent.click(screen.getByTestId('comment-action-delete'))
     expect(await screen.findByText(/This also deletes its 2 replies/)).toBeTruthy()
     expect(calls('tickets.prepare')[0]![1]).toEqual({
+      viewerId: 'u-me',
       mutation: { kind: 'deleteComment', commentId: 'mine', replyCount: 2 },
     })
     expect(calls('tickets.commit')).toHaveLength(0)
@@ -405,5 +406,18 @@ describe('Activity', () => {
     // The removed one under the description, then the activity's own threads.
     expect(roots()).toEqual(['inl-gone', 'mine', 'theirs'])
     expect(screen.getByTestId('inline-resolved-toggle').textContent).toBe('Resolved (1)')
+  })
+})
+
+describe('clippedWords', () => {
+  it('says what the host left out of a bounded ticket page', () => {
+    expect(clippedWords(undefined)).toBeNull()
+    expect(clippedWords({ description: false, comments: 0 })).toBeNull()
+    expect(clippedWords({ description: true, comments: 3 })).toBe(
+      'Not shown here: the end of the description and 3 older comments. Open it in Linear for all of it.',
+    )
+    expect(clippedWords({ description: false, comments: 1 })).toBe(
+      'Not shown here: 1 older comment. Open it in Linear for all of it.',
+    )
   })
 })

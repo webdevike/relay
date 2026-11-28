@@ -205,6 +205,8 @@ export const AgentBoardSchema = z.object({
       writes: z.boolean(),
       /** `Isaac Weber (eCard), GitHub webdevike`. */
       syncAs: z.string().max(300).nullable(),
+      /** The Linear account the host acts as; Board moves send it back (`tickets.commit` viewerId). */
+      viewerId: z.string().max(200).nullable(),
     }),
   }),
   updatedAt: z.number().finite(),

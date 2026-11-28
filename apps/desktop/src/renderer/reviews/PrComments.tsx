@@ -21,7 +21,8 @@ import { prContext } from './astra-context'
 import { ago, agoPhrase } from './review-model'
 import { Avatar, fail } from './review-ui'
 import { reviewStateOf } from './PrSidebar'
-import { GITHUB_REACTION, prWritesOn, useGithubLogin, usePrWrite } from './pr-write'
+import { ApprovalNote } from '../tickets/ApprovalNote'
+import { GITHUB_REACTION, prLoginOf, prWritesOn, useGithubLogin, usePrWrite } from './pr-write'
 
 type Reactions = Array<{ emoji: string; users: string[] }>
 
@@ -264,7 +265,7 @@ function useReactions(pr: ReviewPr, onChanged: () => void): ReactCtx {
   const me = useGithubLogin()
   const [local, setLocal] = useState<Record<string, boolean>>({})
   const last = useRef<string | null>(null)
-  const write = usePrWrite(() => onChanged())
+  const write = usePrWrite(prLoginOf(pr), () => onChanged())
   const v = write.view
   // Not written (refused, failed, or unknown): the chip goes back to what GitHub has.
   useEffect(() => {
@@ -290,7 +291,7 @@ function useReactions(pr: ReviewPr, onChanged: () => void): ReactCtx {
 
 /** The comment box's writes: the gate's post (confirmed) or, without it, the old confirmed path. */
 function usePost(pr: ReviewPr, onPosted: () => void) {
-  const gate = usePrWrite(() => {
+  const gate = usePrWrite(prLoginOf(pr), () => {
     notifications.show({ message: 'Posted on GitHub.', color: 'green' })
     onPosted()
   })
@@ -401,8 +402,14 @@ export function PrComments({
       <ConfirmPost
         opened={v.kind === 'confirming' || v.kind === 'committing' || posting.legacy !== null}
         title="Post this comment on GitHub?"
-        text={draft.trim()}
-        note={`Posts as you on ${pr.repo}#${pr.number}. Everyone on the PR sees it.`}
+        text={v.kind === 'confirming' ? (v.approval.text ?? draft.trim()) : draft.trim()}
+        note={
+          v.kind === 'confirming' ? (
+            <ApprovalNote approval={v.approval} />
+          ) : (
+            `Posts as you on ${pr.repo}#${pr.number}. Everyone on the PR sees it.`
+          )
+        }
         confirmLabel="Post comment"
         busy={v.kind === 'committing' || posting.legacy?.busy === true}
         onConfirm={() => (posting.legacy ? void posting.postLegacy() : posting.gate.confirm())}

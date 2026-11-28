@@ -101,16 +101,17 @@ export function registerTicketsIpc(
   handle(ctx, 'tickets.handled', ({ target, undo }) =>
     ask(host, { kind: 'handled', target: HandledTarget.parse(target), undo }, () => ({})),
   )
-  handle(ctx, 'tickets.prepare', ({ mutation }) =>
-    ask(host, { kind: 'prepare', mutation: TicketMutation.parse(mutation) }, (res) =>
+  handle(ctx, 'tickets.prepare', ({ viewerId, mutation }) =>
+    ask(host, { kind: 'prepare', viewerId, mutation: TicketMutation.parse(mutation) }, (res) =>
       res.refused ? { refused: res.refused } : { approval: res.approval },
     ),
   )
-  handle(ctx, 'tickets.commit', ({ approvalId, opId, mutation }) =>
+  handle(ctx, 'tickets.commit', ({ viewerId, approvalId, opId, mutation }) =>
     ask(
       host,
       {
         kind: 'commit',
+        viewerId,
         opId,
         mutation: TicketMutation.parse(mutation),
         ...(approvalId === undefined ? {} : { approvalId }),

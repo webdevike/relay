@@ -371,3 +371,22 @@ button.eva-tk-prow:hover {
     border-top: 1px solid var(--eva-c-border);
   }
 }
+
+/* The host gate's approval in a confirm: summary, quoted description text, plan rows. */
+.eva-tk-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.eva-tk-approval-quote {
+  margin: 0;
+  padding-left: var(--mantine-spacing-sm);
+  border-left: 2px solid var(--eva-c-border);
+  white-space: pre-wrap;
+}
+
+.eva-tk-approval-rows {
+  margin: 0;
+  padding-left: var(--mantine-spacing-md);
+}

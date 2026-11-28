@@ -20,13 +20,19 @@ export interface MergePr {
   base: string
   /** Full head SHA. */
   headSha: string
+  /** The gh login the read showed (`actions.viewerLogin`); the host refuses another. */
+  login: string
 }
 
-/** What Isaac confirms: one outcome for one head. */
+/** What a merge does now (protocol `expectOutcome`). */
+export type MergeEffect = 'merge' | 'queue' | 'auto'
+
+/** What Isaac confirms: one outcome for one head and base. */
 export interface MergePlan {
   method: MergeMethod
   intent: 'merge' | 'auto'
   outcome: string
+  effect: MergeEffect
   headSha: string
 }
 
@@ -39,6 +45,8 @@ export type MergeMutation =
       method: MergeMethod
       intent: 'merge' | 'auto'
       expectHead: string
+      expectBase: string
+      expectOutcome: MergeEffect
     }
   | { kind: 'autoMerge'; repo: string; number: number; on: false; expectHead: string }
 
@@ -58,6 +66,7 @@ export interface CommitInput {
   opId: string
   approvalId: string | null
   mutation: MergeMutation
+  login: string
 }
 
 export interface Armed {
@@ -126,6 +135,8 @@ function mergeMutation(context: PrMergeContext): MergeMutation {
     method: plan!.method,
     intent: plan!.intent,
     expectHead: plan!.headSha,
+    expectBase: pr!.base,
+    expectOutcome: plan!.effect,
   }
 }
 
@@ -146,7 +157,7 @@ export const prMergeMachine = setup({
     events: {} as PrMergeEvent,
   },
   actors: {
-    prepare: fromPromise<PrepareResult, { mutation: MergeMutation }>(async () => {
+    prepare: fromPromise<PrepareResult, { mutation: MergeMutation; login: string }>(async () => {
       throw new Error('prepare not provided')
     }),
     commit: fromPromise<CommitResult, CommitInput>(async () => {
@@ -233,7 +244,7 @@ export const prMergeMachine = setup({
       },
       invoke: {
         src: 'prepare',
-        input: ({ context }) => ({ mutation: mergeMutation(context) }),
+        input: ({ context }) => ({ mutation: mergeMutation(context), login: context.pr!.login }),
         onDone: [
           {
             guard: approved,
@@ -260,6 +271,7 @@ export const prMergeMachine = setup({
           opId: context.opId,
           approvalId: context.approvalId,
           mutation: mergeMutation(context),
+          login: context.pr!.login,
         }),
         onDone: [
           { guard: mergedOut, target: 'merged' },
@@ -299,6 +311,7 @@ export const prMergeMachine = setup({
           opId: context.opId,
           approvalId: null,
           mutation: disarmMutation(context),
+          login: context.pr!.login,
         }),
         onDone: [
           { guard: disarmedOut, target: 'idle' },

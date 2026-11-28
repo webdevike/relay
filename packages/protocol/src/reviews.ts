@@ -462,6 +462,10 @@ export const PrMutation = z.discriminatedUnion("kind", [
     method: PrMergeMethod,
     intent: z.enum(["merge", "auto"]),
     expectHead: CommitSha,
+    /** The base branch Isaac confirmed; another one refuses `conflict`. */
+    expectBase: z.string().min(1).max(255),
+    /** What Isaac confirmed it does now: merge at once, join the queue, or arm auto-merge. */
+    expectOutcome: z.enum(["merge", "queue", "auto"]),
   }),
   /** Desired state: the host no-ops when auto-merge is already so. `method` is needed to turn it on. */
   z.object({

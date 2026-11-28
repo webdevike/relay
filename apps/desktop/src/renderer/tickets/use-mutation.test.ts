@@ -5,20 +5,25 @@ import type { TicketMutation } from '@relay/protocol'
 const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a) }))
 
-import { CHECKING, useTicketMutation } from './use-mutation'
+import { CHECKING, NO_ACCOUNT, useTicketMutation } from './use-mutation'
+
+const ME = 'user-me'
 
 const comment: TicketMutation = { kind: 'comment', issueId: 'issue-1', body: 'Looks good' }
 const react: TicketMutation = { kind: 'react', commentId: 'c-1', emoji: '+1', on: true }
 
-const host = (v: object) => Promise.resolve({ ok: true, value: { source: 'host', ...v } })
 const approval = {
   id: 'appr-1',
   expiresAt: Date.now() + 120_000,
-  summary: 'Post a comment on ENG-1',
+  summary: 'Reply on ENG-1 (Ship it) as you',
+  text: 'Looks good',
+  quote: 'the drawn line',
+  rows: [{ key: 'ENG-2', title: 'Two', change: 'Due Dec 1' }],
 }
+const { id: _id, expiresAt: _exp, ...shown } = approval
+const host = (v: object) => Promise.resolve({ ok: true, value: { source: 'host', ...v } })
 const outcome = (opId: string, state = 'done') => ({ outcome: { opId, state } })
-
-type Commit = { opId: string; approvalId?: string; mutation: TicketMutation }
+type Commit = { viewerId: string; opId: string; approvalId?: string; mutation: TicketMutation }
 const calls = (channel: string) => invoke.mock.calls.filter(([c]) => c === channel)
 const commits = () => calls('tickets.commit').map(([, input]) => input as Commit)
 
@@ -36,26 +41,34 @@ function gate(answers: Array<(input: Commit) => unknown>): void {
 afterEach(() => invoke.mockReset())
 
 describe('useTicketMutation', () => {
-  it('confirms a confirmed kind before it commits, with the approval', async () => {
+  it('confirms a confirmed kind with the host approval in full, then commits as the account shown', async () => {
     gate([(i) => host(outcome(i.opId))])
     const onDone = vi.fn()
-    const { result } = renderHook(() => useTicketMutation(onDone))
+    const { result } = renderHook(() => useTicketMutation(ME, onDone))
     act(() => result.current.run(comment))
     await waitFor(() =>
-      expect(result.current.view).toEqual({ kind: 'confirming', summary: approval.summary }),
+      expect(result.current.view).toEqual({ kind: 'confirming', approval: shown }),
     )
+    expect(calls('tickets.prepare')[0]![1]).toEqual({ viewerId: ME, mutation: comment })
     expect(commits()).toHaveLength(0)
     act(() => result.current.confirm())
     await waitFor(() => expect(result.current.view).toEqual({ kind: 'done' }))
     expect(commits()).toEqual([
-      { opId: expect.any(String), approvalId: 'appr-1', mutation: comment },
+      { viewerId: ME, opId: expect.any(String), approvalId: 'appr-1', mutation: comment },
     ])
     expect(onDone).toHaveBeenCalledWith({ opId: commits()[0]!.opId, state: 'done' })
   })
 
+  it('sends nothing without an account on the page', () => {
+    const { result } = renderHook(() => useTicketMutation(null))
+    act(() => result.current.run(comment))
+    expect(result.current.view).toEqual({ kind: 'refused', message: NO_ACCOUNT })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it('commits an unconfirmed kind at once, without prepare', async () => {
     gate([(i) => host(outcome(i.opId))])
-    const { result } = renderHook(() => useTicketMutation())
+    const { result } = renderHook(() => useTicketMutation(ME))
     act(() => result.current.run(react))
     await waitFor(() => expect(result.current.view).toEqual({ kind: 'done' }))
     expect(calls('tickets.prepare')).toHaveLength(0)
@@ -64,7 +77,7 @@ describe('useTicketMutation', () => {
 
   it('confirm: true makes an unconfirmed kind confirm too', async () => {
     gate([(i) => host(outcome(i.opId))])
-    const { result } = renderHook(() => useTicketMutation())
+    const { result } = renderHook(() => useTicketMutation(ME))
     const move: TicketMutation = {
       kind: 'setState',
       issueId: 'i',
@@ -86,7 +99,7 @@ describe('useTicketMutation', () => {
       (i) => host(outcome(i.opId, 'unknown')),
       (i) => host(outcome(i.opId)),
     ])
-    const { result } = renderHook(() => useTicketMutation())
+    const { result } = renderHook(() => useTicketMutation(ME))
     act(() => result.current.run(comment))
     await waitFor(() => expect(result.current.view.kind).toBe('confirming'))
     act(() => result.current.confirm())
@@ -107,7 +120,7 @@ describe('useTicketMutation', () => {
       () => host({ refused: { code: 'conflict', message: 'Changed in Linear since you looked' } }),
       (i) => host(outcome(i.opId)),
     ])
-    const { result } = renderHook(() => useTicketMutation())
+    const { result } = renderHook(() => useTicketMutation(ME))
     act(() => result.current.run(comment))
     await waitFor(() => expect(result.current.view.kind).toBe('confirming'))
     act(() => result.current.confirm())
@@ -129,7 +142,7 @@ describe('useTicketMutation', () => {
     gate([
       (i) => host({ outcome: { opId: i.opId, state: 'failed', result: { error: 'No access' } } }),
     ])
-    const { result } = renderHook(() => useTicketMutation())
+    const { result } = renderHook(() => useTicketMutation(ME))
     act(() => result.current.run(react))
     await waitFor(() =>
       expect(result.current.view).toEqual({ kind: 'failed', message: 'No access' }),
@@ -138,7 +151,7 @@ describe('useTicketMutation', () => {
 
   it('cancel drops the confirm and nothing is committed; a new run mints a new opId', async () => {
     gate([(i) => host(outcome(i.opId))])
-    const { result } = renderHook(() => useTicketMutation())
+    const { result } = renderHook(() => useTicketMutation(ME))
     act(() => result.current.run(comment))
     await waitFor(() => expect(result.current.view.kind).toBe('confirming'))
     act(() => result.current.cancel())

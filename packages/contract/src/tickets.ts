@@ -85,15 +85,21 @@ export const ticketsInvoke = {
     input: z.object({ target: HandledTargetSchema, undo: z.boolean() }).strict(),
     output: fromHost({}),
   },
-  /** A confirmed write's approval (protocol TicketApproval), or the gate's refusal. */
+  /**
+   * A confirmed write's approval (protocol TicketApproval), or the gate's refusal. `viewerId`: the
+   * Linear account the page showed (`tickets.status` identity); the host refuses another.
+   */
   'tickets.prepare': {
-    input: z.object({ mutation: TicketMutationInputSchema }).strict(),
+    input: z
+      .object({ viewerId: z.string().min(1).max(200), mutation: TicketMutationInputSchema })
+      .strict(),
     output: fromHost({ approval: z.looseObject({}).optional(), refused: RefusedSchema.optional() }),
   },
-  /** The write (protocol TicketOutcome), or the gate's refusal; retries reuse `opId`. */
+  /** The write (protocol TicketOutcome), or the gate's refusal; retries reuse `opId` and `viewerId`. */
   'tickets.commit': {
     input: z
       .object({
+        viewerId: z.string().min(1).max(200),
         approvalId: z.string().min(1).max(200).optional(),
         opId: z.string().uuid(),
         mutation: TicketMutationInputSchema,

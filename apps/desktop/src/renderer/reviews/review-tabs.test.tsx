@@ -281,6 +281,7 @@ describe('the ticket page header: Reviews Done', () => {
 
 const HEAD = 'a'.repeat(40)
 const ACTIONS: NonNullable<ReviewPr['actions']> = {
+  viewerLogin: 'webdevike',
   viewerPermission: 'WRITE',
   mergeable: 'MERGEABLE',
   mergeStateStatus: 'CLEAN',
@@ -441,10 +442,23 @@ describe('PrView', () => {
     await waitFor(() =>
       expect(screen.getByTestId('pr-merge')).toHaveAttribute('data-state', 'merged'),
     )
-    const mutation = { kind: 'merge', method: 'squash', intent: 'merge', expectHead: HEAD }
-    expect(calls('reviews.prPrepare')).toEqual([{ mutation: expect.objectContaining(mutation) }])
+    const mutation = {
+      kind: 'merge',
+      method: 'squash',
+      intent: 'merge',
+      expectHead: HEAD,
+      expectBase: 'main',
+      expectOutcome: 'merge',
+    }
+    expect(calls('reviews.prPrepare')).toEqual([
+      { login: 'webdevike', mutation: expect.objectContaining(mutation) },
+    ])
     expect(calls('reviews.prCommit')).toEqual([
-      expect.objectContaining({ approvalId: 'ap-1', mutation: expect.objectContaining(mutation) }),
+      expect.objectContaining({
+        login: 'webdevike',
+        approvalId: 'ap-1',
+        mutation: expect.objectContaining(mutation),
+      }),
     ])
     expect(onRefresh).toHaveBeenCalled()
   })

@@ -1,9 +1,9 @@
 // One PR write through the host's gate (PLAN §2.5, §5): `reviews.prPrepare` for a confirmed kind
-// (comment, review comment, reply, request review, merge), shown to Isaac (`confirming`), then
-// `reviews.prCommit` with the approval; unconfirmed kinds (reaction, re-run) commit at once. The
-// opId is minted once per `run` and reused by `retry`, so a lost answer never writes twice. Merge
-// has its own machine (pr-merge.machine.ts); this is the generic lifecycle for the rest, the same
-// views as the ticket page's `useTicketMutation`.
+// (comment, review comment, reply, request review, merge), shown to Isaac (`confirming`, the host's
+// approval in full), then `reviews.prCommit` with the approval; unconfirmed kinds (reaction, re-run)
+// commit at once. Every op carries the gh login the page's PR read showed (`actions.viewerLogin`);
+// the host refuses when it acts as another. The opId is minted once per `run` and reused by
+// `retry`, so a lost answer never writes twice. Merge has its own machine (pr-merge.machine.ts).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   TicketApproval,
@@ -12,6 +12,7 @@ import {
   prMutationConfirmed,
   type GithubReaction,
   type PrMutation,
+  type TicketConfirm,
 } from '@relay/protocol'
 import type { PrActionAnswer, ReviewPr } from '@evaos/contract'
 import { invoke } from '../ipc'
@@ -23,6 +24,13 @@ export type { MutationView } from '../tickets/use-mutation'
 export function prWritesOn(pr: ReviewPr): boolean {
   return pr.actions !== undefined && pr.headSha !== undefined
 }
+
+/** The gh login the page's PR read showed; writes carry it. */
+export const prLoginOf = (pr: ReviewPr): string | null => pr.actions?.viewerLogin ?? null
+
+/** No gh login on the page (an older read): nothing is sent. */
+export const NO_GITHUB_ACCOUNT =
+  'The host hasn’t said which GitHub account it writes as. Reload the pull request and try again.'
 
 /** The reactions GitHub has, as the host reads them (unicode), with GitHub's name for each. */
 export const GITHUB_REACTION: Readonly<Record<string, GithubReaction>> = {
@@ -61,7 +69,7 @@ export function useGithubLogin(): string | null {
 }
 
 export type PrStep =
-  | { kind: 'approval'; id: string; summary: string }
+  | { kind: 'approval'; id: string; approval: TicketConfirm }
   | { kind: 'done'; outcome: TicketOutcome }
   | { kind: 'refused'; code: string; message: string }
   | { kind: 'unknown' | 'failed'; message: string }
@@ -77,23 +85,25 @@ function hostAnswer(a: PrActionAnswer): HostAnswer | PrStep {
   return a
 }
 
-export async function prPrepare(mutation: PrMutation): Promise<PrStep> {
-  const r = await invoke('reviews.prPrepare', { mutation })
+export async function prPrepare(mutation: PrMutation, login: string): Promise<PrStep> {
+  const r = await invoke('reviews.prPrepare', { login, mutation })
   if (!r.ok) return { kind: 'failed', message: r.error.message }
   const a = hostAnswer(r.value)
   if ('kind' in a) return a
   if (!a.approval) return { kind: 'failed', message: a.error ?? 'The host could not check GitHub.' }
-  const approval = TicketApproval.parse(a.approval)
-  return { kind: 'approval', id: approval.id, summary: approval.summary }
+  const { id, expiresAt: _expires, ...approval } = TicketApproval.parse(a.approval)
+  return { kind: 'approval', id, approval }
 }
 
 export async function prCommit(input: {
+  login: string
   opId: string
   approvalId: string | null
   mutation: PrMutation
 }): Promise<PrStep> {
-  const { opId, approvalId, mutation } = input
+  const { login, opId, approvalId, mutation } = input
   const r = await invoke('reviews.prCommit', {
+    login,
     opId,
     mutation,
     ...(approvalId ? { approvalId } : {}),
@@ -111,11 +121,12 @@ export async function prCommit(input: {
 }
 
 interface Op {
+  /** The gh login the page showed when Isaac acted; retries keep it. */
+  login: string
   mutation: PrMutation
   opId: string
   approvalId: string | null
 }
-
 export interface PrWrite {
   view: MutationView
   /** Mints the opId; prepare (confirmed kinds) then commit. */
@@ -127,13 +138,19 @@ export interface PrWrite {
   retry(): void
 }
 
-export function usePrWrite(onDone?: (outcome: TicketOutcome, m: PrMutation) => void): PrWrite {
+/** `login`: the gh login the page shows (`prLoginOf`); null sends nothing. */
+export function usePrWrite(
+  login: string | null,
+  onDone?: (outcome: TicketOutcome, m: PrMutation) => void,
+): PrWrite {
   const [view, setView] = useState<MutationView>({ kind: 'idle' })
   const current = useRef<MutationView>(view)
   const op = useRef<Op | null>(null)
   const turn = useRef(0)
   const done = useRef(onDone)
   done.current = onDone
+  const who = useRef(login)
+  who.current = login
 
   const show = useCallback((v: MutationView) => {
     current.current = v
@@ -146,7 +163,7 @@ export function usePrWrite(onDone?: (outcome: TicketOutcome, m: PrMutation) => v
       if (t !== turn.current || !o) return
       if (s.kind === 'approval') {
         o.approvalId = s.id
-        show({ kind: 'confirming', summary: s.summary })
+        show({ kind: 'confirming', approval: s.approval })
       } else if (s.kind === 'done') {
         show({ kind: 'done' })
         done.current?.(s.outcome, o.mutation)
@@ -159,7 +176,7 @@ export function usePrWrite(onDone?: (outcome: TicketOutcome, m: PrMutation) => v
     (o: Op, phase: 'preparing' | 'committing') => {
       const t = turn.current
       show({ kind: phase })
-      const p = phase === 'preparing' ? prPrepare(o.mutation) : prCommit(o)
+      const p = phase === 'preparing' ? prPrepare(o.mutation, o.login) : prCommit(o)
       void p.then(
         (s) => settle(t, s),
         (e: unknown) =>
@@ -183,10 +200,15 @@ export function usePrWrite(onDone?: (outcome: TicketOutcome, m: PrMutation) => v
   const run = useCallback(
     (mutation: PrMutation) => {
       turn.current += 1
-      op.current = { mutation, opId: crypto.randomUUID(), approvalId: null }
+      if (who.current === null) {
+        op.current = null
+        show({ kind: 'refused', message: NO_GITHUB_ACCOUNT })
+        return
+      }
+      op.current = { login: who.current, mutation, opId: crypto.randomUUID(), approvalId: null }
       start(op.current)
     },
-    [start],
+    [show, start],
   )
 
   const confirm = useCallback(() => {

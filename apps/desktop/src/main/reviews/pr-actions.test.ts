@@ -14,6 +14,8 @@ const MERGE = {
   method: 'squash',
   intent: 'merge',
   expectHead: H1,
+  expectBase: 'main',
+  expectOutcome: 'merge',
 }
 const ME = 'webdevike'
 

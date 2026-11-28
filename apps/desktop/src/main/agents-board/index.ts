@@ -194,12 +194,29 @@ function ticketsSource(
 ): AgentBoard['sources']['tickets'] {
   if ('source' in view) {
     const { reason, message } = view
-    return { source: 'fallback', reason, message, lastSyncAt: null, writes: false, syncAs: null }
+    return {
+      source: 'fallback',
+      reason,
+      message,
+      lastSyncAt: null,
+      writes: false,
+      syncAs: null,
+      viewerId: null,
+    }
   }
   const { lastSyncAt, lastError } = view.status.freshness
   const message = lastError?.slice(0, 400) ?? null
   const writes = synced?.writes === true
-  return { source: 'host', reason: null, message, lastSyncAt, writes, syncAs: syncAs(view) }
+  const viewerId = view.status.identity.linear?.viewerId ?? null
+  return {
+    source: 'host',
+    reason: null,
+    message,
+    lastSyncAt,
+    writes,
+    syncAs: syncAs(view),
+    viewerId,
+  }
 }
 
 /** `tickets.watch` for the board's unsynced keys: when the list changed, else every REWATCH_MS. */

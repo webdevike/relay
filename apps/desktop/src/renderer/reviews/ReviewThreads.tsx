@@ -16,7 +16,8 @@ import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
 import { prContext } from './astra-context'
 import { threadReplyText, type AstraThread } from './astra-timeline'
 import type { DiffAnnotate, DiffCommentOn } from './DiffView'
-import { prWritesOn, usePrWrite } from './pr-write'
+import { ApprovalNote } from '../tickets/ApprovalNote'
+import { prLoginOf, prWritesOn, usePrWrite } from './pr-write'
 import { agoPhrase } from './review-model'
 import { Avatar } from './review-ui'
 import {
@@ -167,7 +168,7 @@ export function useInlineThreads(pr: ReviewPr, onChanged?: () => void): InlineTh
   const [draft, setDraft] = useState<Draft | null>(null)
   const [posted, setPosted] = useState<ReviewComment[]>([])
   const writes = prWritesOn(pr)
-  const write = usePrWrite((_, m) => {
+  const write = usePrWrite(prLoginOf(pr), (_, m) => {
     const local = localOf(m, draft?.kind === 'reply' ? draft.root : null)
     if (local) setPosted((p) => [...p, local])
     setDraft(null)
@@ -269,8 +270,14 @@ export function useInlineThreads(pr: ReviewPr, onChanged?: () => void): InlineTh
       <ConfirmPost
         opened={confirming}
         title={draft?.kind === 'reply' ? 'Reply on GitHub' : 'Comment on GitHub'}
-        text={draft?.text.trim()}
-        note={write.view.kind === 'confirming' ? write.view.summary : null}
+        text={
+          write.view.kind === 'confirming'
+            ? (write.view.approval.text ?? draft?.text.trim())
+            : draft?.text.trim()
+        }
+        note={
+          write.view.kind === 'confirming' ? <ApprovalNote approval={write.view.approval} /> : null
+        }
         confirmLabel={draft?.kind === 'reply' ? 'Post reply' : 'Post comment'}
         busy={write.view.kind === 'committing'}
         onConfirm={write.confirm}

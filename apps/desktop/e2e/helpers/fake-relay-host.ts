@@ -39,6 +39,10 @@ const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 type Json = Record<string, unknown>
 const JsonSchema = z.record(z.string(), z.unknown())
+/** The Linear account a tickets status names (the gate's `viewerId`). */
+const HostViewer = z.object({
+  identity: z.object({ linear: z.object({ viewerId: z.string() }).nullable().optional() }),
+})
 const DevicesSchema = z.record(z.string(), z.object({ secretHex: z.string() }).partial())
 
 const MEDIA = path.join(FIXTURES_DIR, 'agent-widgets/media')
@@ -827,8 +831,11 @@ export class FakeRelayHost {
       this.loseNext = false
       return
     }
-    const refused = write ? this.refusal : null
-    this.refusal = refused ? null : this.refusal
+    // The real gate refuses a write as another account than the one the device saw.
+    const viewer = HostViewer.safeParse(this.tickets.status).data?.identity.linear?.viewerId
+    const wrongAccount = write && op.viewerId !== viewer ? 'identity' : null
+    const refused = write ? (this.refusal ?? wrongAccount) : null
+    this.refusal = this.refusal && refused === this.refusal ? null : this.refusal
     const answer = refused
       ? { ok: false, refused: { code: refused, message: `Refused: ${refused}` } }
       : this.ticketsAnswer(peer, op)
@@ -855,15 +862,19 @@ export class FakeRelayHost {
         return { ok: true, previousSeenAt: null }
       case 'summary':
         return { ok: true, summary: { key: op.key, text: 'A synthetic summary.', at: Date.now() } }
-      case 'prepare':
+      case 'prepare': {
+        const m = JsonSchema.parse(op.mutation)
         return {
           ok: true,
           approval: {
             id: `approval-${this.mutations.length}`,
             expiresAt: Date.now() + 120_000,
-            summary: `Write ${String(JsonSchema.parse(op.mutation).kind)}`,
+            summary: `Write ${String(m.kind)}`,
+            ...(typeof m.body === 'string' && { text: m.body }),
+            ...(typeof m.quotedText === 'string' && { quote: m.quotedText }),
           },
         }
+      }
       case 'commit':
         return { ok: true, outcome: { opId: op.opId, state: 'done' } }
       default:
@@ -920,7 +931,9 @@ export class FakeRelayHost {
     this.reviewOps.push(op)
     const write = op.kind === 'prPrepare' || op.kind === 'prCommit'
     if (write) this.prMutations.push({ id: rid, cmd: op, status: null })
-    const refused = write ? this.prRefusal : null
+    // The real gate refuses a write without the gh login the device saw.
+    const unsigned = write && typeof op.login !== 'string' ? 'identity' : null
+    const refused = write ? (this.prRefusal ?? unsigned) : null
     if (refused) this.prRefusal = null
     const answer = refused
       ? { ok: false, refused: { code: refused, message: `Refused: ${refused}` } }
@@ -944,6 +957,7 @@ export class FakeRelayHost {
             id: `pr-approval-${this.prMutations.length}`,
             expiresAt: Date.now() + 120_000,
             summary: `Write ${String(mutation.kind)}`,
+            ...(typeof mutation.body === 'string' && { text: mutation.body }),
           },
         }
       case 'prCommit':

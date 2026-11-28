@@ -376,7 +376,7 @@ describe("TicketsService writes as the account the device saw", () => {
 
 describe("TicketsService PR writes as the gh account the device saw", () => {
   const H = "a".repeat(40);
-  const MERGE = { kind: "merge" as const, repo: "o/r", number: 1, method: "squash" as const, intent: "merge" as const, expectHead: H };
+  const MERGE = { kind: "merge" as const, repo: "o/r", number: 1, method: "squash" as const, intent: "merge" as const, expectHead: H, expectBase: "main", expectOutcome: "merge" as const };
   function prHost(): TicketsHarness {
     const linear = new FakeLinear();
     linear.add("ENG-1", T0 - MIN);

@@ -12,6 +12,7 @@ import { IconCircleCheckFilled } from '@tabler/icons-react'
 import type {
   TicketActor,
   TicketComment,
+  TicketConfirm,
   TicketDetail,
   TicketMutation,
   TicketOutcome,
@@ -43,6 +44,7 @@ import {
   useAssistantSessions,
   type AssistantSession,
 } from './AssistantReply'
+import { ApprovalNote } from './ApprovalNote'
 import { CommentBlock, CommentMarkdown } from './CommentBlock'
 import {
   Composer,
@@ -81,10 +83,34 @@ export function TicketDescription({ data }: { data: TicketData }) {
           <span className="eva-rv-dim">No description.</span>
         )}
       </div>
+      <ClippedNotice detail={d} />
       <div className="eva-tk-inline-layer" data-inline-layer />
       <div className="eva-tk-inline-foot" data-inline-foot />
     </div>
   )
+}
+
+/** What the host left out of this page to keep it bounded (`detail.clipped`); Linear has it all. */
+export function clippedWords(clipped: TicketDetail['clipped']): string | null {
+  if (!clipped) return null
+  const parts = [
+    clipped.description ? 'the end of the description' : null,
+    clipped.comments > 0
+      ? `${clipped.comments} older ${clipped.comments === 1 ? 'comment' : 'comments'}`
+      : null,
+  ].filter((p) => p !== null)
+  return parts.length > 0
+    ? `Not shown here: ${parts.join(' and ')}. Open it in Linear for all of it.`
+    : null
+}
+
+function ClippedNotice({ detail }: { detail: TicketDetail }) {
+  const words = clippedWords(detail.clipped)
+  return words ? (
+    <div className="eva-rv-dim eva-rv-small" role="note" data-testid="ticket-clipped">
+      {words}
+    </div>
+  ) : null
 }
 
 export function Activity({
@@ -174,13 +200,13 @@ function useActivityWrites(data: TicketData, detail: TicketDetail, me: TicketAct
     else if (p.parentId) setReply(null)
     else setDraft('')
   }, [])
-  const post = useTicketMutation((o) => {
+  const post = useTicketMutation(data.me.linearViewerId, (o) => {
     if (!pendingPost) return
     setLocal((l) => ({ ...l, posted: [...l.posted, postedComment(o, pendingPost, me, detail)] }))
     clear(pendingPost)
     refresh()
   })
-  const act = useTicketMutation(() => {
+  const act = useTicketMutation(data.me.linearViewerId, () => {
     if (pendingAct) setLocal(pendingAct.edit)
     setEditing(null)
     refresh()
@@ -486,17 +512,20 @@ function postWords(post: Post | null): { title: string; label: string } {
   return { title: `Post this ${what} on Linear?`, label: reply ? 'Post reply' : 'Post comment' }
 }
 
-/** The exact-text confirm of a comment, reply or inline comment (gate: with the host's summary). */
+/**
+ * The exact-text confirm of a comment, reply or inline comment. Gate: the host's approval in full
+ * (its text, the quote, the summary naming the ticket and account); legacy: Isaac's own text.
+ */
 function PostConfirm({
   post,
-  summary,
+  approval,
   busy,
   ticketKey,
   onConfirm,
   onCancel,
 }: {
   post: Post | null
-  summary: string | null
+  approval: TicketConfirm | null
   busy: boolean
   ticketKey: string
   onConfirm: () => void
@@ -508,13 +537,16 @@ function PostConfirm({
     <ConfirmPost
       opened={post !== null}
       title={words.title}
-      text={post?.body ?? ''}
+      text={approval?.text ?? post?.body ?? ''}
       note={
-        <>
-          {quoted ? <div>{`On “${quoted}”`}</div> : null}
-          {summary && <div>{summary}</div>}
-          <div>{`Posts as you on ${ticketKey}. Everyone on the ticket sees it.`}</div>
-        </>
+        approval ? (
+          <ApprovalNote approval={approval} />
+        ) : (
+          <>
+            {quoted ? <div>{`On “${quoted}”`}</div> : null}
+            <div>{`Posts as you on ${ticketKey}. Everyone on the ticket sees it.`}</div>
+          </>
+        )
       }
       confirmLabel={words.label}
       busy={busy}
@@ -527,13 +559,13 @@ function PostConfirm({
 /** Every confirm the activity asks: gate post, legacy post, delete (replies disclosed). */
 function Confirms({ w, detail }: { w: Writes; detail: TicketDetail }) {
   const view = w.post.view
-  const deleting =
-    w.act.view.kind === 'confirming' ? deleteConfirm(w.pendingAct?.m, detail.comments) : null
+  const acting = w.act.view.kind === 'confirming' ? w.act.view.approval : null
+  const deleting = acting ? deleteConfirm(w.pendingAct?.m, detail.comments) : null
   return (
     <>
       <PostConfirm
         post={view.kind === 'confirming' ? w.pendingPost : null}
-        summary={view.kind === 'confirming' ? view.summary : null}
+        approval={view.kind === 'confirming' ? view.approval : null}
         busy={false}
         ticketKey={detail.key}
         onConfirm={w.post.confirm}
@@ -541,7 +573,7 @@ function Confirms({ w, detail }: { w: Writes; detail: TicketDetail }) {
       />
       <PostConfirm
         post={w.legacy}
-        summary={null}
+        approval={null}
         busy={w.legacyBusy}
         ticketKey={detail.key}
         onConfirm={() => void w.confirmLegacy()}
@@ -550,8 +582,13 @@ function Confirms({ w, detail }: { w: Writes; detail: TicketDetail }) {
       <ConfirmPost
         opened={deleting !== null}
         title="Delete this comment?"
-        text={deleting?.body ?? ''}
-        note={deleting?.note ?? ''}
+        text={acting?.text ?? deleting?.body ?? ''}
+        note={
+          <>
+            <div>{deleting?.note ?? ''}</div>
+            {acting ? <ApprovalNote approval={acting} /> : null}
+          </>
+        }
         confirmLabel="Delete"
         danger
         busy={false}
@@ -792,6 +829,7 @@ function TicketActivity({
       <NewIssueModal
         comment={newIssue}
         detail={detail}
+        viewerId={data.me.linearViewerId}
         onClose={() => setNewIssue(null)}
         onCreated={notifyCreated}
       />

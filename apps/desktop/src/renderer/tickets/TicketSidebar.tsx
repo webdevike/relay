@@ -15,6 +15,7 @@ import { EvaMenu, EvaModal } from '../overlay'
 import { COLUMN_TITLE } from '../agents-board/board-view'
 import { PR_ICON, PersonAvatar } from '../agents-board/CardChips'
 import type { TicketPr } from '../agents-board/ticket-prs'
+import { ApprovalNote } from './ApprovalNote'
 import { PRIORITY_LABEL, PriorityIcon } from './LinearStatus'
 import type { TicketData } from './ticket-data'
 import { ticketPlace, type TicketRef } from './ticket-place'
@@ -114,11 +115,19 @@ function useMutationToasts(view: MutationView): void {
  * The status as a picker over the team's states; the pick goes through the host's gate (a move to
  * Done or Canceled asks first). Shown only when the gate is open for this page.
  */
-function StatusPicker({ detail, onDone }: { detail: TicketDetail; onDone: () => void }) {
+function StatusPicker({
+  detail,
+  viewerId,
+  onDone,
+}: {
+  detail: TicketDetail
+  viewerId: string | null
+  onDone: () => void
+}) {
   const [opened, setOpened] = useState(false)
   const [states, setStates] = useState<TeamState[] | null>(null)
   const [target, setTarget] = useState<TeamState | null>(null)
-  const m = useTicketMutation(() => {
+  const m = useTicketMutation(viewerId, () => {
     notifications.show({ message: `${detail.key} moved to ${target?.name ?? 'its new status'}.` })
     onDone()
   })
@@ -184,9 +193,11 @@ function StatusPicker({ detail, onDone }: { detail: TicketDetail; onDone: () => 
         testid="ticket-status-confirm"
       >
         <Stack gap="md">
-          <Text size="sm">
-            {m.view.kind === 'confirming' ? m.view.summary : 'This changes its status in Linear.'}
-          </Text>
+          {m.view.kind === 'confirming' ? (
+            <ApprovalNote approval={m.view.approval} />
+          ) : (
+            <Text size="sm">This changes its status in Linear.</Text>
+          )}
           <Group justify="flex-end" gap="xs">
             <Button variant="default" onClick={m.cancel}>
               Cancel
@@ -213,7 +224,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function StatusRow({ data, card, f }: { data: TicketData; card: AgentCard | null; f: SideFacts }) {
   const d = data.detail
   if (d && data.writeMode === 'gate' && d.state.id !== '')
-    return <StatusPicker detail={d} onDone={data.refresh} />
+    return <StatusPicker detail={d} viewerId={data.me.linearViewerId} onDone={data.refresh} />
   const name = f.state?.name ?? (card ? COLUMN_TITLE[card.column] : null)
   if (name === null) return null
   return (

@@ -259,7 +259,8 @@ function setup(o: { writes?: boolean; dir?: string; gh?: FakeGh } = {}) {
   return { gh, dir, autoMerge, exec, gate, write, account, onWrite: (f: () => void) => (beforeWrite = f) };
 }
 
-const merge = (over: Partial<Extract<PrMutation, { kind: "merge" }>> = {}): PrMutation => ({ kind: "merge", repo: REPO, number: N, method: "squash", intent: "merge", expectHead: H1, ...over });
+const merge = (over: Partial<Extract<PrMutation, { kind: "merge" }>> = {}): PrMutation => ({ kind: "merge", repo: REPO, number: N, method: "squash", intent: "merge", expectHead: H1, expectBase: "main", expectOutcome: "merge", ...over });
+const AUTO = { intent: "auto", expectOutcome: "auto" } as const;
 
 describe("GitHub PR writes: argv per op", () => {
   it("merges with the method and the head it saw, never --admin", async () => {
@@ -272,7 +273,7 @@ describe("GitHub PR writes: argv per op", () => {
   it("arms auto-merge with --auto, remembers the head, and turns it off with --disable-auto", async () => {
     const { gh, write, autoMerge } = setup();
     gh.pr.mergeStateStatus = "BLOCKED";
-    expect(await write(merge({ intent: "auto" }))).toMatchObject({ ok: true, outcome: { result: { merge: "autoMergeArmed" } } });
+    expect(await write(merge(AUTO))).toMatchObject({ ok: true, outcome: { result: { merge: "autoMergeArmed" } } });
     expect(autoMerge.armedHead(`${REPO}#42`)).toBe(H1);
     expect(await write({ kind: "autoMerge", repo: REPO, number: N, on: false, expectHead: H1 })).toMatchObject({ ok: true, outcome: { state: "done" } });
     expect(gh.writes()).toEqual([
@@ -341,12 +342,17 @@ describe("GitHub PR writes: refusals", () => {
     expect(gh.writes()).toEqual([]);
   });
 
-  it("refuses conflict when the base changed since the confirm, writing nothing", async () => {
+  it("refuses conflict when the base changed since Isaac confirmed, before or after prepare, writing nothing", async () => {
     const { gh, gate } = setup();
     const prepared = await gate.prepare(DEVICE, merge(), ME);
     gh.pr.base = "release";
     const answer = await gate.commit(DEVICE, { opId: opId(), mutation: merge(), approvalId: prepared.approval?.id ?? "" }, ME);
-    expect(answer.refused).toMatchObject({ code: "conflict", message: "Changed on GitHub since you confirmed. Check it and confirm again." });
+    expect(answer.refused).toMatchObject({ code: "conflict", message: "It now merges into release, not main. Check it and confirm again." });
+    expect((await gate.prepare(DEVICE, merge(), ME)).refused?.code).toBe("conflict");
+    gh.pr.base = "main";
+    gh.pr.mergeStateStatus = "BLOCKED";
+    expect((await gate.prepare(DEVICE, merge(AUTO), ME)).approval).toBeDefined();
+    expect((await gate.prepare(DEVICE, merge({ intent: "auto", expectOutcome: "queue" }), ME)).refused?.code).toBe("conflict");
     expect(gh.writes()).toEqual([]);
   });
 
@@ -369,7 +375,7 @@ describe("GitHub PR writes: refusals", () => {
   it("refuses conflict when the outcome changed since the confirm (auto-merge would now merge at once)", async () => {
     const { gh, gate } = setup();
     gh.pr.mergeStateStatus = "BLOCKED";
-    const m = merge({ intent: "auto" });
+    const m = merge(AUTO);
     const prepared = await gate.prepare(DEVICE, m, ME);
     expect(prepared.approval?.summary).toContain("Turn on auto-merge");
     gh.pr.mergeStateStatus = "CLEAN";
@@ -462,7 +468,7 @@ describe("GitHub PR writes: outcomes and desired state", () => {
     const { gh, write } = setup();
     gh.pr.queue = true;
     gh.pr.mergeStateStatus = "BLOCKED";
-    const answer = await write(merge({ intent: "auto" }));
+    const answer = await write(merge({ intent: "auto", expectOutcome: "queue" }));
     expect(answer).toMatchObject({ ok: true, outcome: { result: { merge: "queued" } } });
     expect(gh.writes()).toEqual([["pr", "merge", "42", "--repo", REPO, "--squash", "--match-head-commit", H1, "--auto"]]);
   });
@@ -588,7 +594,7 @@ describe("Relay-armed auto-merge", () => {
   it("turns auto-merge off when the head moves and flags the PR for attention", async () => {
     const { gh, dir, exec, autoMerge, write } = setup();
     gh.pr.mergeStateStatus = "BLOCKED";
-    await write(merge({ intent: "auto" }));
+    await write(merge(AUTO));
     gh.pr.head = H2;
     const watch = relayAutoMergeWatch(() => Promise.resolve(exec), autoMerge, () => undefined);
     const ref = { repo: REPO, number: N };

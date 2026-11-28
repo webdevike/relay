@@ -170,6 +170,9 @@ interface MergeAsk {
   readonly method: "merge" | "squash" | "rebase";
   readonly intent: "merge" | "auto";
   readonly expectHead: string;
+  /** The base and outcome Isaac confirmed (absent: turning auto-merge on, which binds the head only). */
+  readonly expectBase?: string;
+  readonly expectOutcome?: MergeOutcome;
 }
 type MergeRule = (pr: PrLive, m: MergeAsk) => Refusal | null;
 
@@ -178,6 +181,7 @@ const MERGE_RULES: readonly MergeRule[] = [
   (pr) => (pr.state === "MERGED" ? conflict("This PR is already merged") : null),
   (pr) => (pr.state !== "OPEN" ? invalid("This PR is closed") : null),
   (pr, m) => (pr.headSha !== m.expectHead ? conflict(`New commits since you looked (now ${short(pr.headSha)}). Check them and confirm again.`) : null),
+  (pr, m) => (m.expectBase !== undefined && pr.base !== m.expectBase ? conflict(`It now merges into ${pr.base}, not ${m.expectBase}. Check it and confirm again.`) : null),
   (pr) => (pr.draft ? invalid("This PR is a draft. Mark it ready for review first.") : null),
   (pr, m) => (WRITERS.has(pr.actions.viewerPermission ?? "") ? null : invalid(`Your GitHub account can't merge in ${m.repo}`)),
   (pr, m) => (pr.actions.mergeQueue.required && m.intent === "merge" ? conflict("This branch merges through a queue; use Add to merge queue") : null),
@@ -194,6 +198,7 @@ function checkMerge(pr: PrLive, m: MergeAsk): CheckResult {
     if (refused !== null) return refused;
   }
   const outcome = mergeOutcome(pr, m.intent);
+  if (m.expectOutcome !== undefined && outcome !== m.expectOutcome) return conflict(`GitHub would now ${OUTCOME_WORDS[outcome].toLowerCase()} instead. Check it and confirm again.`);
   const how = outcome === "queue" ? "" : ` (${m.method})`;
   return { ok: true, revision: `${pr.headSha}|${pr.base}|${outcome}`, summary: `${OUTCOME_WORDS[outcome]}: ${named(m, pr)} at ${short(pr.headSha)} into ${pr.base}${how}` };
 }

@@ -38,7 +38,7 @@ function commitResult(s: PrStep): CommitResult {
 const liveMachine = prMergeMachine.provide({
   actors: {
     prepare: fromPromise(async ({ input }) =>
-      prepareResult(await prPrepare(input.mutation as PrMutation)),
+      prepareResult(await prPrepare(input.mutation as PrMutation, input.login)),
     ),
     commit: fromPromise(async ({ input }) =>
       commitResult(await prCommit({ ...input, mutation: input.mutation as PrMutation })),
@@ -128,7 +128,7 @@ const selectContext = (s: { context: PrMergeContext }) => s.context
 function planOf(offer: MergeOffer, method: MergeMethod | null): Plan | null {
   if (offer.kind !== 'offer') return null
   const m = method && offer.methods.includes(method) ? method : firstMethod(offer)
-  return { method: m, intent: offer.intent, outcome: offer.outcome }
+  return { method: m, intent: offer.intent, outcome: offer.outcome, effect: offer.effect }
 }
 
 /** States a write lands in; arriving from `merging` or `disarming` reads the PR again. */
@@ -154,6 +154,7 @@ function useMerge(pr: ReviewPr, offer: MergeOffer, plan: Plan | null, onChanged:
     number: pr.number,
     base: pr.base,
     headSha: pr.headSha ?? '',
+    login: pr.actions?.viewerLogin ?? '',
   }
   const armed = offer.kind === 'armed' ? { method: offer.method, by: offer.by } : null
   const outcome = plan?.outcome ?? null

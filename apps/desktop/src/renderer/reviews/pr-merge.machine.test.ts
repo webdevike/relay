@@ -13,9 +13,14 @@ import {
 
 const HEAD = 'a'.repeat(40)
 const NEW_HEAD = 'b'.repeat(40)
-const PR: MergePr = { repo: 'o/r', number: 42, base: 'main', headSha: HEAD }
-const NOW = { method: 'squash', intent: 'merge', outcome: 'Merge now' } as const
-const AUTO = { method: 'squash', intent: 'auto', outcome: 'Turn on auto-merge' } as const
+const PR: MergePr = { repo: 'o/r', number: 42, base: 'main', headSha: HEAD, login: 'webdevike' }
+const NOW = { method: 'squash', intent: 'merge', outcome: 'Merge now', effect: 'merge' } as const
+const AUTO = {
+  method: 'squash',
+  intent: 'auto',
+  outcome: 'Turn on auto-merge',
+  effect: 'auto',
+} as const
 
 function start(
   prepare: (m: MergeMutation) => Promise<PrepareResult>,
@@ -26,7 +31,7 @@ function start(
   const actor = createActor(
     prMergeMachine.provide({
       actors: {
-        prepare: fromPromise(({ input }: { input: { mutation: MergeMutation } }) =>
+        prepare: fromPromise(({ input }: { input: { mutation: MergeMutation; login: string } }) =>
           prepares(input.mutation),
         ),
         commit: fromPromise(({ input }: { input: CommitInput }) => commits(input)),
@@ -42,7 +47,7 @@ const approve = (): Promise<PrepareResult> =>
 const value = (a: { getSnapshot(): { value: unknown } }) => a.getSnapshot().value
 
 describe('prMergeMachine', () => {
-  it('confirm prepares then commits once, bound to the confirmed head', async () => {
+  it('confirm prepares then commits once, bound to the confirmed head, base, outcome and login', async () => {
     const { actor, prepares, commits } = start(approve, () => Promise.resolve({ kind: 'merged' }))
     actor.send({ type: 'merge.start', pr: PR, plan: NOW })
     expect(value(actor)).toBe('confirming')
@@ -56,9 +61,16 @@ describe('prMergeMachine', () => {
       method: 'squash',
       intent: 'merge',
       expectHead: HEAD,
+      expectBase: 'main',
+      expectOutcome: 'merge',
     }
     expect(prepares).toHaveBeenCalledExactlyOnceWith(mutation)
-    expect(commits).toHaveBeenCalledExactlyOnceWith({ opId: 'op-1', approvalId: 'ap-1', mutation })
+    expect(commits).toHaveBeenCalledExactlyOnceWith({
+      opId: 'op-1',
+      approvalId: 'ap-1',
+      mutation,
+      login: 'webdevike',
+    })
   })
 
   it('cancel writes nothing', () => {
@@ -202,6 +214,7 @@ describe('prMergeMachine', () => {
       opId: 'op-9',
       approvalId: null,
       mutation: { kind: 'autoMerge', repo: 'o/r', number: 42, on: false, expectHead: HEAD },
+      login: 'webdevike',
     })
   })
 

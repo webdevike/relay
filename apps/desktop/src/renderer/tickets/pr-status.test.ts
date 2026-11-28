@@ -59,6 +59,7 @@ describe('prStatusOf by mergeStateStatus', () => {
 
 const SHA = 'a'.repeat(40)
 const ACTIONS: NonNullable<ReviewPr['actions']> = {
+  viewerLogin: 'webdevike',
   viewerPermission: 'WRITE',
   mergeable: 'MERGEABLE',
   mergeStateStatus: 'CLEAN',
@@ -118,16 +119,19 @@ describe('mergeOfferOf', () => {
       kind: 'offer',
       intent: 'merge',
       outcome: 'Merge now',
+      effect: 'merge',
       methods: ['merge', 'squash'],
     })
     expect(mergeOfferOf(prOf({ mergeStateStatus: 'BLOCKED' }))).toMatchObject({
       intent: 'auto',
       outcome: 'Turn on auto-merge',
+      effect: 'auto',
     })
     const queue = { required: true, inQueue: false, entryState: null }
     expect(mergeOfferOf(prOf({ mergeQueue: queue }))).toMatchObject({
       intent: 'auto',
       outcome: 'Add to merge queue',
+      effect: 'queue',
     })
   })
 

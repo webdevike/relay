@@ -203,6 +203,8 @@ export type MergeOffer =
       kind: 'offer'
       intent: 'merge' | 'auto'
       outcome: MergeOutcome
+      /** What it does (protocol `expectOutcome`): the host refuses when GitHub would now do another. */
+      effect: 'merge' | 'queue' | 'auto'
       /** The repository's allowed methods, in GitHub's order. */
       methods: PrMergeMethod[]
     }
@@ -229,10 +231,14 @@ const NO_MERGE: ReadonlyArray<(pr: ReviewPr, a: Actions) => string | null> = [
     a.mergeStateStatus === 'DIRTY' ? `Conflicts with ${pr.base}: resolve them first` : null,
 ]
 
-function outcomeOf(a: Actions): Pick<Extract<MergeOffer, { kind: 'offer' }>, 'intent' | 'outcome'> {
-  if (a.mergeQueue.required) return { intent: 'auto', outcome: 'Add to merge queue' }
-  if (MERGES_NOW[a.mergeStateStatus]) return { intent: 'merge', outcome: 'Merge now' }
-  return { intent: 'auto', outcome: 'Turn on auto-merge' }
+function outcomeOf(
+  a: Actions,
+): Pick<Extract<MergeOffer, { kind: 'offer' }>, 'intent' | 'outcome' | 'effect'> {
+  if (a.mergeQueue.required)
+    return { intent: 'auto', outcome: 'Add to merge queue', effect: 'queue' }
+  if (MERGES_NOW[a.mergeStateStatus])
+    return { intent: 'merge', outcome: 'Merge now', effect: 'merge' }
+  return { intent: 'auto', outcome: 'Turn on auto-merge', effect: 'auto' }
 }
 
 /** What the merge box offers for `pr`: hidden without host facts, the armed auto-merge, a reason, or one outcome. */

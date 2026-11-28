@@ -23,7 +23,8 @@ import { ConfirmPost, MutationNotice } from '../tickets/Composer'
 import { prSignalsOfReview, prStatusOf, type PrStatus } from '../tickets/pr-status'
 import { ticketPlace } from '../tickets/ticket-place'
 import { MergeBox } from './MergeBox'
-import { prWritesOn, usePrWrite } from './pr-write'
+import { ApprovalNote } from '../tickets/ApprovalNote'
+import { prLoginOf, prWritesOn, usePrWrite } from './pr-write'
 import { Avatar, RailSection } from './review-ui'
 
 const REVIEW_STATE: Record<string, { label: string; tone: string }> = {
@@ -106,7 +107,7 @@ function RequestReview({ pr, onChanged }: { pr: ReviewPr; onChanged: () => void 
   const [open, setOpen] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
   const [typed, setTyped] = useState('')
-  const write = usePrWrite(() => {
+  const write = usePrWrite(prLoginOf(pr), () => {
     notifications.show({ message: 'Review requested.', color: 'green' })
     setPicked([])
     setTyped('')
@@ -170,7 +171,13 @@ function RequestReview({ pr, onChanged }: { pr: ReviewPr; onChanged: () => void 
         opened={v.kind === 'confirming' || v.kind === 'committing'}
         title="Request review on GitHub?"
         text={logins.join(', ')}
-        note={v.kind === 'confirming' ? v.summary : `Asks them as you on ${pr.repo}#${pr.number}.`}
+        note={
+          v.kind === 'confirming' ? (
+            <ApprovalNote approval={v.approval} />
+          ) : (
+            `Asks them as you on ${pr.repo}#${pr.number}.`
+          )
+        }
         confirmLabel="Request review"
         busy={v.kind === 'committing'}
         onConfirm={write.confirm}
@@ -275,7 +282,7 @@ function CheckIcon({ state }: { state: string }) {
 function ChecksSection({ pr, onChanged }: { pr: ReviewPr; onChanged: () => void }) {
   const runs = checkRunsOf(pr)
   const [running, setRunning] = useState<string | null>(null)
-  const write = usePrWrite(() => {
+  const write = usePrWrite(prLoginOf(pr), () => {
     notifications.show({ message: `Re-running the failed jobs of ${running ?? 'the run'}.` })
     onChanged()
   })
