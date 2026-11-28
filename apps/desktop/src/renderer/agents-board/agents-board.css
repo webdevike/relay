@@ -190,7 +190,6 @@
   flex-direction: column;
   gap: var(--mantine-spacing-xs);
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 /* Status colors, each paired with its own glyph shape and the column's name. */
