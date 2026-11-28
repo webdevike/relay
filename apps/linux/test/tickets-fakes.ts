@@ -222,7 +222,7 @@ export interface StoreFileView {
 }
 
 /** `realGate`: the service's own MutationGate over `linear`'s gate ops instead of the `gate` mocks. */
-export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh; realGate?: boolean } = {}): TicketsHarness {
+export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh; realGate?: boolean; summaryWriter?: (prompt: string) => Promise<string> } = {}): TicketsHarness {
   let now = T0;
   const clock = new SimulatedClock();
   const budgets = providerBudgets(() => now);
@@ -249,6 +249,7 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
     log: () => undefined,
     sync: { clock, timing: { random: () => 0.5 } },
     ...(o.realGate === true ? {} : { gate }),
+    ...(o.summaryWriter && { summaryWriter: o.summaryWriter }),
   });
   service.onPush = (m) => pushes.push(m);
   return {

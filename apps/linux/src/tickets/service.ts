@@ -23,6 +23,7 @@ import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from
 import { LinearSync, type LinearViewer } from "./linear-sync";
 import { linearExecutor } from "./linear-writes";
 import { boundComments, boundTeams, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
+import { SummaryCache, type SummarySnapshot, type SummaryWriter } from "./summary";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
 
 export type TicketsPush = Extract<ServerMessage, { t: "tickets.snapshot" | "tickets.delta" | "tickets.status" }>;
@@ -54,6 +55,8 @@ export interface TicketsServiceDeps {
   readonly sync?: Pick<TicketsSyncOptions, "clock" | "timing">;
   /** Test seam; default: MutationGate over linearExecutor. */
   readonly gate?: TicketsGate;
+  /** Writes ticket summaries (`claudeWriter`); absent: `summary` answers an error. */
+  readonly summaryWriter?: SummaryWriter;
 }
 
 const UNAVAILABLE: Answer = { ok: false, error: "Not available yet" };
@@ -82,6 +85,7 @@ export class TicketsService implements TicketsRelaying {
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
   private readonly actor: TicketsSyncActor;
+  private readonly summaries: SummaryCache | null;
   private linearNames: readonly string[] = [];
   private errors: TicketsStatus["errors"] = { linear: null, github: null };
   /** The account changed (or was never confirmed this run): writes wait for a full cycle. */
@@ -100,6 +104,7 @@ export class TicketsService implements TicketsRelaying {
     this.writes = deps.writes;
     this.store = new TicketsStore(deps.dir, deps.now);
     this.handled = new HandledStore(deps.dir);
+    this.summaries = deps.summaryWriter === undefined ? null : new SummaryCache(deps.dir, deps.summaryWriter, deps.now);
     this.seen = new SeenStore(deps.dir);
     this.linear = new LinearSync({ gql: deps.gql, store: this.store, now: deps.now });
     this.github = new GithubSync(deps.ghGraphql, this.store);
@@ -161,7 +166,7 @@ export class TicketsService implements TicketsRelaying {
       handled: (o) => this.markHandled(o),
       prepare: (o) => this.gate.prepare({ deviceId }, o.mutation, o.viewerId),
       commit: (o) => this.commit(deviceId, o),
-      summary: () => UNAVAILABLE,
+      summary: (o) => this.summary(o.key),
       plan: () => UNAVAILABLE,
       replan: () => UNAVAILABLE,
     };
@@ -195,6 +200,20 @@ export class TicketsService implements TicketsRelaying {
   /** The published cards (each within MAX_CARD_BYTES) and the teams within MAX_TEAMS_BYTES: a frame within MAX_BOARD_FRAME_BYTES. */
   private board(): TicketsBoard {
     return { tickets: this.store.board(), teams: boundTeams(this.store.sync.teams) };
+  }
+
+  private async summary(key: string): Promise<Answer> {
+    if (this.summaries === null) return { ok: false, error: "Claude is not available on this host" };
+    const snapshot = this.summarySnapshot(key);
+    if (snapshot === undefined) return { ok: false, error: `${key} is not on the board` };
+    const s = await this.summaries.read(snapshot, () => this.summarySnapshot(key));
+    const summary = { key, text: s.text, at: s.at };
+    return s.error === null ? { ok: true, summary } : { ok: false, error: s.error.slice(0, 2000), summary };
+  }
+
+  private summarySnapshot(key: string): SummarySnapshot | undefined {
+    const entry = this.store.issue(key);
+    return entry && { entry, prs: prInputs(this.store, entry.ticket.prs).map((p) => p.facts) };
   }
 
   private async detail(key: string): Promise<Answer> {
@@ -439,6 +458,8 @@ export interface HostTicketsOptions {
   readonly budgets: Budgets;
   readonly writes: boolean;
   readonly log: (line: string) => void;
+  /** `claudeWriter` for ticket summaries. */
+  readonly summaryWriter: SummaryWriter;
 }
 
 /** gh signed out (as opposed to failing): its login is then nobody's. */
@@ -467,6 +488,7 @@ export function hostTicketsService(o: HostTicketsOptions): TicketsService {
     },
     budgets: o.budgets,
     writes: o.writes,
+    summaryWriter: o.summaryWriter,
     now: () => Date.now(),
     log: o.log,
   });
