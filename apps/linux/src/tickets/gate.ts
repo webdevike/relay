@@ -32,8 +32,12 @@ export type CheckResult =
   | { ok: false; code: "conflict" | "invalid"; message: string };
 
 export interface MutationExecutor<M> {
-  /** Reads live provider state; refuses when the mutation no longer applies. */
-  check(m: M): Promise<CheckResult>;
+  /**
+   * Reads live provider state; refuses when the mutation no longer applies. `known` (applyPlan):
+   * row opIds whose outcome the gate already holds; every other row must still be at its draft's
+   * revision.
+   */
+  check(m: M, known?: ReadonlySet<string>): Promise<CheckResult>;
   /** The write; idempotent by opId where the provider allows. Throws ProviderRejected when the provider said no. */
   run(m: M, opId: string): Promise<unknown>;
   /** After a lost response or a restart: whether the write took effect. */
@@ -79,6 +83,25 @@ interface CommitRequest {
 interface Authority {
   readonly viewerId: string;
   readonly deviceId: string;
+}
+/** A plan row a running batch holds: the change (hash), who, and its outcome once settled. */
+interface RowRun {
+  readonly hash: string;
+  readonly authority: Authority;
+  readonly done: Promise<RowOutcome | undefined>;
+}
+/** How one batch takes each of its rows. */
+interface RowClaim {
+  /** Decided now: done by an earlier op, or refused (another change holds the row). */
+  readonly known: Map<string, RowOutcome>;
+  /** Held by another running batch for the same change: its outcome is this row's. */
+  readonly joins: Map<string, Promise<RowOutcome | undefined>>;
+  /** Left unknown by an earlier op: reconciled, never sent. */
+  readonly check: TicketPlanRow[];
+  /** New or definitely failed before: sent. */
+  readonly send: TicketPlanRow[];
+  /** The rows this batch holds, released with their outcomes. */
+  readonly mine: Map<string, (row: RowOutcome | undefined) => void>;
 }
 
 /**
@@ -146,6 +169,8 @@ export class MutationGate {
   private readonly approvals: Approvals;
   private readonly ops: OpsStore;
   private readonly inflight = new Map<string, { hash: string; authority: Authority; answer: Promise<GateAnswer> }>();
+  /** Plan rows held by a running batch, by row opId (one batch per row at a time). */
+  private readonly rowRuns = new Map<string, RowRun>();
 
   constructor(private readonly deps: MutationGateDeps) {
     this.approvals = new Approvals(deps.now);
@@ -156,7 +181,7 @@ export class MutationGate {
   async prepare(ctx: GateContext, mutation: TicketMutation, viewerId: string): Promise<GateAnswer> {
     const pin = this.allowed(viewerId);
     if (!("generation" in pin)) return pin;
-    const checked = await this.check(pin, mutation);
+    const checked = await this.check(pin, mutation, this.knownRows(mutation, { viewerId: pin.viewerId, deviceId: ctx.deviceId }));
     if (!checked.ok) return checked.answer;
     if (!this.deps.current(pin)) return refuse("identity", STALE_PIN);
     // The confirm shows the whole change or nothing: too large to show in full is refused, never clipped.
@@ -209,9 +234,24 @@ export class MutationGate {
     return running.answer;
   }
 
-  private async check(pin: GatePin, m: TicketMutation): Promise<Checked | { ok: false; answer: GateAnswer }> {
+  /**
+   * applyPlan rows whose outcome the gate already holds or is settling (an earlier or running op of
+   * this account and device, same change): their own write moved the issue, so check() doesn't ask
+   * them to still be at the draft's revision; they are never sent again either.
+   */
+  private knownRows(m: TicketMutation, authority: Authority): ReadonlySet<string> {
+    if (m.kind !== "applyPlan") return new Set();
+    const prior = this.priorRows(m.rows, authority);
+    const held = (r: TicketPlanRow): boolean => {
+      const run = this.rowRuns.get(r.opId);
+      return run !== undefined && run.hash === rowHash(r) && sameAuthority(run.authority, authority);
+    };
+    return new Set(m.rows.filter((r) => held(r) || (prior.get(r.opId)?.state ?? "failed") !== "failed").map((r) => r.opId));
+  }
+
+  private async check(pin: GatePin, m: TicketMutation, known: ReadonlySet<string> = new Set()): Promise<Checked | { ok: false; answer: GateAnswer }> {
     try {
-      const checked = await pin.linear.check(m);
+      const checked = await pin.linear.check(m, known);
       return checked.ok ? checked : { ok: false, answer: refuse(checked.code, checked.message) };
     } catch (e) {
       return { ok: false, answer: { ok: false, error: errorText(e) } };
@@ -219,7 +259,7 @@ export class MutationGate {
   }
 
   private async fresh(ctx: GateContext, req: CommitRequest, pin: GatePin, hash: string): Promise<GateAnswer> {
-    const checked = await this.check(pin, req.mutation);
+    const checked = await this.check(pin, req.mutation, this.knownRows(req.mutation, { viewerId: pin.viewerId, deviceId: ctx.deviceId }));
     if (!checked.ok) return checked.answer;
     const needsApproval = ticketMutationConfirmed(req.mutation, checked.toStateType) || req.approvalId !== undefined;
     const refused = needsApproval ? this.spendApproval(ctx, req, { pin, hash, revision: checked.revision }) : null;
@@ -315,44 +355,102 @@ export class MutationGate {
   }
 
   /**
-   * Rows an earlier plan op of this account and device wrote (done) or may have written (unknown,
-   * reconciled now) are never sent again, whatever opId the batch has; only new rows and definite
-   * failures go out.
+   * Claims every row of a plan op before anything is awaited, so two overlapping batches never both
+   * send one row: a row another batch of this account and device is writing now is joined (its
+   * outcome is this row's), one an earlier op wrote is done, one an earlier op may have written is
+   * reconciled, never sent; only new rows and definite failures go out. The claim holds until the
+   * batch's outcome is known; its running record (written right after) keeps it across a restart.
    */
-  private async settlePrior(pin: GatePin, rows: readonly TicketPlanRow[], authority: Authority): Promise<{ known: Map<string, RowOutcome>; send: TicketPlanRow[] }> {
+  private claimRows(rows: readonly TicketPlanRow[], authority: Authority): RowClaim {
     const prior = this.priorRows(rows, authority);
-    const landed = await this.landed(
-      pin,
-      rows.filter((r) => prior.get(r.opId)?.state === "unknown"),
-    );
-    const known = new Map<string, RowOutcome>();
-    const send: TicketPlanRow[] = [];
+    const claim: RowClaim = { known: new Map(), joins: new Map(), check: [], send: [], mine: new Map() };
     for (const r of rows) {
+      const hash = rowHash(r);
+      const run = this.rowRuns.get(r.opId);
+      if (run !== undefined) {
+        this.joinRow(claim, r, run, { hash, authority });
+        continue;
+      }
       const p = prior.get(r.opId);
-      if (p === undefined || p.state === "failed") send.push(r);
-      else known.set(r.opId, landed.has(r.opId) ? landedRow(p) : p);
+      if (p?.state === "done") {
+        claim.known.set(r.opId, p);
+        continue;
+      }
+      (p?.state === "unknown" ? claim.check : claim.send).push(r);
+      const { promise, resolve } = Promise.withResolvers<RowOutcome | undefined>();
+      this.rowRuns.set(r.opId, { hash, authority, done: promise });
+      claim.mine.set(r.opId, resolve);
     }
-    return { known, send };
+    return claim;
   }
 
-  /** applyPlan's side effect: one record per batch with each row's outcome and identity (hash). */
-  private async writePlan(pin: GatePin, opId: string, m: PlanMutation, base: WriteBase): Promise<GateAnswer> {
-    const { known, send } = await this.settlePrior(pin, m.rows, base);
-    const rowsAs = (state: RowOutcome["state"], ran?: ReadonlyMap<string, RowOutcome>): RowOutcome[] =>
-      m.rows.map((r) => known.get(r.opId) ?? { ...(ran?.get(r.opId) ?? { key: r.key, opId: r.opId, state }), hash: rowHash(r) });
-    this.ops.put(opId, { ...base, state: "running", result: { rows: rowsAs("unknown") } });
-    let rec: OpRecord;
-    try {
-      const ran = send.length === 0 ? undefined : OpResult.safeParse(await pin.linear.run({ kind: "applyPlan", rows: send }, opId)).data?.rows;
-      // A run that answered without per-row outcomes wrote all it was given.
-      const rows = rowsAs(ran === undefined ? "done" : "unknown", ran && new Map(ran.map((r) => [r.opId, r])));
-      rec = { ...base, state: stateOf({ rows }), result: { rows } };
-    } catch (e) {
-      const rows = rowsAs(e instanceof StaleCredential || e instanceof ProviderRejected ? "failed" : "unknown");
-      rec = { ...base, state: stateOf({ rows }), result: { rows }, error: errorText(e) };
+  /** A row another batch is writing now: the same change waits for its outcome; another change is refused. */
+  private joinRow(claim: RowClaim, r: TicketPlanRow, run: RowRun, own: { hash: string; authority: Authority }): void {
+    if (run.hash === own.hash && sameAuthority(run.authority, own.authority)) claim.joins.set(r.opId, run.done);
+    else claim.known.set(r.opId, { key: r.key, opId: r.opId, state: "failed", error: "Another Apply is writing this row now. Check it, then try again." });
+  }
+
+  /** The claim's own rows are settled (and recorded): batches waiting on them get their outcomes. */
+  private release(claim: RowClaim, rows: ReadonlyMap<string, RowOutcome>): void {
+    for (const [opId, resolve] of claim.mine) {
+      this.rowRuns.delete(opId);
+      resolve(rows.get(opId));
     }
+    claim.mine.clear();
+  }
+
+  /** The batch's own rows: unknown ones reconciled, new ones sent; never a row another batch holds. */
+  private async ownRows(pin: GatePin, opId: string, claim: RowClaim): Promise<{ rows: Map<string, RowOutcome>; error?: string }> {
+    const landed = await this.landed(pin, claim.check);
+    const checked = claim.check.map((r): RowOutcome => ({ key: r.key, opId: r.opId, state: landed.has(r.opId) ? "done" : "unknown" }));
+    const sent = claim.send.length === 0 ? { rows: [] } : await this.sendRows(pin, opId, claim.send);
+    return { ...sent, rows: new Map([...checked, ...sent.rows].map((r) => [r.opId, r])) };
+  }
+
+  /** The side effect for these rows: each row's outcome, or all of them failed/unknown by the error. */
+  private async sendRows(pin: GatePin, opId: string, send: readonly TicketPlanRow[]): Promise<{ rows: RowOutcome[]; error?: string }> {
+    try {
+      const ran = OpResult.safeParse(await pin.linear.run({ kind: "applyPlan", rows: [...send] }, opId)).data?.rows;
+      // A run that answered without per-row outcomes wrote all it was given.
+      return { rows: ran ?? send.map((s) => ({ key: s.key, opId: s.opId, state: "done" })) };
+    } catch (e) {
+      const state = e instanceof StaleCredential || e instanceof ProviderRejected ? "failed" : "unknown";
+      return { rows: send.map((s) => ({ key: s.key, opId: s.opId, state })), error: errorText(e) };
+    }
+  }
+
+  /** Rows another batch was writing: its outcome (none: still unknown). */
+  private async joined(claim: RowClaim): Promise<Map<string, RowOutcome>> {
+    const rows = new Map<string, RowOutcome>();
+    for (const [opId, done] of claim.joins) {
+      const row = await done;
+      if (row !== undefined) rows.set(opId, row);
+    }
+    return rows;
+  }
+
+  /**
+   * applyPlan's side effect: one record per batch with each row's outcome and identity (hash). Its
+   * own rows are recorded and released before it waits on rows another batch holds, so two
+   * overlapping batches never wait on each other.
+   */
+  private async writePlan(pin: GatePin, opId: string, m: PlanMutation, base: WriteBase): Promise<GateAnswer> {
+    const claim = this.claimRows(m.rows, base);
+    const record = (settled: ReadonlyMap<string, RowOutcome>, error: string | undefined): OpRecord => {
+      const rows = m.rows.map((r) => ({ ...(settled.get(r.opId) ?? { key: r.key, opId: r.opId, state: "unknown" as const }), hash: rowHash(r) }));
+      return { ...base, state: stateOf({ rows }), result: { rows }, ...(error !== undefined && { error }) };
+    };
+    this.ops.put(opId, { ...record(claim.known, undefined), state: "running" });
+    let own: { rows: Map<string, RowOutcome>; error?: string } = { rows: new Map() };
+    try {
+      own = await this.ownRows(pin, opId, claim);
+      this.ops.put(opId, record(new Map([...claim.known, ...own.rows]), own.error));
+    } finally {
+      this.release(claim, own.rows);
+    }
+    const rec = record(new Map([...claim.known, ...own.rows, ...(await this.joined(claim))]), own.error);
     this.ops.put(opId, rec);
-    this.deps.log(`tickets gate: applyPlan ${opId}: ${rec.state} (${String(send.length)} of ${String(m.rows.length)} rows sent)`);
+    this.deps.log(`tickets gate: applyPlan ${opId}: ${rec.state} (${String(claim.send.length)} of ${String(m.rows.length)} rows sent)`);
     return answerOf(opId, rec);
   }
 

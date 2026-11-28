@@ -6,11 +6,12 @@
 // references; its confirm names the live keys and titles and carries the exact text and every plan
 // row. Creates pass `id: opId`, so a lost response is reconciled by reading that id. Reactions,
 // subscriptions and resolve are desired state: run() reads first and no-ops when already so.
-// applyPlan writes one issueUpdate per row; a row whose issue changed since the plan was drafted is
-// refused on its own, and a row already at its values (an earlier try) is done without a write. A
-// row's Relay-only start is never sent to Linear (the service saves it once the row is done); check()
-// refuses a row whose start would land after its due date (a field it doesn't change keeps Linear's
-// due date or the start the draft was made from).
+// applyPlan writes one issueUpdate per row. Every row the gate doesn't already hold an outcome for,
+// start-only rows included, must still be at the revision (`updatedAt`) the draft was made from,
+// both when it is confirmed and right before it is written; a changed row is refused (at confirm)
+// or failed on its own (at write), never applied. A row's Relay-only start is never sent to Linear
+// (the service saves it once the row is done); check() also refuses a row whose start would land
+// after its due date (a field it doesn't change keeps Linear's due date or the draft's start).
 
 import { createHash } from "node:crypto";
 import { TicketStateType, type TicketMutation, type TicketPlanRow } from "@relay/protocol";
@@ -25,7 +26,7 @@ type Of<K extends TicketMutation["kind"]> = Extract<TicketMutation, { kind: K }>
 type RowOutcome = NonNullable<OpResult["rows"]>[number];
 
 interface KindOps<M> {
-  check(m: M): Promise<CheckResult>;
+  check(m: M, known: ReadonlySet<string>): Promise<CheckResult>;
   run(m: M, opId: string): Promise<OpResult>;
   reconcile(m: M, opId: string): Promise<"done" | "notDone">;
 }
@@ -128,6 +129,7 @@ const excerpt = (s: string): string => {
 };
 const invalid = (message: string): CheckResult => ({ ok: false, code: "invalid", message });
 const GONE = "It's gone from Linear or you can't see it";
+const CHANGED_SINCE_PLAN = "Changed in Linear since the plan was made";
 
 async function ask<T extends z.ZodTypeAny>(gql: LinearGql, query: string, variables: Record<string, unknown>, schema: T): Promise<z.infer<T>> {
   const parsed = schema.safeParse(await gql(query, variables));
@@ -168,12 +170,13 @@ function rowChange(row: TicketPlanRow): string {
   return parts.join(", ") || "no change";
 }
 
+/** Writes one plan row, only from the revision it was drafted at; no Linear field: done without a write. */
 async function applyRow(gql: LinearGql, row: TicketPlanRow, live: PlanIssue | undefined): Promise<RowOutcome> {
   const base = { key: row.key, opId: row.opId };
   if (live === undefined) return { ...base, state: "failed", error: GONE };
+  if (Date.parse(live.updatedAt) !== row.baseUpdatedAt) return { ...base, state: "failed", error: CHANGED_SINCE_PLAN };
   const input = rowChanges(row, live);
   if (Object.keys(input).length === 0) return { ...base, state: "done" };
-  if (Date.parse(live.updatedAt) !== row.baseUpdatedAt) return { ...base, state: "failed", error: "Changed in Linear since the plan was made" };
   try {
     await mutate(gql, ISSUE_UPDATE, { id: row.issueId, input });
     return { ...base, state: "done" };
@@ -506,19 +509,28 @@ function createOps(gql: LinearGql): KindOps<Of<"createIssue">> {
   };
 }
 
-/** Why one row can't be written: its id isn't the issue its key names (or is gone), or its dates clash. */
-function rowProblem(row: TicketPlanRow, issue: PlanIssue | undefined): string | null {
-  if (issue === undefined) return `${row.key}: ${GONE}`;
-  if (issue.identifier !== row.key) return `${row.key} isn't that issue in Linear (it is ${issue.identifier}). Make the plan again.`;
+/**
+ * Why one row can't be written: its id isn't the issue its key names (or is gone), it changed in
+ * Linear since the draft (unless the gate already holds its outcome: `known`), or its dates clash.
+ */
+function rowProblem(row: TicketPlanRow, issue: PlanIssue | undefined, known: ReadonlySet<string>): CheckResult | null {
+  if (issue === undefined) return invalid(`${row.key}: ${GONE}`);
+  if (issue.identifier !== row.key) return invalid(`${row.key} isn't that issue in Linear (it is ${issue.identifier}). Make the plan again.`);
+  if (!known.has(row.opId) && Date.parse(issue.updatedAt) !== row.baseUpdatedAt) return { ok: false, code: "conflict", message: `${row.key}: ${CHANGED_SINCE_PLAN}` };
+  return datesProblem(row, issue);
+}
+
+/** The start and due date the row leaves (a field it doesn't change keeps Linear's or the draft's). */
+function datesProblem(row: TicketPlanRow, issue: PlanIssue): CheckResult | null {
   const start = row.plannedStart === undefined ? (row.basePlannedStart ?? null) : row.plannedStart;
   const due = row.dueDate === undefined ? issue.dueDate : row.dueDate;
-  return validPair(start, due) ? null : `${row.key}: its start (${start ?? "none"}) would be after its due date (${due ?? "none"})`;
+  return validPair(start, due) ? null : invalid(`${row.key}: its start (${start ?? "none"}) would be after its due date (${due ?? "none"})`);
 }
 
 /** The first row that can't be written as drafted. */
-function planProblem(rows: readonly TicketPlanRow[], live: ReadonlyMap<string, PlanIssue>): string | null {
+function planProblem(rows: readonly TicketPlanRow[], live: ReadonlyMap<string, PlanIssue>, known: ReadonlySet<string>): CheckResult | null {
   for (const row of rows) {
-    const problem = rowProblem(row, live.get(row.issueId));
+    const problem = rowProblem(row, live.get(row.issueId), known);
     if (problem !== null) return problem;
   }
   return null;
@@ -537,10 +549,10 @@ async function landedPlanRows(gql: LinearGql, rows: readonly TicketPlanRow[]): P
 
 function planOps(gql: LinearGql): KindOps<Of<"applyPlan">> {
   return {
-    async check(m) {
+    async check(m, known) {
       const live = await planIssues(gql, m.rows);
-      const problem = planProblem(m.rows, live);
-      if (problem !== null) return invalid(problem);
+      const problem = planProblem(m.rows, live, known);
+      if (problem !== null) return problem;
       const issues = m.rows.map((r) => live.get(r.issueId)).filter((i): i is PlanIssue => i !== undefined);
       const revision = createHash("sha256").update(issues.map((i) => `${i.id}@${i.updatedAt}`).join(",")).digest("hex");
       const rows = m.rows.map((r, i) => ({ key: issues[i]?.identifier ?? r.key, title: issues[i]?.title ?? "", change: rowChange(r) }));
@@ -581,7 +593,7 @@ export function linearExecutor(raw: LinearGql, viewerId: () => string | null, gu
   };
   const ops = (m: TicketMutation): KindOps<TicketMutation> => table[m.kind] as unknown as KindOps<TicketMutation>;
   return {
-    check: (m) => ops(m).check(m),
+    check: (m, known = new Set()) => ops(m).check(m, known),
     run: (m, opId) => ops(m).run(m, opId),
     reconcile: (m, opId) => ops(m).reconcile(m, opId),
     reconcileRows: (rows) => landedPlanRows(gql, rows),

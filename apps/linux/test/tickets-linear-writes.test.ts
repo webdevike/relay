@@ -1,7 +1,7 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MAX_TICKET_PLAN_ROWS, MAX_TICKET_TEXT, type TicketMutation } from "@relay/protocol";
 import { linearGql } from "../src/reviews/linear";
 import { StaleCredential } from "../src/tickets/errors";
@@ -602,34 +602,130 @@ describe("applyPlan", () => {
     { key: "ENG-3", issueId: "issue-3", opId: ROW_C, priority: 3 },
   ];
 
-  it("keeps per-row outcomes on a partial failure; a retry with the same row opIds doesn't rewrite succeeded rows", async () => {
+  it("refuses at confirm a row (start-only too) whose issue changed in Linear since the draft, writing nothing", async () => {
     const { gate, linear } = setup();
     linear.issues.get("issue-2")!.updatedAt = new Date(T0 + 5000).toISOString();
+    const res = await gate.prepare(DEVICE, plan(rows), ACTOR);
+    expect(res.refused).toEqual({ code: "conflict", message: "ENG-2: Changed in Linear since the plan was made" });
+    const startOnly: TicketMutation = { kind: "applyPlan", rows: [{ key: "ENG-2", issueId: "issue-2", opId: ROW_B, baseUpdatedAt: T0, plannedStart: "2026-11-30", basePlannedStart: null }] };
+    expect((await gate.prepare(DEVICE, startOnly, ACTOR)).refused?.code).toBe("conflict");
+    expect(linear.mutations()).toEqual([]);
+  });
+
+  it("fails a row (start-only too) that changed between the confirm and its write, on its own", async () => {
+    const { exec, linear } = setup();
+    linear.issues.get("issue-2")!.updatedAt = new Date(T0 + 5000).toISOString();
+    const m: TicketMutation = {
+      kind: "applyPlan",
+      rows: [
+        { key: "ENG-1", issueId: "issue-1", opId: ROW_A, baseUpdatedAt: T0, priority: 1 },
+        { key: "ENG-2", issueId: "issue-2", opId: ROW_B, baseUpdatedAt: T0, plannedStart: "2026-11-30", basePlannedStart: null },
+      ],
+    };
+    expect(await exec.run(m, OP1)).toEqual({
+      rows: [
+        { key: "ENG-1", opId: ROW_A, state: "done" },
+        { key: "ENG-2", opId: ROW_B, state: "failed", error: "Changed in Linear since the plan was made" },
+      ],
+    });
+    expect(linear.mutations("TicketIssueUpdate").map((c) => c.vars["id"])).toEqual(["issue-1"]);
+  });
+
+  it("keeps per-row outcomes on a partial failure; a retry with the same row opIds doesn't rewrite succeeded rows", async () => {
+    const { gate, linear } = setup();
+    const two = [rows[0]!, rows[2]!];
     linear.fault = (op, v) => (op === "TicketIssueUpdate" && v["id"] === "issue-3" ? "reject" : undefined);
-    const first = await confirmAndCommit(gate, plan(rows), OP1);
+    const first = await confirmAndCommit(gate, plan(two), OP1);
     expect(first.outcome).toEqual({
       opId: OP1,
       state: "failed",
       result: {
         rows: [
           { key: "ENG-1", opId: ROW_A, state: "done" },
-          { key: "ENG-2", opId: ROW_B, state: "failed", error: "Changed in Linear since the plan was made" },
           { key: "ENG-3", opId: ROW_C, state: "failed", error: "Linear refused issueUpdate" },
         ],
       },
     });
     expect(first).toMatchObject({ ok: false, error: "Not every change was written" });
     linear.fault = () => undefined;
-    const retry = await confirmAndCommit(gate, plan([rows[0]!, rows[2]!]), OP2);
+    // ENG-1 moved in Linear by its own write: the gate knows its outcome, so the confirm still passes.
+    const retry = await confirmAndCommit(gate, plan(two), OP2);
     expect(retry.outcome?.state).toBe("done");
     expect(retry.outcome?.result?.rows?.map((r) => [r.opId, r.state])).toEqual([
       [ROW_A, "done"],
       [ROW_C, "done"],
     ]);
-    const writes = linear.mutations("TicketIssueUpdate").map((c) => c.vars["id"]);
-    expect(writes).toEqual(["issue-1", "issue-3", "issue-3"]);
-    expect(linear.mutations("TicketIssueUpdate").filter((c) => c.vars["id"] === "issue-1")).toHaveLength(1);
+    expect(linear.mutations("TicketIssueUpdate").map((c) => c.vars["id"])).toEqual(["issue-1", "issue-3", "issue-3"]);
     expect(linear.issues.get("issue-3")!.priority).toBe(3);
+  });
+
+  /** A gate over `linear` whose Linear calls can be held: `hold(q)` answers a promise to wait on first, or null. */
+  function heldGate(linear: FakeLinear, hold: (query: string) => Promise<void> | null) {
+    const dir = mkdtempSync(join(tmpdir(), "tickets-linear-"));
+    const gql = async (q: string, v: Record<string, unknown>): Promise<unknown> => {
+      await hold(q);
+      return linear.gql(q, v);
+    };
+    const gate = new MutationGate({ dir, writesEnabled: () => true, pin: () => ({ viewerId: ME, generation: 1, credential: "key-1", linear: linearExecutor(gql, () => ME) }), current: () => true, now: () => T0, log: () => undefined });
+    return { gate, dir };
+  }
+
+  async function overlap(gate: MutationGate) {
+    const m = plan([rows[0]!]);
+    const a = await gate.prepare(DEVICE, m, ACTOR);
+    const b = await gate.prepare(DEVICE, m, ACTOR);
+    return { m, a: a.approval!.id, b: b.approval!.id };
+  }
+
+  it("two overlapping approved batches for one row, live checks released together: one issueUpdate, both answer its outcome", async () => {
+    const linear = new FakeLinear();
+    // A Linear read barrier: both commits' live checks wait, then return at once.
+    const reads = Promise.withResolvers<void>();
+    let holding = false;
+    let held = 0;
+    const { gate } = heldGate(linear, (q) => {
+      if (!holding || !q.includes("TicketPlanIssues")) return null;
+      held += 1;
+      return reads.promise;
+    });
+    const { m, a, b } = await overlap(gate);
+    holding = true;
+    const first = gate.commit(DEVICE, { approvalId: a, opId: OP1, mutation: m }, ACTOR);
+    const second = gate.commit(DEVICE, { approvalId: b, opId: OP2, mutation: m }, ACTOR);
+    await vi.waitFor(() => {
+      expect(held).toBe(2);
+    });
+    holding = false;
+    reads.resolve();
+    const [one, two] = await Promise.all([first, second]);
+    expect(linear.mutations("TicketIssueUpdate")).toHaveLength(1);
+    expect(one.outcome?.result?.rows).toEqual([{ key: "ENG-1", opId: ROW_A, state: "done" }]);
+    expect(two.outcome?.result?.rows).toEqual([{ key: "ENG-1", opId: ROW_A, state: "done" }]);
+  });
+
+  it("a batch arriving while another holds its row's issueUpdate joins it instead of sending", async () => {
+    const linear = new FakeLinear();
+    // A Linear update barrier: the first issueUpdate waits until the second batch has claimed.
+    const update = Promise.withResolvers<void>();
+    const reached = Promise.withResolvers<void>();
+    const { gate, dir } = heldGate(linear, (q) => {
+      if (!q.startsWith("mutation TicketIssueUpdate")) return null;
+      reached.resolve();
+      return update.promise;
+    });
+    const { m, a, b } = await overlap(gate);
+    const first = gate.commit(DEVICE, { approvalId: a, opId: OP1, mutation: m }, ACTOR);
+    await reached.promise;
+    const second = gate.commit(DEVICE, { approvalId: b, opId: OP2, mutation: m }, ACTOR);
+    // Its running record is on disk: it passed its live check and claimed while the first update waits.
+    await vi.waitFor(() => {
+      expect(readFileSync(join(dir, "ops.json"), "utf8")).toContain(OP2);
+    });
+    update.resolve();
+    const [one, two] = await Promise.all([first, second]);
+    expect(linear.mutations("TicketIssueUpdate")).toHaveLength(1);
+    expect(one.outcome?.result?.rows).toEqual([{ key: "ENG-1", opId: ROW_A, state: "done" }]);
+    expect(two.outcome?.result?.rows).toEqual([{ key: "ENG-1", opId: ROW_A, state: "done" }]);
   });
 
   it("answers the stored outcome for the same opId and reconciles a lost row write without rewriting it", async () => {

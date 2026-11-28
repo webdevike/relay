@@ -102,6 +102,8 @@ export class TicketsService implements TicketsRelaying {
   private readonly seen: SeenStore;
   private readonly anchors: AnchorStore;
   private readonly plan: PlanStore;
+  /** Relay starts a running plan commit holds (`viewerId issueId` -> its batch opId). */
+  private readonly startHolds = new Map<string, string>();
   private readonly linear: LinearSync;
   private readonly github: GithubSync;
   private readonly gate: TicketsGate;
@@ -321,12 +323,46 @@ export class TicketsService implements TicketsRelaying {
   }
 
   private async commit(deviceId: string, op: Op<"commit">): Promise<Answer> {
-    const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.viewerId);
     const m = op.mutation;
+    if (m.kind === "applyPlan") return this.commitPlan(deviceId, op, m.rows);
+    const answer = await this.gateCommit(deviceId, op);
     if (m.kind === "comment") this.keepAnchor(m, op.opId, answer);
+    return answer;
+  }
+
+  private async gateCommit(deviceId: string, op: Op<"commit">): Promise<Answer> {
+    const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.viewerId);
     // The board shows the write once Linear has it (any plan row of it): one coalesced cycle.
     if (answer.outcome?.result?.rows?.some((r) => r.state === "done") ?? answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
-    return m.kind === "applyPlan" ? this.saveStarts(op.viewerId, m.rows, answer) : answer;
+    return answer;
+  }
+
+  /**
+   * A plan's Relay starts are held for the whole commit (another batch changing one of them waits
+   * its turn: refused), and a confirmed commit rechecks them before anything goes to Linear: a start
+   * another device moved since the confirm refuses the plan with nothing written. A batch's own
+   * saved starts (a replayed outcome) pass.
+   */
+  private async commitPlan(deviceId: string, op: Op<"commit">, rows: readonly TicketPlanRow[]): Promise<Answer> {
+    const starts = rows.filter((r) => r.plannedStart !== undefined).map((r) => ({ row: r, hold: `${op.viewerId} ${r.issueId}` }));
+    const busy = starts.find((s) => (this.startHolds.get(s.hold) ?? op.opId) !== op.opId);
+    if (busy !== undefined) return { ok: false, refused: { code: "conflict", message: `${busy.row.key}: another Apply is changing its Relay start right now` } };
+    const moved = op.approvalId === undefined ? undefined : rows.find((r) => this.startMoved(op.viewerId, r));
+    if (moved !== undefined) return { ok: false, refused: { code: "conflict", message: `${moved.key}: ${START_MOVED}` } };
+    for (const s of starts) this.startHolds.set(s.hold, op.opId);
+    try {
+      return this.saveStarts(op.viewerId, rows, await this.gateCommit(deviceId, op));
+    } finally {
+      for (const s of starts) if (this.startHolds.get(s.hold) === op.opId) this.startHolds.delete(s.hold);
+    }
+  }
+
+  /** Whether another device moved this row's Relay start since its draft (its own saved start: no). */
+  private startMoved(viewerId: string, r: TicketPlanRow): boolean {
+    if (r.plannedStart === undefined && r.basePlannedStart === undefined) return false;
+    if (this.plan.applied(viewerId, r.opId)) return false;
+    const now = this.plan.get(viewerId, r.issueId);
+    return now !== (r.basePlannedStart ?? null) && (r.plannedStart === undefined || now !== r.plannedStart);
   }
 
   /**

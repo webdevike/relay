@@ -492,29 +492,48 @@ describe("Timeline plan through the real gate: Relay starts and per-row retries"
     expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
   });
 
-  it("refuses a plan made from a Relay start another device moved, and doesn't overwrite one moved between confirm and commit", async () => {
+  it("refuses a plan made from a Relay start another device moved, at confirm and again at commit before any Linear write", async () => {
     const ctl = planLinear();
     const h = await host(ctl);
     await apply(h, [row("ENG-1", 1, { plannedStart: "2026-12-01", basePlannedStart: null })], BATCH(1), "phone");
     expect((await apply(h, [row("ENG-1", 2, { plannedStart: "2026-12-05", basePlannedStart: null })], BATCH(2))).refused?.code).toBe("conflict");
-    const mine = [row("ENG-1", 3, { plannedStart: "2026-12-05", basePlannedStart: "2026-12-01" })];
+    // A mixed row confirmed against 2026-12-01; the phone moves the start before the desk commits.
+    const mine = [row("ENG-1", 3, { dueDate: "2026-12-09", plannedStart: "2026-12-05", basePlannedStart: "2026-12-01" })];
     const confirm = await h.service.handle("desk", { kind: "prepare", viewerId: ME, mutation: plan(mine) });
+    expect(confirm.approval).toBeDefined();
     await apply(h, [row("ENG-1", 4, { plannedStart: "2026-12-02", basePlannedStart: "2026-12-01" })], BATCH(3), "phone");
     const res = await h.service.handle("desk", { kind: "commit", viewerId: ME, approvalId: confirm.approval?.id ?? "", opId: BATCH(4), mutation: plan(mine) });
-    expect(res.outcome?.result?.rows?.[0]).toMatchObject({ state: "failed", error: expect.stringContaining("changed on another device") });
+    expect(res.refused).toEqual({ code: "conflict", message: expect.stringContaining("changed on another device") });
+    // The due date never went to Linear; the phone's start stands.
+    expect(updates(ctl)).toBe(0);
     expect(await starts(h)).toMatchObject({ "ENG-1": "2026-12-02" });
+  });
+
+  it("refuses a start-only row whose issue changed in Linear after the board was cached: plan.json stays as it was", async () => {
+    const ctl = planLinear();
+    const h = await host(ctl);
+    const before = existsSync(join(h.dir, "plan.json")) ? readFileSync(join(h.dir, "plan.json"), "utf8") : null;
+    // Linear moved on; the host's published board (and the device's draft) still has the old revision.
+    ctl.issues.get("id-ENG-1")!.updatedAt = new Date(T0 + 5_000).toISOString();
+    const res = await apply(h, [row("ENG-1", 1, { plannedStart: "2026-11-25", basePlannedStart: null })], BATCH(1));
+    expect(res.refused).toEqual({ code: "conflict", message: "ENG-1: Changed in Linear since the plan was made" });
+    expect(updates(ctl)).toBe(0);
+    expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
+    expect(existsSync(join(h.dir, "plan.json")) ? readFileSync(join(h.dir, "plan.json"), "utf8") : null).toBe(before);
   });
 
   it("refuses Relay starts with writes off, for another account, for an issue its key doesn't name, and a start after the unchanged due date", async () => {
     const ctl = planLinear();
     const off = await host(ctl, { writes: false });
     expect((await apply(off, [row("ENG-1", 1, { plannedStart: "2026-12-01", basePlannedStart: null })], BATCH(1))).refused?.code).toBe("writesOff");
-    const h = await host(planLinear());
+    const live = planLinear();
+    const h = await host(live);
     expect((await h.service.handle("desk", { kind: "prepare", viewerId: "user-old", mutation: plan([row("ENG-1", 1, { plannedStart: "2026-12-01" })]) })).refused?.code).toBe("identity");
     expect((await apply(h, [row("ENG-1", 1, { issueId: "id-ENG-2", plannedStart: "2026-12-01" })], BATCH(1))).refused?.code).toBe("invalid");
     expect((await apply(h, [row("ENG-9", 1, { plannedStart: "2026-12-01" })], BATCH(1))).refused?.code).toBe("invalid");
     await apply(h, [row("ENG-1", 2, { dueDate: "2026-12-09" })], BATCH(2));
-    expect((await apply(h, [row("ENG-1", 3, { plannedStart: "2026-12-10", basePlannedStart: null })], BATCH(3))).refused?.message).toContain("would be after its due date");
+    const after = Date.parse(live.issues.get("id-ENG-1")!.updatedAt);
+    expect((await apply(h, [row("ENG-1", 3, { baseUpdatedAt: after, plannedStart: "2026-12-10", basePlannedStart: null })], BATCH(3))).refused?.message).toContain("would be after its due date");
     expect(await starts(h)).toEqual({ "ENG-1": null, "ENG-2": null });
   });
 
