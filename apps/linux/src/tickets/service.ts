@@ -22,7 +22,7 @@ import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
 import { linearExecutor } from "./linear-writes";
-import { boundComments, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
+import { boundComments, boundTeams, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
 import type { IdentifyOutput, LinearStepOutput } from "./sync.machine";
 
 export type TicketsPush = Extract<ServerMessage, { t: "tickets.snapshot" | "tickets.delta" | "tickets.status" }>;
@@ -192,8 +192,9 @@ export class TicketsService implements TicketsRelaying {
     return { ok: true, board: this.board(), rev: this.store.rev, status: this.status() };
   }
 
+  /** The published cards (each within MAX_CARD_BYTES) and the teams within MAX_TEAMS_BYTES: a frame within MAX_BOARD_FRAME_BYTES. */
   private board(): TicketsBoard {
-    return { tickets: this.store.board(), teams: [...this.store.sync.teams] };
+    return { tickets: this.store.board(), teams: boundTeams(this.store.sync.teams) };
   }
 
   private async detail(key: string): Promise<Answer> {

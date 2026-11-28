@@ -26,6 +26,87 @@ export const MAX_STORED_COMMENTS_BYTES = 32 * 1024;
 /** UTF-8 bytes one cached issue or PR takes serialized: quotes, reactions, links and metadata included. */
 export const MAX_STORED_ENTRY_BYTES = 64 * 1024;
 
+/** UTF-8 bytes one board card takes serialized (it carries no description or comments). */
+export const MAX_CARD_BYTES = 16 * 1024;
+/** UTF-8 bytes of the teams a board answer or snapshot carries. */
+export const MAX_TEAMS_BYTES = 256 * 1024;
+/** A whole board frame (`tickets.snapshot`, `tickets.delta`, a `board` answer) serialized: every card at its cap, the teams and the status. */
+export const MAX_BOARD_FRAME_BYTES = MAX_TICKETS * MAX_CARD_BYTES + MAX_TEAMS_BYTES + 64 * 1024;
+/** UTF-8 bytes a card's waiting previews and, once its lists are gone, its titles and names keep. */
+const CARD_NAME_BYTES = 100;
+
+/**
+ * A card `size` bytes over the cap with its link, label and PR lists cut to the share that fits
+ * (at least halved, so it ends); null when they are empty.
+ */
+function shrinkCardLists(c: TicketBoardFacts, size: number): TicketBoardFacts | null {
+  const longest = Math.max(c.children.length, c.relations.length, c.labels.length, c.prFacts.length);
+  if (longest === 0) return null;
+  const n = Math.min(Math.floor(longest / 2), Math.floor((longest * MAX_CARD_BYTES) / size));
+  return { ...c, children: c.children.slice(0, n), relations: c.relations.slice(0, n), labels: c.labels.slice(0, n), prFacts: c.prFacts.slice(0, n) };
+}
+
+/** A card's free text cut to CARD_NAME_BYTES each (the last resort; ids, keys and dates stay whole). */
+function shortNames(c: TicketBoardFacts): TicketBoardFacts {
+  const cut = (s: string): string => clipBytes(s, CARD_NAME_BYTES);
+  const person = (p: TicketBoardFacts["assignee"]): TicketBoardFacts["assignee"] => (p === null ? null : { ...p, name: cut(p.name) });
+  const needsYou = c.attention.needsYou === null ? null : { ...c.attention.needsYou, text: cut(c.attention.needsYou.text), action: { ...c.attention.needsYou.action, label: cut(c.attention.needsYou.action.label) } };
+  return {
+    ...c,
+    title: cut(c.title),
+    state: { ...c.state, name: cut(c.state.name) },
+    assignee: person(c.assignee),
+    creator: person(c.creator),
+    project: c.project === null ? null : { ...c.project, name: cut(c.project.name) },
+    milestone: c.milestone === null ? null : { ...c.milestone, name: cut(c.milestone.name) },
+    parent: c.parent === null ? null : { ...c.parent, title: cut(c.parent.title) },
+    attention: { ...c.attention, needsYou },
+  };
+}
+
+/** A card's waiting mentions as previews: excerpts, quotes and authors' names cut to CARD_NAME_BYTES. */
+function previews(c: TicketBoardFacts): TicketBoardFacts {
+  const cut = (s: string): string => clipBytes(s, CARD_NAME_BYTES);
+  const waiting = c.attention.waiting.map((w) => ({ ...w, excerpt: cut(w.excerpt), author: { ...w.author, name: cut(w.author.name) }, anchor: w.anchor.kind === "inline" ? { ...w.anchor, quotedText: cut(w.anchor.quotedText) } : w.anchor }));
+  return { ...c, attention: { ...c.attention, waiting } };
+}
+
+/**
+ * A board card at most MAX_CARD_BYTES serialized, with its JSON. Its waiting mentions are always
+ * previews (the ticket page has them whole); over the cap, in order until it fits: its link, label
+ * and PR lists are cut, its titles and names are cut, and last its waiting mentions are halved.
+ * Deterministic.
+ */
+export function boundCard(card: TicketBoardFacts): { card: TicketBoardFacts; json: string } {
+  let cur = previews(card);
+  let json = JSON.stringify(cur);
+  // A UTF-16 unit is at most 3 UTF-8 bytes: most cards need no encoding to know they fit.
+  if (json.length * 3 <= MAX_CARD_BYTES) return { card: cur, json };
+  for (let size = Buffer.byteLength(json, "utf8"); size > MAX_CARD_BYTES; size = jsonBytes(cur)) {
+    const next = shrinkCardLists(cur, size);
+    if (next === null) break;
+    cur = next;
+  }
+  if (jsonBytes(cur) > MAX_CARD_BYTES) cur = shortNames(cur);
+  // Waiting mentions go last: they are what the card is for.
+  while (cur.attention.waiting.length > 0 && jsonBytes(cur) > MAX_CARD_BYTES) cur = { ...cur, attention: { ...cur.attention, waiting: cur.attention.waiting.slice(0, Math.floor(cur.attention.waiting.length / 2)) } };
+  json = JSON.stringify(cur);
+  return { card: cur, json };
+}
+
+/** The teams within MAX_TEAMS_BYTES serialized: the first ones that fit, in order. */
+export function boundTeams(teams: readonly TicketTeam[]): TicketTeam[] {
+  const kept: TicketTeam[] = [];
+  let total = 2;
+  for (const team of teams) {
+    const size = jsonBytes(team) + 1;
+    if (total + size > MAX_TEAMS_BYTES) break;
+    total += size;
+    kept.push(team);
+  }
+  return kept;
+}
+
 /** A comment's reactions as the cache keeps them: 10 emoji, 10 people each. */
 const fewReactions = (c: TicketComment): TicketComment =>
   c.reactions.length <= 10 && c.reactions.every((r) => r.users.length <= 10) ? c : { ...c, reactions: c.reactions.slice(0, 10).map((r) => ({ ...r, users: r.users.slice(0, 10) })) };
@@ -364,8 +445,7 @@ export class TicketsStore {
     this.cap(keep);
     const upserts: TicketBoardFacts[] = [];
     for (const entry of this.issues.values()) {
-      const card = facts(entry);
-      const json = JSON.stringify(card);
+      const { card, json } = boundCard(facts(entry));
       if (this.published.get(card.key)?.json === json) continue;
       this.published.set(card.key, { json, card });
       upserts.push(card);
@@ -386,8 +466,8 @@ export class TicketsStore {
   markPublished(facts: (entry: IssueEntry) => TicketBoardFacts): void {
     this.published.clear();
     for (const entry of this.issues.values()) {
-      const card = facts(entry);
-      this.published.set(card.key, { json: JSON.stringify(card), card });
+      const { card, json } = boundCard(facts(entry));
+      this.published.set(card.key, { json, card });
     }
   }
 
