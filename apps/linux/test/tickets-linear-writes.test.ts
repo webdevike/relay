@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { TicketMutation } from "@relay/protocol";
+import { MAX_TICKET_PLAN_ROWS, MAX_TICKET_TEXT, type TicketMutation } from "@relay/protocol";
 import { linearGql } from "../src/reviews/linear";
 import { MutationGate } from "../src/tickets/gate";
 import { linearExecutor } from "../src/tickets/linear-writes";
@@ -20,6 +20,9 @@ const ROW_C = "6d796135-613d-4bd8-ae3f-d928a50f75c3";
 interface FIssue {
   id: string;
   identifier: string;
+  title: string;
+  /** The description's document content (inline comments sit on it). */
+  docId: string;
   stateId: string;
   teamId: string;
   subscribers: string[];
@@ -31,6 +34,8 @@ interface FIssue {
 interface FComment {
   id: string;
   issueId: string;
+  /** Set for an inline comment: it sits on the issue's document content, not on the issue. */
+  docId?: string;
   parentId: string | null;
   userId: string | null;
   body: string;
@@ -51,6 +56,15 @@ const STATES = [
 class FakeLinear {
   readonly calls: { op: string; vars: Vars }[] = [];
   readonly teams = [{ id: "t-1", key: "ENG", states: STATES }];
+  readonly templates = new Map([
+    ["tpl-bug", { id: "tpl-bug", name: "Bug", type: "issue", team: { id: "t-1" } }],
+    ["tpl-other", { id: "tpl-other", name: "Ops bug", type: "issue", team: { id: "t-2" } }],
+    ["tpl-doc", { id: "tpl-doc", name: "Spec", type: "document", team: null }],
+  ]);
+  readonly projects = new Map([
+    ["p-1", { id: "p-1", name: "Board", teams: { nodes: [{ id: "t-1" }] } }],
+    ["p-2", { id: "p-2", name: "Ops", teams: { nodes: [{ id: "t-2" }] } }],
+  ]);
   readonly issues = new Map<string, FIssue>();
   readonly comments = new Map<string, FComment>();
   /** A write that fails: `lost` applies it and then loses the response; `reject` answers success false. */
@@ -60,11 +74,13 @@ class FakeLinear {
   constructor() {
     for (const n of [1, 2, 3]) {
       const id = `issue-${String(n)}`;
-      this.issues.set(id, { id, identifier: `ENG-${String(n)}`, stateId: "s-todo", teamId: "t-1", subscribers: [ME], updatedAt: new Date(T0).toISOString(), dueDate: null, priority: 0, prioritySortOrder: n });
+      const fields = { title: `Ticket ${String(n)}`, docId: `doc-${String(n)}`, stateId: "s-todo", teamId: "t-1", subscribers: [ME], updatedAt: new Date(T0).toISOString(), dueDate: null, priority: 0, prioritySortOrder: n };
+      this.issues.set(id, { id, identifier: `ENG-${String(n)}`, ...fields });
     }
     this.addComment({ id: "c-root", issueId: "issue-1", parentId: null, userId: "viewer-nova", body: "Can you look?" });
     this.addComment({ id: "c-mine", issueId: "issue-1", parentId: "c-root", userId: ME, body: "On it" });
     this.addComment({ id: "c-own-root", issueId: "issue-1", parentId: null, userId: ME, body: "Note" });
+    this.addComment({ id: "c-inline", issueId: "issue-1", docId: "doc-1", parentId: null, userId: "viewer-nova", body: "Which API?" });
   }
 
   addComment(c: Omit<FComment, "updatedAt" | "resolvedAt" | "reactions">): void {
@@ -98,7 +114,7 @@ class FakeLinear {
   private issueOut(i: FIssue) {
     const team = this.teams.find((t) => t.id === i.teamId);
     const state = STATES.find((s) => s.id === i.stateId);
-    return { ...i, url: `https://linear.app/ecard/issue/${i.identifier}`, state, team: team && { id: team.id, states: { nodes: team.states } }, subscribers: { nodes: i.subscribers.map((id) => ({ id })) } };
+    return { ...i, url: `https://linear.app/ecard/issue/${i.identifier}`, documentContent: { id: i.docId }, state, team: team && { id: team.id, states: { nodes: team.states } }, subscribers: { nodes: i.subscribers.map((id) => ({ id })) } };
   }
 
   private commentOut(c: FComment) {
@@ -108,7 +124,9 @@ class FakeLinear {
       url: `https://linear.app/ecard/comment/${c.id}`,
       user: c.userId === null ? null : { id: c.userId },
       parent: c.parentId === null ? null : { id: c.parentId },
-      issue: issue && { id: issue.id, identifier: issue.identifier },
+      // Linear: a comment on document content has no issue, and the other way round.
+      issue: c.docId === undefined && issue ? { id: issue.id, identifier: issue.identifier } : null,
+      documentContent: c.docId === undefined ? null : { id: c.docId },
       children: { nodes: [...this.comments.values()].filter((x) => x.parentId === c.id).map((x) => ({ id: x.id })) },
       reactions: c.reactions.map((r) => ({ id: r.id, emoji: r.emoji, user: { id: r.userId } })),
     };
@@ -135,6 +153,8 @@ class FakeLinear {
       const team = this.teams.find((t) => t.id === v["id"]);
       return { team: team ? { id: team.id, key: team.key, states: { nodes: team.states } } : null };
     },
+    TicketTemplate: (v: Vars) => ({ template: this.templates.get(String(v["id"])) ?? null }),
+    TicketProject: (v: Vars) => ({ project: this.projects.get(String(v["id"])) ?? null }),
     TicketCommentRef: (v: Vars) => ({ comment: this.comment(v["id"]) }),
     TicketCommentReplies: (v: Vars) => ({ comment: this.comment(v["id"]) }),
     TicketCommentReactions: (v: Vars) => ({ comment: this.comment(v["id"]) }),
@@ -146,8 +166,8 @@ class FakeLinear {
       return { issueUpdate: { success: true, issue: this.issueOut(i) } };
     },
     TicketIssueCreate: (v: Vars) => {
-      const input = v["input"] as { id: string; teamId: string; stateId: string };
-      const i: FIssue = { id: input.id, identifier: `ENG-${String(this.issues.size + 1)}`, stateId: input.stateId, teamId: input.teamId, subscribers: [ME], updatedAt: this.now(), dueDate: null, priority: 0, prioritySortOrder: 0 };
+      const input = v["input"] as { id: string; teamId: string; stateId: string; title: string };
+      const i: FIssue = { id: input.id, identifier: `ENG-${String(this.issues.size + 1)}`, title: input.title, docId: `doc-${input.id}`, stateId: input.stateId, teamId: input.teamId, subscribers: [ME], updatedAt: this.now(), dueDate: null, priority: 0, prioritySortOrder: 0 };
       this.issues.set(i.id, i);
       return { issueCreate: { success: true, issue: this.issueOut(i) } };
     },
@@ -161,8 +181,10 @@ class FakeLinear {
       return { issueUnsubscribe: { success: true } };
     },
     TicketCommentCreate: (v: Vars) => {
-      const input = v["input"] as { id: string; issueId?: string; parentId?: string; body: string };
-      this.addComment({ id: input.id, issueId: input.issueId ?? "issue-1", parentId: input.parentId ?? null, userId: ME, body: input.body });
+      const input = v["input"] as { id: string; issueId?: string; documentContentId?: string; parentId?: string; body: string };
+      const onDoc = [...this.issues.values()].find((i) => i.docId === input.documentContentId);
+      const where = onDoc === undefined ? { issueId: input.issueId ?? "issue-1" } : { issueId: onDoc.id, docId: onDoc.docId };
+      this.addComment({ id: input.id, ...where, parentId: input.parentId ?? null, userId: ME, body: input.body });
       return { commentCreate: { success: true, comment: { id: input.id, url: `https://linear.app/ecard/comment/${input.id}` } } };
     },
     TicketCommentUpdate: (v: Vars) => {
@@ -265,13 +287,77 @@ describe("linearExecutor checks", () => {
     const { exec, linear } = setup();
     linear.addComment({ id: "c-reply", issueId: "issue-1", parentId: "c-own-root", userId: "viewer-nova", body: "?" });
     expect(await exec.check({ kind: "deleteComment", commentId: "c-own-root", replyCount: 0 })).toMatchObject({ ok: false, code: "conflict" });
-    expect(await exec.check({ kind: "deleteComment", commentId: "c-own-root", replyCount: 1 })).toMatchObject({ ok: true, summary: "Delete your comment and its 1 replies" });
+    expect(await exec.check({ kind: "deleteComment", commentId: "c-own-root", replyCount: 1 })).toMatchObject({ ok: true, summary: "Delete your comment on ENG-1 and its 1 replies" });
   });
 
   it("refuses a new issue in a state outside the team, or in an unknown team", async () => {
     const { exec } = setup();
     expect(await exec.check({ ...CREATE_ISSUE, stateId: "s-x" } as TicketMutation)).toMatchObject({ ok: false, code: "invalid" });
     expect(await exec.check({ ...CREATE_ISSUE, teamId: "t-x" } as TicketMutation)).toMatchObject({ ok: false, code: "invalid" });
+  });
+
+  it("binds an inline comment to the issue's own description, and a reply to where its thread is", async () => {
+    const { exec } = setup();
+    const inline = (over: Partial<Extract<TicketMutation, { kind: "comment" }>>): TicketMutation => ({ kind: "comment", issueId: "issue-1", body: "Which one?", ...over });
+    expect(await exec.check(inline({ documentContentId: "doc-2", quotedText: "the API" }))).toEqual({ ok: false, code: "invalid", message: "That quote isn't on ENG-1's description" });
+    expect(await exec.check(inline({ documentContentId: "doc-1" }))).toMatchObject({ ok: false, message: "An inline comment needs the text it quotes" });
+    expect(await exec.check(inline({ quotedText: "the API" }))).toMatchObject({ ok: false, code: "invalid" });
+    // The inline thread's root sits on the description's document content (no issue), Linear's shape.
+    expect(await exec.check(inline({ parentId: "c-inline", documentContentId: "doc-1" }))).toMatchObject({ ok: true, summary: "Reply on ENG-1's description (Ticket 1) as you", text: "Which one?" });
+    expect(await exec.check(inline({ parentId: "c-inline" }))).toMatchObject({ ok: false, message: "Reply in the thread on the description where it started" });
+    expect(await exec.check(inline({ parentId: "c-inline", issueId: "issue-2", documentContentId: "doc-2" }))).toMatchObject({ ok: false, code: "invalid" });
+    expect(await exec.check(inline({ parentId: "c-root", documentContentId: "doc-1" }))).toMatchObject({ ok: false, message: "That thread is on another issue" });
+    expect(await exec.check(inline({ documentContentId: "doc-1", quotedText: "the API" }))).toMatchObject({ ok: true, summary: "Comment on ENG-1's description (Ticket 1) as you", quote: "the API" });
+  });
+
+  it("checks a new issue's source and reference comments, template and project against its team", async () => {
+    const { exec } = setup();
+    const create = (over: Partial<Extract<TicketMutation, { kind: "createIssue" }>>): TicketMutation => ({ ...(CREATE_ISSUE as Extract<TicketMutation, { kind: "createIssue" }>), ...over });
+    expect(await exec.check(create({ sourceCommentId: "c-gone" }))).toMatchObject({ ok: false, message: "The comment it starts from is gone from Linear" });
+    expect(await exec.check(create({ referenceCommentId: "c-gone" }))).toMatchObject({ ok: false, message: "The comment it links back to is gone from Linear" });
+    for (const templateId of ["tpl-other", "tpl-doc", "tpl-gone"]) expect(await exec.check(create({ templateId }))).toMatchObject({ ok: false, message: "That template isn't an issue template of team ENG" });
+    for (const projectId of ["p-2", "p-gone"]) expect(await exec.check(create({ projectId }))).toMatchObject({ ok: false, message: "That project isn't in team ENG" });
+    expect(await exec.check(create({ templateId: "tpl-bug" }))).toMatchObject({ ok: true, summary: "New issue in ENG (Todo, template Bug, project Board) from a comment on ENG-1: Follow up", text: "From a comment" });
+  });
+
+  it("resolves plan rows to the live issues and confirms every row by its live key and title", async () => {
+    const { exec } = setup();
+    const rows = [1, 2, 3].map((n) => ({ key: `ENG-${String(n)}`, issueId: `issue-${String(n)}`, opId: ROW_A, baseUpdatedAt: T0, priority: n }));
+    expect(await exec.check({ kind: "applyPlan", rows: [{ ...rows[0]!, key: "ENG-3" }] })).toMatchObject({ ok: false, message: "ENG-3 isn't that issue in Linear (it is ENG-1). Make the plan again." });
+    expect(await exec.check({ kind: "applyPlan", rows })).toMatchObject({
+      ok: true,
+      summary: "Apply the plan to 3 issues in Linear",
+      rows: [
+        { key: "ENG-1", title: "Ticket 1", change: "priority Urgent" },
+        { key: "ENG-2", title: "Ticket 2", change: "priority High" },
+        { key: "ENG-3", title: "Ticket 3", change: "priority Medium" },
+      ],
+    });
+  });
+});
+
+describe("confirms in full", () => {
+  it("shows a maximum-size comment whole, and refuses one too large to show rather than clipping it", async () => {
+    const { gate, linear } = setup();
+    const body = "x".repeat(MAX_TICKET_TEXT);
+    const prepared = await gate.prepare(DEVICE, { kind: "comment", issueId: "issue-1", body }, ACTOR);
+    expect(prepared.approval?.text).toBe(body);
+    linear.issues.get("issue-1")!.title = "t".repeat(2000);
+    const refused = await gate.prepare(DEVICE, { kind: "comment", issueId: "issue-1", body }, ACTOR);
+    expect(refused.refused?.code).toBe("invalid");
+    expect(linear.mutations()).toEqual([]);
+  });
+
+  it("lists all 200 rows of a maximum plan", async () => {
+    const { gate, linear } = setup();
+    for (let n = 4; n <= MAX_TICKET_PLAN_ROWS; n++) {
+      const id = `issue-${String(n)}`;
+      linear.issues.set(id, { ...linear.issues.get("issue-1")!, id, identifier: `ENG-${String(n)}`, title: `Ticket ${String(n)}` });
+    }
+    const rows = Array.from({ length: MAX_TICKET_PLAN_ROWS }, (_, i) => ({ key: `ENG-${String(i + 1)}`, issueId: `issue-${String(i + 1)}`, opId: ROW_A, baseUpdatedAt: T0, dueDate: "2026-12-01" }));
+    const prepared = await gate.prepare(DEVICE, { kind: "applyPlan", rows }, ACTOR);
+    expect(prepared.approval?.rows).toHaveLength(MAX_TICKET_PLAN_ROWS);
+    expect(prepared.approval?.rows?.at(-1)).toEqual({ key: "ENG-200", title: "Ticket 200", change: "due 2026-12-01" });
   });
 });
 

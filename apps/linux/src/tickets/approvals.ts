@@ -2,7 +2,7 @@
 // A host restart drops them, so a confirm open across a restart is asked again.
 
 import { randomUUID } from "node:crypto";
-import type { TicketApproval } from "@relay/protocol";
+import type { TicketApproval, TicketConfirm } from "@relay/protocol";
 
 export const APPROVAL_TTL_MS = 120_000;
 
@@ -35,12 +35,13 @@ export class Approvals {
     private readonly ttlMs = APPROVAL_TTL_MS,
   ) {}
 
-  create(binding: ApprovalBinding, summary: string): TicketApproval {
+  /** A new approval showing `confirm` in full. */
+  create(binding: ApprovalBinding, confirm: TicketConfirm): TicketApproval {
     this.prune();
     const id = randomUUID();
     const expiresAt = this.now() + this.ttlMs;
     this.pending.set(id, { binding, expiresAt });
-    return { id, expiresAt, summary };
+    return { id, expiresAt, ...confirm };
   }
 
   /** Removes the approval (single use, also when the commit then refuses) and answers its binding. */

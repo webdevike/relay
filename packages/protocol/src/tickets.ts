@@ -474,13 +474,29 @@ export const TicketsRefusalCode = z.enum([
 ]);
 export type TicketsRefusalCode = z.infer<typeof TicketsRefusalCode>;
 
+/**
+ * What the confirm shows, in full: the host resolves the target and names it with live keys and
+ * titles; a change too large to show whole is refused (`invalid`) rather than clipped.
+ */
 export const TicketApproval = z.object({
   id: Id,
   expiresAt: ms,
-  /** What exactly will be written, for the confirm. */
-  summary: z.string().max(MAX_TICKET_TEXT),
+  /** One line: what is written where (`Reply on ENG-12 (Title) as you`, `Move ENG-12 to Done`). */
+  summary: Short,
+  /** The exact text written (comment body, new issue description). */
+  text: z.string().max(MAX_TICKET_TEXT).optional(),
+  /** The description text an inline comment quotes. */
+  quote: z.string().max(MAX_TICKET_TEXT).optional(),
+  /** applyPlan: every row it writes, by the issue's live key and title. */
+  rows: z
+    .array(z.object({ key: TicketKey, title: Name, change: Short }))
+    .max(MAX_TICKET_PLAN_ROWS)
+    .optional(),
 });
 export type TicketApproval = z.infer<typeof TicketApproval>;
+/** What check() shows for a confirm (the approval without its id and expiry). */
+export const TicketConfirm = TicketApproval.omit({ id: true, expiresAt: true });
+export type TicketConfirm = z.infer<typeof TicketConfirm>;
 
 export const TicketOutcomeState = z.enum(["done", "failed", "unknown"]);
 export type TicketOutcomeState = z.infer<typeof TicketOutcomeState>;

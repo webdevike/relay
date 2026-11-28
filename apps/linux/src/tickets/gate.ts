@@ -10,7 +10,7 @@
 // stops the write).
 
 import { createHash } from "node:crypto";
-import { ticketMutationConfirmed, type TicketMutation, type TicketOutcome, type TicketsRefusalCode, type TicketsResult, type TicketStateType } from "@relay/protocol";
+import { TicketConfirm, ticketMutationConfirmed, type TicketMutation, type TicketOutcome, type TicketsRefusalCode, type TicketsResult, type TicketStateType } from "@relay/protocol";
 import { Approvals } from "./approvals";
 import { OpResult, OpsStore, type OpRecord } from "./ops-store";
 
@@ -19,15 +19,13 @@ export interface GateContext {
 }
 
 export type CheckResult =
-  | {
+  | ({
       ok: true;
       /** Live state the approval binds to; a different one at commit refuses `conflict`. */
       revision: string;
-      /** What exactly will be written, for the confirm. */
-      summary: string;
       /** `setState`: the target state's type (a terminal one needs an approval). */
       toStateType?: TicketStateType;
-    }
+    } & TicketConfirm)
   | { ok: false; code: "conflict" | "invalid"; message: string };
 
 export interface MutationExecutor<M> {
@@ -139,8 +137,12 @@ export class MutationGate {
     const checked = await this.check(pin, mutation);
     if (!checked.ok) return checked.answer;
     if (!this.deps.current(pin)) return refuse("identity", STALE_PIN);
+    // The confirm shows the whole change or nothing: too large to show in full is refused, never clipped.
+    const { ok: _ok, revision: _revision, toStateType: _type, ...shown } = checked;
+    const confirm = TicketConfirm.safeParse(shown);
+    if (!confirm.success) return refuse("invalid", "This change is too large to show in full for confirming; nothing was written");
     const binding = { deviceId: ctx.deviceId, identity: pin.viewerId, generation: pin.generation, kind: mutation.kind, hash: mutationHash(mutation), revision: checked.revision };
-    return { ok: true, approval: this.approvals.create(binding, line(checked.summary)) };
+    return { ok: true, approval: this.approvals.create(binding, confirm.data) };
   }
 
   /** `viewerId`: the Linear account the device showed when Isaac acted. */

@@ -1,11 +1,15 @@
 // Linear writes as Isaac for the tickets MutationGate (PLAN §5): one check/run/reconcile per
-// TicketMutation kind over Linear's GraphQL API. check() reads the live state the write depends on
-// (from-state, comment owner, thread root, team states, reply count) and refuses when it no longer
-// applies. Creates pass `id: opId`, so a lost response is reconciled by reading that id. Reactions,
+// TicketMutation kind over Linear's GraphQL API. check() resolves and binds the live target the write
+// depends on (from-state, comment owner, thread root and whether it sits on the issue or on its
+// description's document content, the issue's own document content, team states, reply count, the
+// new issue's source comment, template and project, a plan row's live key) and refuses inconsistent
+// references; its confirm names the live keys and titles and carries the exact text and every plan
+// row. Creates pass `id: opId`, so a lost response is reconciled by reading that id. Reactions,
 // subscriptions and resolve are desired state: run() reads first and no-ops when already so.
 // applyPlan writes one issueUpdate per row; a row whose issue changed since the plan was drafted is
 // refused on its own, and a row already at its values (an earlier try) is done without a write.
 
+import { createHash } from "node:crypto";
 import { TicketStateType, type TicketMutation, type TicketPlanRow } from "@relay/protocol";
 import { z } from "zod";
 import { ProviderRejected, type CheckResult, type MutationExecutor } from "./gate";
@@ -24,13 +28,15 @@ type KindTable = { [K in TicketMutation["kind"]]: KindOps<Of<K>> };
 
 const ISSUE_STATES = `query TicketIssueStates($id: String!) { issue(id: $id) { id identifier state { id name type } team { id states(first: 250) { nodes { id name type } } } } }`;
 const ISSUE_STATE = `query TicketIssueState($id: String!) { issue(id: $id) { id state { id } } }`;
-const ISSUE_REF = `query TicketIssueRef($id: String!) { issue(id: $id) { id identifier } }`;
+const ISSUE_REF = `query TicketIssueRef($id: String!) { issue(id: $id) { id identifier title documentContent { id } } }`;
 const ISSUE_SUBSCRIBERS = `query TicketIssueSubscribers($id: String!) { issue(id: $id) { id identifier subscribers(first: 250) { nodes { id } } } }`;
 const ISSUE_EXISTS = `query TicketIssueExists($id: ID!) { issues(filter: { id: { eq: $id } }) { nodes { id identifier url } } }`;
-const PLAN_ISSUES = `query TicketPlanIssues($ids: [ID!]!) { issues(filter: { id: { in: $ids } }, first: 250) { nodes { id identifier updatedAt dueDate priority prioritySortOrder } } }`;
-const TEAM_STATES = `query TicketTeamStates($id: String!) { team(id: $id) { id key states(first: 250) { nodes { id } } } }`;
-const COMMENT_REF = `query TicketCommentRef($id: String!) { comment(id: $id) { id body updatedAt resolvedAt user { id } parent { id } issue { id identifier } } }`;
-const COMMENT_REPLIES = `query TicketCommentReplies($id: String!) { comment(id: $id) { id user { id } children(first: 250) { nodes { id } } } }`;
+const PLAN_ISSUES = `query TicketPlanIssues($ids: [ID!]!) { issues(filter: { id: { in: $ids } }, first: 250) { nodes { id identifier title updatedAt dueDate priority prioritySortOrder } } }`;
+const TEAM_STATES = `query TicketTeamStates($id: String!) { team(id: $id) { id key states(first: 250) { nodes { id name } } } }`;
+const TEMPLATE = `query TicketTemplate($id: String!) { template(id: $id) { id name type team { id } } }`;
+const PROJECT = `query TicketProject($id: String!) { project(id: $id) { id name teams(first: 50) { nodes { id } } } }`;
+const COMMENT_REF = `query TicketCommentRef($id: String!) { comment(id: $id) { id body updatedAt resolvedAt user { id } parent { id } issue { id identifier } documentContent { id } } }`;
+const COMMENT_REPLIES = `query TicketCommentReplies($id: String!) { comment(id: $id) { id user { id } issue { identifier } children(first: 250) { nodes { id } } } }`;
 const COMMENT_REACTIONS = `query TicketCommentReactions($id: String!) { comment(id: $id) { id reactions { id emoji user { id } } } }`;
 const COMMENT_EXISTS = `query TicketCommentExists($id: ID!) { comments(filter: { id: { eq: $id } }) { nodes { id url } } }`;
 const ISSUE_UPDATE = `mutation TicketIssueUpdate($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success issue { id identifier url } } }`;
@@ -52,13 +58,14 @@ const IssueStates = z.object({
   issue: z.object({ id: z.string(), identifier: z.string(), state: State, team: z.object({ id: z.string(), states: Nodes(State) }) }).nullable(),
 });
 const IssueState = z.object({ issue: z.object({ state: Ref }).nullable() });
-const IssueRef = z.object({ issue: z.object({ id: z.string(), identifier: z.string() }).nullable() });
+const IssueRef = z.object({ issue: z.object({ id: z.string(), identifier: z.string(), title: z.string(), documentContent: Ref.nullable().optional() }).nullable() });
 const IssueSubscribers = z.object({ issue: z.object({ identifier: z.string(), subscribers: Nodes(Ref) }).nullable() });
 const IssueNode = z.object({ id: z.string(), identifier: z.string(), url: z.string() });
 const IssueExists = z.object({ issues: Nodes(IssueNode) });
 const PlanIssue = z.object({
   id: z.string(),
   identifier: z.string(),
+  title: z.string(),
   updatedAt: z.string(),
   dueDate: z.string().nullable(),
   priority: z.number(),
@@ -66,7 +73,9 @@ const PlanIssue = z.object({
 });
 type PlanIssue = z.infer<typeof PlanIssue>;
 const PlanIssues = z.object({ issues: Nodes(PlanIssue) });
-const TeamStates = z.object({ team: z.object({ id: z.string(), key: z.string(), states: Nodes(Ref) }).nullable() });
+const TeamStates = z.object({ team: z.object({ id: z.string(), key: z.string(), states: Nodes(z.object({ id: z.string(), name: z.string() })) }).nullable() });
+const Template = z.object({ template: z.object({ id: z.string(), name: z.string(), type: z.string(), team: Ref.nullable().optional() }).nullable() });
+const Project = z.object({ project: z.object({ id: z.string(), name: z.string(), teams: Nodes(Ref) }).nullable() });
 const CommentRef = z.object({
   comment: z
     .object({
@@ -77,10 +86,12 @@ const CommentRef = z.object({
       user: Ref.nullable(),
       parent: Ref.nullable(),
       issue: z.object({ id: z.string(), identifier: z.string() }).nullable(),
+      /** Set for a comment on a document's content (an inline comment on the issue's description). */
+      documentContent: Ref.nullable().optional(),
     })
     .nullable(),
 });
-const CommentReplies = z.object({ comment: z.object({ user: Ref.nullable(), children: Nodes(Ref) }).nullable() });
+const CommentReplies = z.object({ comment: z.object({ user: Ref.nullable(), issue: z.object({ identifier: z.string() }).nullable().optional(), children: Nodes(Ref) }).nullable() });
 const CommentReactions = z.object({
   comment: z.object({ reactions: z.array(z.object({ id: z.string(), emoji: z.string(), user: Ref.nullable() })) }).nullable(),
 });
@@ -121,12 +132,13 @@ function rowChanges(row: TicketPlanRow, live: PlanIssue): Record<string, unknown
   return input;
 }
 
-function rowSummary(row: TicketPlanRow): string {
+/** What a plan row sets, for the confirm. */
+function rowChange(row: TicketPlanRow): string {
   const parts: string[] = [];
   if (row.dueDate !== undefined) parts.push(`due ${row.dueDate ?? "none"}`);
   if (row.priority !== undefined) parts.push(`priority ${PRIORITY[row.priority] ?? String(row.priority)}`);
   if (row.prioritySortOrder !== undefined) parts.push(`order ${String(row.prioritySortOrder)}`);
-  return `${row.key}: ${parts.join(", ") || "no change"}`;
+  return parts.join(", ") || "no change";
 }
 
 async function applyRow(gql: LinearGql, row: TicketPlanRow, live: PlanIssue | undefined): Promise<RowOutcome> {
@@ -169,11 +181,25 @@ function stateOps(gql: LinearGql): KindOps<Of<"setState">> {
   };
 }
 
-async function checkReplyRoot(gql: LinearGql, parentId: string, issueId: string): Promise<string | null> {
-  const { comment } = await ask(gql, COMMENT_REF, { id: parentId }, CommentRef);
+/** Why a comment's target doesn't add up: an inline one must quote this issue's own description. */
+function targetProblem(m: Of<"comment">, key: string, doc: string | null): string | null {
+  if (m.documentContentId === undefined) return m.quotedText === undefined ? null : "A quote needs the description it is from";
+  if (doc === null || m.documentContentId !== doc) return `That quote isn't on ${key}'s description`;
+  if (m.parentId === undefined && (m.quotedText ?? "") === "") return "An inline comment needs the text it quotes";
+  return null;
+}
+
+/**
+ * A reply's root, as Linear has it: a thread's first comment, either on the issue (then the reply
+ * goes to the issue) or on the issue's description (then the reply goes to that document content).
+ */
+async function checkReplyRoot(gql: LinearGql, m: Of<"comment">, issueId: string, doc: string | null): Promise<string | null> {
+  const { comment } = await ask(gql, COMMENT_REF, { id: m.parentId }, CommentRef);
   if (comment === null) return "The thread is gone from Linear";
   if (comment.parent !== null) return "Replies go to the thread's first comment";
-  return comment.issue?.id === issueId ? null : "That thread is on another issue";
+  const rootDoc = comment.documentContent?.id ?? null;
+  if (rootDoc !== null) return rootDoc === doc && m.documentContentId === rootDoc ? null : "Reply in the thread on the description where it started";
+  return comment.issue?.id === issueId && m.documentContentId === undefined ? null : "That thread is on another issue";
 }
 
 function commentOps(gql: LinearGql): KindOps<Of<"comment">> {
@@ -181,10 +207,13 @@ function commentOps(gql: LinearGql): KindOps<Of<"comment">> {
     async check(m) {
       const { issue } = await ask(gql, ISSUE_REF, { id: m.issueId }, IssueRef);
       if (issue === null) return invalid(GONE);
-      const wrongRoot = m.parentId === undefined ? null : await checkReplyRoot(gql, m.parentId, issue.id);
-      if (wrongRoot !== null) return invalid(wrongRoot);
+      const doc = issue.documentContent?.id ?? null;
+      const problem = targetProblem(m, issue.identifier, doc) ?? (m.parentId === undefined ? null : await checkReplyRoot(gql, m, issue.id, doc));
+      if (problem !== null) return invalid(problem);
       const what = m.parentId === undefined ? "Comment on" : "Reply on";
-      return { ok: true, revision: issue.id, summary: `${what} ${issue.identifier} as you:\n\n${m.body}` };
+      const where = m.documentContentId === undefined ? issue.identifier : `${issue.identifier}'s description`;
+      const quote = m.quotedText === undefined ? {} : { quote: m.quotedText };
+      return { ok: true, revision: `${issue.id}:${doc ?? ""}`, summary: `${what} ${where} (${issue.title}) as you`, text: m.body, ...quote };
     },
     async run(m, opId) {
       const target = m.documentContentId === undefined ? { issueId: m.issueId } : { documentContentId: m.documentContentId };
@@ -199,13 +228,15 @@ function commentOps(gql: LinearGql): KindOps<Of<"comment">> {
   };
 }
 
+const onIssue = (c: { issue?: { identifier: string } | null | undefined }): string => (c.issue ? ` on ${c.issue.identifier}` : "");
+
 function editOps(gql: LinearGql, viewerId: () => string | null): KindOps<Of<"editComment">> {
   return {
     async check(m) {
       const { comment } = await ask(gql, COMMENT_REF, { id: m.commentId }, CommentRef);
       if (comment === null) return invalid(GONE);
       if (comment.user === null || comment.user.id !== viewerId()) return invalid("You can only edit your own comments");
-      return { ok: true, revision: comment.updatedAt, summary: `Edit your comment:\n\n${m.body}` };
+      return { ok: true, revision: comment.updatedAt, summary: `Edit your comment${onIssue(comment)}`, text: m.body };
     },
     async run(m) {
       await mutate(gql, COMMENT_UPDATE, { id: m.commentId, input: { body: m.body } });
@@ -226,7 +257,7 @@ function deleteOps(gql: LinearGql, viewerId: () => string | null): KindOps<Of<"d
       if (comment.user === null || comment.user.id !== viewerId()) return invalid("You can only delete your own comments");
       const replies = comment.children.nodes.length;
       if (replies !== m.replyCount) return { ok: false, code: "conflict", message: `It has ${String(replies)} replies now; deleting it deletes them too` };
-      const summary = replies > 0 ? `Delete your comment and its ${String(replies)} replies` : "Delete your comment";
+      const summary = `Delete your comment${onIssue(comment)}${replies > 0 ? ` and its ${String(replies)} replies` : ""}`;
       return { ok: true, revision: `replies:${String(replies)}`, summary };
     },
     async run(m) {
@@ -250,7 +281,7 @@ function resolveOps(gql: LinearGql): KindOps<Of<"resolve">> {
       const { comment } = await ask(gql, COMMENT_REF, { id: m.rootId }, CommentRef);
       if (comment === null) return invalid(GONE);
       if (comment.parent !== null) return invalid("Only a thread's first comment resolves it");
-      return { ok: true, revision: comment.resolvedAt === null ? "open" : "resolved", summary: m.on ? "Resolve the thread" : "Reopen the thread" };
+      return { ok: true, revision: comment.resolvedAt === null ? "open" : "resolved", summary: `${m.on ? "Resolve" : "Reopen"} the thread${onIssue(comment)}` };
     },
     async run(m) {
       if ((await resolved(m.rootId)) !== m.on) await mutate(gql, m.on ? COMMENT_RESOLVE : COMMENT_UNRESOLVE, { id: m.rootId });
@@ -308,13 +339,55 @@ function subscribeOps(gql: LinearGql, viewerId: () => string | null): KindOps<Of
   };
 }
 
+type Team = { readonly id: string; readonly key: string };
+type Named = { problem: string } | { name: string | null };
+
+/** The template, when given: an issue template of this team (or of none). */
+async function templateOf(gql: LinearGql, id: string | null, team: Team): Promise<Named> {
+  if (id === null) return { name: null };
+  const { template } = await ask(gql, TEMPLATE, { id }, Template);
+  const teamOk = (template?.team ?? null) === null || template?.team?.id === team.id;
+  return template !== null && template.type === "issue" && teamOk ? { name: `template ${template.name}` } : { problem: `That template isn't an issue template of team ${team.key}` };
+}
+
+/** The project, when given: one this team is in. */
+async function projectOf(gql: LinearGql, id: string | null, team: Team): Promise<Named> {
+  if (id === null) return { name: null };
+  const { project } = await ask(gql, PROJECT, { id }, Project);
+  return project !== null && project.teams.nodes.some((t) => t.id === team.id) ? { name: `project ${project.name}` } : { problem: `That project isn't in team ${team.key}` };
+}
+
+/** A new issue's source and reference comments, template and project, each checked against the team. */
+async function createRefs(gql: LinearGql, m: Of<"createIssue">, team: Team): Promise<{ problem: string } | { from: string; names: string[] }> {
+  const source = (await ask(gql, COMMENT_REF, { id: m.sourceCommentId }, CommentRef)).comment;
+  if (source === null) return { problem: "The comment it starts from is gone from Linear" };
+  const reference = m.referenceCommentId === m.sourceCommentId ? source : (await ask(gql, COMMENT_REF, { id: m.referenceCommentId }, CommentRef)).comment;
+  if (reference === null) return { problem: "The comment it links back to is gone from Linear" };
+  const named = [await templateOf(gql, m.templateId, team), await projectOf(gql, m.projectId, team)];
+  const names: string[] = [];
+  for (const n of named) {
+    if ("problem" in n) return n;
+    if (n.name !== null) names.push(n.name);
+  }
+  return { from: source.issue ? `a comment on ${source.issue.identifier}` : "a comment", names };
+}
+
 function createOps(gql: LinearGql): KindOps<Of<"createIssue">> {
   return {
     async check(m) {
       const { team } = await ask(gql, TEAM_STATES, { id: m.teamId }, TeamStates);
       if (team === null) return invalid("That team is gone from Linear or you can't see it");
-      if (!team.states.nodes.some((s) => s.id === m.stateId)) return invalid(`That status isn't in team ${team.key}`);
-      return { ok: true, revision: team.id, summary: `New issue in ${team.key}: ${m.title}\n\n${m.description}` };
+      const state = team.states.nodes.find((s) => s.id === m.stateId);
+      if (state === undefined) return invalid(`That status isn't in team ${team.key}`);
+      const refs = await createRefs(gql, m, team);
+      if ("problem" in refs) return invalid(refs.problem);
+      const where = [state.name, ...refs.names].join(", ");
+      return {
+        ok: true,
+        revision: [team.id, m.stateId, m.sourceCommentId, m.referenceCommentId, m.templateId ?? "", m.projectId ?? ""].join(":"),
+        summary: `New issue in ${team.key} (${where}) from ${refs.from}: ${m.title}`,
+        text: m.description,
+      };
     },
     async run(m, opId) {
       const { kind: _kind, templateId, projectId, ...fields } = m;
@@ -328,13 +401,26 @@ function createOps(gql: LinearGql): KindOps<Of<"createIssue">> {
   };
 }
 
+/** A plan row whose id isn't the issue its key names (or is gone): drafted from something else. */
+function planProblem(rows: readonly TicketPlanRow[], live: ReadonlyMap<string, PlanIssue>): string | null {
+  for (const row of rows) {
+    const issue = live.get(row.issueId);
+    if (issue === undefined) return `${row.key}: ${GONE}`;
+    if (issue.identifier !== row.key) return `${row.key} isn't that issue in Linear (it is ${issue.identifier}). Make the plan again.`;
+  }
+  return null;
+}
+
 function planOps(gql: LinearGql): KindOps<Of<"applyPlan">> {
   return {
     async check(m) {
       const live = await planIssues(gql, m.rows);
-      const gone = m.rows.find((r) => !live.has(r.issueId));
-      if (gone !== undefined) return invalid(`${gone.key}: ${GONE}`);
-      return { ok: true, revision: "plan", summary: `Apply plan to Linear:\n${m.rows.map(rowSummary).join("\n")}` };
+      const problem = planProblem(m.rows, live);
+      if (problem !== null) return invalid(problem);
+      const issues = m.rows.map((r) => live.get(r.issueId)).filter((i): i is PlanIssue => i !== undefined);
+      const revision = createHash("sha256").update(issues.map((i) => `${i.id}@${i.updatedAt}`).join(",")).digest("hex");
+      const rows = m.rows.map((r, i) => ({ key: issues[i]?.identifier ?? r.key, title: issues[i]?.title ?? "", change: rowChange(r) }));
+      return { ok: true, revision, summary: `Apply the plan to ${String(rows.length)} issues in Linear`, rows };
     },
     async run(m) {
       const live = await planIssues(gql, m.rows);

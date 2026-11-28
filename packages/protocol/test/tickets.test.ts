@@ -3,6 +3,7 @@ import client from "../fixtures/client-messages.json";
 import server from "../fixtures/server-messages.json";
 import {
   CONFIRMED_TICKET_MUTATIONS,
+  MAX_TICKET_PLAN_ROWS,
   MAX_TICKET_TEXT,
   MAX_TICKET_WATCH,
   MAX_TICKETS,
@@ -249,6 +250,19 @@ describe("tickets frames", () => {
     });
     roundTripServer({
       t: "tickets.res",
+      rid: "r3b",
+      ok: true,
+      approval: {
+        id: "ap2",
+        expiresAt: 1_700_000_120_000,
+        summary: "Comment on ENG-1's description (Fix the board) as you",
+        text: "Which API?",
+        quote: "the API",
+        rows: [{ key: "ENG-1", title: "Fix the board", change: "due 2026-12-01" }],
+      },
+    });
+    roundTripServer({
+      t: "tickets.res",
       rid: "r4",
       ok: true,
       outcome: {
@@ -388,6 +402,22 @@ describe("tickets frames", () => {
       parseServerMessage(JSON.stringify({ t: "tickets.req", rid: "r", op: { kind: "sync" } })).ok,
     ).toBe(false);
     expect(parseClientMessage(JSON.stringify({ t: "tickets.status", status })).ok).toBe(false);
+  });
+
+  it("bounds a confirm: the full text fits, a longer one-line summary doesn't", () => {
+    const res = (approval: unknown) =>
+      parseServerMessage(JSON.stringify({ t: "tickets.res", rid: "r", ok: true, approval })).ok;
+    const base = { id: "ap1", expiresAt: 1, summary: "Comment on ENG-1 as you" };
+    expect(res({ ...base, text: "x".repeat(MAX_TICKET_TEXT) })).toBe(true);
+    expect(res({ ...base, text: "x".repeat(MAX_TICKET_TEXT + 1) })).toBe(false);
+    expect(res({ ...base, summary: "x".repeat(2001) })).toBe(false);
+    const row = { key: "ENG-1", title: "t", change: "due none" };
+    expect(res({ ...base, rows: Array.from({ length: MAX_TICKET_PLAN_ROWS }, () => row) })).toBe(
+      true,
+    );
+    expect(
+      res({ ...base, rows: Array.from({ length: MAX_TICKET_PLAN_ROWS + 1 }, () => row) }),
+    ).toBe(false);
   });
 
   it("every pre-existing fixture still parses", () => {
