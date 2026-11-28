@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import {
   ActionIcon,
   Button,
@@ -33,13 +33,11 @@ import { EvaMenu, EvaModal } from '../overlay'
 import { AgentCardView, CardFace, useCardSensors } from './AgentCard'
 import { COLUMN_ICON } from './CardChips'
 import { HiddenColumns, dropId } from './HiddenColumns'
-import { AgentPanel, BOARD_MIN, PANEL_MIN } from './AgentPanel'
-import { TicketView } from './TicketView'
 import { openAgentLink } from './agent-link'
 import { useCardMove, type CardMove } from './card-move-actor'
-import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
+import { openPlace } from '../navigation/navigate'
+import { cardPlace } from '../tickets/ticket-place'
 import {
-  collapsePanel,
   hideColumn,
   selectCard,
   setBoardFilters,
@@ -67,24 +65,73 @@ function useNow(): number {
   return now
 }
 
-/** The page's width, followed as the window or the panes around it resize. */
-function useWidth(ref: RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(0)
-  useEffect(() => {
-    const el = ref.current
-    if (el === null) return
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
-    ro.observe(el)
-    setWidth(el.clientWidth)
-    return () => ro.disconnect()
-  }, [ref])
-  return width
+/**
+ * A card opens its own target (a helper's chat, a harness pane) or, for a ticket or work item, its
+ * page; the board marks it as the one last opened.
+ */
+function openCard(card: AgentCard): void {
+  if (card.openTarget.kind === 'link') return openAgentLink(card.openTarget.open, 'here')
+  const place = cardPlace(card)
+  if (place === null) return
+  selectCard(card.id)
+  openPlace(place)
 }
 
-/** A card opens its own target (a helper's chat, a harness pane) or, for a ticket or work item, the side panel. */
-function openCard(card: AgentCard): void {
-  if (card.openTarget.kind === 'link') openAgentLink(card.openTarget.open, 'here')
-  else selectCard(card.id)
+/** Where the board was scrolled when it was left (to a ticket's page), so coming back keeps it. */
+let boardScroll: { left: number; cols: Record<string, number> } | null = null
+
+function saveBoardScroll(el: HTMLElement): void {
+  const cols: Record<string, number> = {}
+  for (const col of el.querySelectorAll<HTMLElement>('section[data-column]')) {
+    const cards = col.querySelector<HTMLElement>('.eva-ab-cards')
+    if (cards && col.dataset.column) cols[col.dataset.column] = cards.scrollTop
+  }
+  boardScroll = { left: el.scrollLeft, cols }
+}
+
+function restoreBoardScroll(el: HTMLElement): void {
+  if (boardScroll === null) return
+  el.scrollLeft = boardScroll.left
+  for (const [column, top] of Object.entries(boardScroll.cols)) {
+    const cards = el.querySelector<HTMLElement>(`section[data-column="${column}"] .eva-ab-cards`)
+    if (cards) cards.scrollTop = top
+  }
+}
+
+/**
+ * The board's scroll survives leaving the page: kept as it scrolls (the page may be hidden before
+ * it unmounts, which reads as 0), put back as it mounts and again for a moment after, while the
+ * pane it lands in is still taking its width. A timer, not frames: a hidden window has none.
+ */
+function useBoardScroll() {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el === null) return
+    const target = boardScroll
+    const sticks = (): boolean => target === null || el.scrollLeft === target.left
+    let tries = 0
+    restoreBoardScroll(el)
+    let pending = !sticks()
+    const timer = window.setInterval(() => {
+      restoreBoardScroll(el)
+      pending = !sticks() && ++tries < 6
+      if (!pending) window.clearInterval(timer)
+    }, 50)
+    // Every real position is kept; one clamped while the pane still takes its width is not.
+    const onScroll = (): void => {
+      if (pending && !sticks()) return
+      pending = false
+      window.clearInterval(timer)
+      saveBoardScroll(el)
+    }
+    el.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => {
+      window.clearInterval(timer)
+      el.removeEventListener('scroll', onScroll, { capture: true })
+    }
+  }, [])
+  return ref
 }
 
 function ColumnHead({ column, count }: { column: AgentColumn; count: number }) {
@@ -388,6 +435,7 @@ function Board({
   move: CardMove
 }) {
   const hidden = useAgentsBoard((s) => s.hidden)
+  const scroll = useBoardScroll()
   const [dragging, setDragging] = useState<AgentCard | null>(null)
   const sensors = useCardSensors()
   const cols = byColumn(cards, move.columnOf)
@@ -410,7 +458,7 @@ function Board({
         setDragging(null)
       }}
     >
-      <div className="eva-ab-board" data-testid="agents-board">
+      <div className="eva-ab-board" ref={scroll} data-testid="agents-board">
         {AGENT_COLUMNS.filter((c) => !hidden.includes(c)).map((col) => (
           <Column key={col} column={col} cards={cols[col]} selected={selected} now={now} />
         ))}
@@ -481,40 +529,10 @@ function NoCards({ board, error }: { board: AgentBoard | null; error: string | n
   )
 }
 
-/** The open card's ticket view: beside the board, or a drawer on a page too narrow for both. */
-function SidePanel({
-  card,
-  pageWidth,
-  now,
-}: {
-  card: AgentCard | null
-  pageWidth: number
-  now: number
-}) {
-  const collapsed = useAgentsBoard((s) => s.collapsed)
-  const narrow = pageWidth > 0 && pageWidth < BOARD_MIN + PANEL_MIN
-  // Esc closes the side panel (the drawer closes itself); a search being cleared goes first.
-  useDismissable(DISMISS_PRIORITY.selection, () => selectCard(null), card !== null && !narrow)
-  return (
-    <AgentPanel
-      open={card ? { key: card.id, label: card.key ?? card.title } : null}
-      narrow={narrow}
-      pageWidth={pageWidth}
-      collapsed={collapsed}
-      onCollapse={collapsePanel}
-      onClose={() => selectCard(null)}
-    >
-      {(chrome) =>
-        card === null ? null : <TicketView key={card.id} card={card} now={now} {...chrome} />
-      }
-    </AgentPanel>
-  )
-}
-
 /**
  * The Board page: everything the agents work on and Isaac's synced Linear tickets, as Linear's
- * board. A ticket or work item opens its view in the side panel; a run opens its own target.
- * Dragging a ticket to another column moves it in Linear (through the host's write gate).
+ * board. A ticket or work item opens its page (`ticket:`); a run opens its own target. Dragging a
+ * ticket to another column moves it in Linear (through the host's write gate).
  */
 export function AgentBoardPage(_props: { place: Place }) {
   useEffect(() => startAgentsBoard(), [])
@@ -524,14 +542,12 @@ export function AgentBoardPage(_props: { place: Place }) {
   const filters = useAgentsBoard((s) => s.filters)
   const move = useCardMove()
   const now = useNow()
-  const page = useRef<HTMLDivElement>(null)
-  const pageWidth = useWidth(page)
 
   const all = board?.cards ?? []
   const shown = visibleCards(all, filters)
 
   return (
-    <div className="eva-ab" ref={page} data-testid="page-board">
+    <div className="eva-ab" data-testid="page-board">
       <div className="eva-ab-main">
         <PageHead />
         {board ? <BoardBar board={board} shown={shown.length} now={now} /> : null}
@@ -542,11 +558,6 @@ export function AgentBoardPage(_props: { place: Place }) {
         )}
       </div>
       <MoveDialogs move={move} cards={all} />
-      <SidePanel
-        card={all.find((c) => c.id === selected) ?? null}
-        pageWidth={pageWidth}
-        now={now}
-      />
     </div>
   )
 }

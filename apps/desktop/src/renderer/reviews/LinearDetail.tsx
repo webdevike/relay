@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Button, Textarea, Tooltip } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Button, Tooltip } from '@mantine/core'
 import {
   IconArrowBackUp,
   IconCheck,
   IconChevronLeft,
   IconExternalLink,
   IconGitPullRequest,
-  IconLock,
   IconQuote,
   IconRefresh,
   IconUserCircle,
@@ -15,217 +13,28 @@ import {
 import type { LinearComment, LinearRow, LinearTicket } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { openLink } from '../navigation/open-link'
-import { EvaModal } from '../overlay'
-import { Markdown } from '../chat/markdown/Markdown'
-import { agoPhrase, mentionsAstra } from './review-model'
-import { Avatar, RailSection, SourceMark, fail } from './review-ui'
+import { agoPhrase } from './review-model'
+import { Avatar, RailSection, SourceMark } from './review-ui'
 import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
 import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { ticketContext } from './astra-context'
-import { Clamped, LinearStatus, PriorityIcon } from './LinearPanelParts'
+import { LinearStatus, PriorityIcon } from '../tickets/LinearStatus'
+import { Clamped } from './LinearPanelParts'
+import { privacyOf, type Person } from '../tickets/activity-model'
+import {
+  Composer,
+  ConfirmPost,
+  linearBody,
+  postLegacyComment,
+  quoteOf,
+  selectionIn,
+} from '../tickets/Composer'
+import { CommentMarkdown } from '../tickets/CommentBlock'
 
 type Tab = 'details' | 'comments'
 
 /** Comments the panel shows before "Show earlier": the newest few, where the talk is. */
 const PANEL_COMMENTS = 3
-
-interface Person {
-  name: string
-  handle: string
-  /** Profile page: the mention Linear understands. Empty for Astra, who is never posted. */
-  url: string
-}
-
-/**
- * The body Linear gets: each `@Name` of a person on the ticket becomes a link to their profile,
- * which Linear renders and notifies as a mention (plain `@handle` text is neither). Longer names
- * go first so `@Ann Lee` is not read as `@Ann`.
- */
-export function linearBody(text: string, people: readonly Person[]): string {
-  let out = text
-  for (const p of [...people].filter((x) => x.url).sort((a, b) => b.name.length - a.name.length)) {
-    const at = new RegExp(`@${p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'g')
-    out = out.replace(at, p.url)
-  }
-  return out
-}
-
-/** A Linear profile link (`https://linear.app/<workspace>/profiles/<handle>`): how Linear writes a mention. */
-const PROFILE = /(?<!\]\()<?https:\/\/linear\.app\/[\w-]+\/profiles\/([\w.-]+)>?/g
-
-/**
- * What a Linear body shows: each profile link as `@<Name>` in Linear's mention style (the
- * `mention:` pill the app's Markdown renders), the name from the people on the ticket, else the
- * handle. The body itself keeps the links, so a quote or reply still mentions the person.
- */
-export function linearDisplay(text: string, people: readonly Person[]): string {
-  return text.replace(PROFILE, (_, handle: string) => {
-    const p = people.find((x) => x.handle.toLowerCase() === handle.toLowerCase())
-    const name = (p?.name ?? handle).replace(/[[\]]/g, '')
-    return `[@${name}](mention:linear)`
-  })
-}
-
-/** `> ` before every line: a quote in markdown. */
-export function quoteOf(text: string): string {
-  return `${text
-    .trim()
-    .split('\n')
-    .map((l) => `> ${l}`)
-    .join('\n')}\n\n`
-}
-
-/** The text selected inside `el`, or null when the selection is elsewhere or empty. */
-function selectionIn(el: HTMLElement | null): string | null {
-  const sel = window.getSelection()
-  if (!el || !sel || sel.isCollapsed || !sel.anchorNode) return null
-  if (!el.contains(sel.anchorNode)) return null
-  const text = sel.toString().trim()
-  return text || null
-}
-
-/**
- * A comment box: @ opens a list of Astra and the people on the ticket; mentioning Astra makes it a
- * private question to her (never posted). Cmd+Enter sends.
- */
-function ReplyBox({
-  value,
-  onChange,
-  people,
-  placeholder,
-  target,
-  busy,
-  onSend,
-  onCancel,
-  autoFocus,
-  testid,
-}: {
-  value: string
-  onChange: (v: string) => void
-  people: Person[]
-  placeholder: string
-  /** Where a non-private send goes, for the hint line. */
-  target: string
-  busy: boolean
-  onSend: () => void
-  onCancel?: () => void
-  autoFocus?: boolean
-  testid: string
-}) {
-  const box = useRef<HTMLTextAreaElement>(null)
-  const [query, setQuery] = useState<string | null>(null)
-  const priv = mentionsAstra(value)
-  const options: Person[] = [
-    { name: 'Astra (private)', handle: 'Astra', url: '' },
-    ...people,
-  ].filter(
-    (p) =>
-      query !== null &&
-      (p.handle.toLowerCase().startsWith(query.toLowerCase()) ||
-        p.name.toLowerCase().startsWith(query.toLowerCase())),
-  )
-
-  const track = (text: string, caret: number): void => {
-    const m = /(^|\s)@([\w.-]*)$/.exec(text.slice(0, caret))
-    setQuery(m ? m[2]! : null)
-  }
-  const pick = (p: Person): void => {
-    const el = box.current
-    const caret = el?.selectionStart ?? value.length
-    // The editor shows `@Name`; linearBody turns it into the profile link Linear mentions with.
-    const label = p.url ? p.name : p.handle
-    const before = value.slice(0, caret).replace(/@([\w.-]*)$/, `@${label} `)
-    onChange(before + value.slice(caret))
-    setQuery(null)
-    caretAt.current = before.length
-  }
-  // After a mention is picked, the caret goes right after it before the next key lands.
-  const caretAt = useRef<number | null>(null)
-  useLayoutEffect(() => {
-    const at = caretAt.current
-    if (at === null || !box.current) return
-    caretAt.current = null
-    box.current.focus()
-    box.current.setSelectionRange(at, at)
-  }, [value])
-
-  return (
-    <div className="eva-rv-replybox">
-      <Textarea
-        ref={box}
-        autosize
-        minRows={2}
-        maxRows={10}
-        autoFocus={autoFocus}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.currentTarget.value)
-          track(e.currentTarget.value, e.currentTarget.selectionStart)
-        }}
-        onKeyDown={(e) => {
-          if (query !== null && options.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
-            e.preventDefault()
-            pick(options[0]!)
-            return
-          }
-          if (e.key === 'Escape' && query !== null) {
-            e.stopPropagation()
-            setQuery(null)
-            return
-          }
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault()
-            onSend()
-          }
-        }}
-        data-private={priv || undefined}
-        data-testid={testid}
-      />
-      {query !== null && options.length > 0 ? (
-        <div className="eva-rv-mentions" role="listbox" data-testid="review-mention-list">
-          {options.slice(0, 6).map((p) => (
-            <button
-              key={p.handle}
-              type="button"
-              role="option"
-              aria-selected={false}
-              className="eva-rv-mention-opt"
-              onMouseDown={(e) => {
-                e.preventDefault()
-                pick(p)
-              }}
-            >
-              {p.handle === 'Astra' ? <IconLock size={12} /> : <Avatar login={p.name} />}
-              <span>{p.name}</span>
-              <span className="eva-rv-dim">@{p.handle}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <div className="eva-rv-composer-foot">
-        <span className="eva-rv-dim eva-rv-small" data-private={priv || undefined}>
-          {priv ? (
-            <>
-              <IconLock size={11} /> Private to Astra, never sent to Linear
-            </>
-          ) : (
-            `Cmd+Enter · ${target}`
-          )}
-        </span>
-        <span className="eva-rv-spacer" />
-        {onCancel ? (
-          <Button size="xs" variant="subtle" color="gray" onClick={onCancel}>
-            Cancel
-          </Button>
-        ) : null}
-        <Button size="xs" variant="subtle" disabled={!value.trim() || busy} onClick={onSend}>
-          {priv ? 'Ask Astra' : onCancel ? 'Reply' : 'Comment'}
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 function CommentView({
   c,
@@ -279,7 +88,7 @@ function CommentView({
         </span>
       </div>
       <div ref={body} className="eva-rv-lcomment-body">
-        <Markdown text={linearDisplay(c.body, people)} />
+        <CommentMarkdown text={c.body} people={people} />
       </div>
     </div>
   )
@@ -459,7 +268,7 @@ export function LinearDetail({
   const send = async (text: string, parent: LinearComment | null): Promise<void> => {
     const body = text.trim()
     if (!body) return
-    if (mentionsAstra(body)) {
+    if (privacyOf(body, t.people) !== 'public') {
       setBusy(true)
       const about = parent
         ? `(about ${parent.author.name}'s comment: "${parent.body.slice(0, 300)}") `
@@ -481,20 +290,17 @@ export function LinearDetail({
   const post = async (): Promise<void> => {
     if (!confirm) return
     setBusy(true)
-    const r = await invoke('reviews.linearComment', {
+    const parent = confirm.parent
+    const ok = await postLegacyComment({
       issueId: t.id,
-      parentId: confirm.parent?.id ?? null,
+      parentId: parent?.id ?? null,
       body: confirm.body,
     })
     setBusy(false)
-    const parent = confirm.parent
     setConfirm(null)
-    if (!r.ok) {
-      return fail(r.error.code === 'dry-run' ? 'Not posted' : "Couldn't post it", r.error.message)
-    }
+    if (!ok) return
     if (parent) setReply(null)
     else setDraft('')
-    notifications.show({ message: 'Posted on Linear.', color: 'green' })
     void load()
   }
 
@@ -547,11 +353,11 @@ export function LinearDetail({
                 <div className="eva-rv-dim eva-rv-small">
                   Replying to {e.item.author.name}&apos;s comment
                 </div>
-                <ReplyBox
+                <Composer
                   value={reply.text}
                   onChange={(text) => setReply({ to: e.item, text })}
                   people={t.people}
-                  placeholder={`Reply to ${e.item.author.name}. Type @Astra to ask Astra privately.`}
+                  placeholder={`Reply to ${e.item.author.name}. Type @Astra to ask privately.`}
                   target={`sends to Linear as a reply to ${e.item.author.name}`}
                   busy={busy}
                   autoFocus
@@ -567,11 +373,11 @@ export function LinearDetail({
     )
 
   const composer = (
-    <ReplyBox
+    <Composer
       value={draft}
       onChange={setDraft}
       people={t.people}
-      placeholder="Leave a comment. Type @ to mention, @Astra to ask Astra privately."
+      placeholder="Leave a comment. Type @ to mention, @Astra to ask privately."
       target={`sends to ${t.key} as a new comment`}
       busy={busy}
       onSend={() => void send(draft, null)}
@@ -580,30 +386,20 @@ export function LinearDetail({
   )
 
   const confirmModal = (
-    <EvaModal
+    <ConfirmPost
       opened={confirm !== null}
-      onClose={() => setConfirm(null)}
       title={confirm?.parent ? 'Post this reply on Linear?' : 'Post this comment on Linear?'}
-      size={480}
-    >
-      <div className="eva-rv-confirm-text" data-testid="review-confirm-text">
-        {confirm?.body}
-      </div>
-      <div className="eva-rv-dim eva-rv-small">
-        {confirm?.parent
+      text={confirm?.body}
+      note={`${
+        confirm?.parent
           ? `Posts as you under ${confirm.parent.author.name}'s comment on ${t.key}.`
-          : `Posts as you on ${t.key}.`}{' '}
-        Everyone on the ticket sees it.
-      </div>
-      <div className="eva-rv-modal-actions">
-        <Button variant="default" onClick={() => setConfirm(null)}>
-          Cancel
-        </Button>
-        <Button loading={busy} onClick={() => void post()} data-testid="review-confirm-post">
-          {confirm?.parent ? 'Post reply' : 'Post comment'}
-        </Button>
-      </div>
-    </EvaModal>
+          : `Posts as you on ${t.key}.`
+      } Everyone on the ticket sees it.`}
+      confirmLabel={confirm?.parent ? 'Post reply' : 'Post comment'}
+      busy={busy}
+      onConfirm={() => void post()}
+      onCancel={() => setConfirm(null)}
+    />
   )
 
   if (variant === 'panel') {
@@ -624,7 +420,7 @@ export function LinearDetail({
         </div>
         <Clamped>
           {t.description.trim() ? (
-            <Markdown text={linearDisplay(t.description, everyone)} />
+            <CommentMarkdown text={t.description} people={everyone} />
           ) : (
             <span className="eva-rv-dim">No description.</span>
           )}
@@ -753,7 +549,7 @@ export function LinearDetail({
                 </div>
                 <div className="eva-rv-body" ref={descRef}>
                   {t.description.trim() ? (
-                    <Markdown text={linearDisplay(t.description, everyone)} />
+                    <CommentMarkdown text={t.description} people={everyone} />
                   ) : (
                     <span className="eva-rv-dim">No description.</span>
                   )}

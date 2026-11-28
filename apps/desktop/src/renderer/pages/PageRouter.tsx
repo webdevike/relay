@@ -5,26 +5,35 @@ import { pageRegistry, type PageRegistryKind } from './registry'
 import './pages.css'
 
 /**
+ * Pages that own their scrolling: a canvas board, an assistant's thread, a review item, a room's
+ * chat feed, a ticket (its main column beside a sticky sidebar).
+ */
+const OWN_SCROLL_KINDS: Partial<Record<string, true>> = {
+  canvas: true,
+  agent: true,
+  review: true,
+  room: true,
+  ticket: true,
+}
+/** Studio, Skills, Reviews (a list beside an editor or a detail), and the Board's columns. */
+const OWN_SCROLL_PAGES: Partial<Record<string, true>> = {
+  studio: true,
+  skills: true,
+  reviews: true,
+  board: true,
+}
+
+/**
  * One page other than a chat, in its app tab's card (tiling/dock AppPanel shows chats and
  * assistant threads itself).
  */
 export function PageView({ place }: { place: Place }) {
   const meta = pageMeta(place)
-  // The theme editor, Canvas, a room, Studio, Reviews, Skills, Agents and the Board own their
-  // scrolling (two panes; a board; a chat feed; a composer beside a gallery; a queue beside a pull
-  // request; a list beside an editor; a file tree beside an editor; columns that scroll each on
-  // their own), and so does an assistant's page (a thread's log scrolls itself; its start card
-  // scrolls on its own).
+  // The theme editor's two panes scroll each on their own, and so do the pages above.
   const ownsScroll =
     (meta.kind === 'settings' && place.settingsSection === 'Theme') ||
-    meta.kind === 'canvas' ||
-    meta.kind === 'agent' ||
-    meta.kind === 'review' ||
-    meta.kind === 'room' ||
-    meta.slug === 'studio' ||
-    meta.slug === 'skills' ||
-    meta.slug === 'reviews' ||
-    (meta.kind === 'page' && meta.slug === 'board')
+    OWN_SCROLL_KINDS[meta.kind] === true ||
+    (meta.kind === 'page' && OWN_SCROLL_PAGES[meta.slug] === true)
   const key = placeKey(place)
   const Page = pageRegistry[meta.kind as PageRegistryKind]
   return (

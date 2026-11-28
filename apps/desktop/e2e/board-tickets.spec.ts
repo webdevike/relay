@@ -149,7 +149,7 @@ test('the board shows synced tickets beside agent work; hide, filter, handle, mo
     },
     undo: false,
   })
-  await expect(shell.locator(sel('agents-side'))).toHaveCount(0)
+  await expect(shell.locator(sel('ticket-page'))).toHaveCount(0)
   await shell.locator(sel('agents-handled-undo')).click()
   await expect.poll(() => handledOps().length).toBe(2)
   expect(handledOps()[1]).toMatchObject({ undo: true })
@@ -166,7 +166,7 @@ test('the board shows synced tickets beside agent work; hide, filter, handle, mo
         .map((m) => m.mutation?.kind),
     )
     .toEqual(['setState'])
-  await expect(shell.locator(sel('agents-side'))).toHaveCount(0)
+  await expect(shell.locator(sel('ticket-page'))).toHaveCount(0)
   await expect(shell.locator(sel('agents-move-undo'))).toBeVisible()
   // The host's next board has it in progress, as Linear would.
   const moved = host.tickets.board.tickets.find((t) => t.key === 'ENG-9002')!
@@ -192,9 +192,9 @@ test('the board shows synced tickets beside agent work; hide, filter, handle, mo
   await expect(shell.getByText('Refused: conflict')).toBeVisible()
   await expect(col(shell, 'working').locator(sel('agents-card-ENG-9002'))).toBeVisible()
   await expect(col(shell, 'review').locator(sel('agents-card-ENG-9002'))).toHaveCount(0)
-  await expect(shell.locator(sel('agents-side'))).toHaveCount(0)
+  await expect(shell.locator(sel('ticket-page'))).toHaveCount(0)
 
-  // A run of its own (no key) opens its target directly, not the side panel.
+  // A run of its own (no key) opens its target directly, not a ticket page.
   host.setActivity([
     {
       id: 'helper:board-proto',
@@ -214,5 +214,5 @@ test('the board shows synced tickets beside agent work; hide, filter, handle, mo
   await expect(run).toContainText('BoardProto')
   await run.click()
   await expect(shell.locator(sel('page-board'))).toBeHidden()
-  await expect(shell.locator(sel('agents-side'))).toHaveCount(0)
+  await expect(shell.locator(sel('ticket-page'))).toHaveCount(0)
 })

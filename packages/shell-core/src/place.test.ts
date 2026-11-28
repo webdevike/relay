@@ -46,6 +46,18 @@ describe('pages', () => {
     }
     expect(samePlace(placeOf('review:pr:a/b#1'), placeOf('review:pr:a/b#2'))).toBe(false)
     expect(samePlace(placeOf('review:pr:a/b#1'), placeOf('review:pr:a/b#1'))).toBe(true)
+    expect(pageFromKey('ticket:')).toBeNull()
+    for (const key of [
+      'ticket:ENG-1',
+      'ticket:item/relay-demo',
+      'ticket:ENG-1/pr/acme/app/12',
+      'ticket:ENG-1#comment-c1',
+    ]) {
+      expect(pageFromKey(key)).toBe(key)
+      expect(placeFromJson(placeToJson(placeOf(key as PageKey)))).toEqual(placeOf(key as PageKey))
+      expect(placeKey(placeOf(key as PageKey))).toBe(key)
+    }
+    expect(samePlace(placeOf('ticket:ENG-1'), placeOf('ticket:ENG-1/pr/acme/app/12'))).toBe(false)
   })
 
   it('rejects removed destinations when restoring navigation', () => {

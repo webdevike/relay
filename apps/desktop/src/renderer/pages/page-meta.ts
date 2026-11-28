@@ -9,6 +9,7 @@ import {
   workspaceTitle,
 } from '../eva/names-store'
 import { reviewFallbackTitle } from '../reviews/review-place'
+import { ticketTabTitle } from '../tickets/ticket-place'
 
 export interface NavPage {
   slug: string
@@ -115,6 +116,7 @@ export type PageKind =
   | 'board'
   | 'review'
   | 'room'
+  | 'ticket'
 
 export interface PageMeta {
   kind: PageKind
@@ -123,40 +125,60 @@ export interface PageMeta {
   description: string
 }
 
-/** Text only: callers render these as React children (T-02-38). */
-export function pageMeta(place: Place): PageMeta {
-  const page = place.page
-  if (page.startsWith('workspace:')) {
-    const id = page.slice('workspace:'.length)
-    return {
+/** Pages named by a prefix and an id (`workspace:abc`), each read from the id after it. */
+const PREFIXED: ReadonlyArray<readonly [string, (id: string) => PageMeta]> = [
+  [
+    'workspace:',
+    (id) => ({
       kind: 'workspace',
       slug: 'workspace',
       title: workspaceTitle(id) ?? id,
       description: 'Workspace activity, todos and journal.',
-    }
-  }
-  if (page.startsWith('agent:')) {
-    const id = page.slice('agent:'.length)
-    return { kind: 'agent', slug: 'agent', title: agentTitle(id) ?? id, description: '' }
-  }
-  if (page.startsWith('board:')) {
-    const slug = page.slice('board:'.length)
-    return { kind: 'board', slug: 'board', title: boardTitle(slug) ?? slug, description: '' }
-  }
-  if (page.startsWith('review:')) {
-    const id = page.slice('review:'.length)
-    return {
+    }),
+  ],
+  [
+    'agent:',
+    (id) => ({ kind: 'agent', slug: 'agent', title: agentTitle(id) ?? id, description: '' }),
+  ],
+  [
+    'board:',
+    (id) => ({ kind: 'board', slug: 'board', title: boardTitle(id) ?? id, description: '' }),
+  ],
+  [
+    'review:',
+    (id) => ({
       kind: 'review',
       slug: 'review',
       title: reviewTitle(id) ?? reviewFallbackTitle(id),
       description: '',
-    }
-  }
+    }),
+  ],
+  [
+    'ticket:',
+    (id) => ({
+      kind: 'ticket',
+      slug: 'ticket',
+      title: ticketTabTitle(`ticket:${id}`),
+      description: '',
+    }),
+  ],
   // Rooms live under Assistants: `rooms` is the New room page, `room:<id>` one room.
-  if (page.startsWith('room:')) {
-    const id = page.slice('room:'.length)
-    return { kind: 'room', slug: 'room', title: roomTitle(id) ?? UNTITLED_ROOM, description: '' }
-  }
+  [
+    'room:',
+    (id) => ({
+      kind: 'room',
+      slug: 'room',
+      title: roomTitle(id) ?? UNTITLED_ROOM,
+      description: '',
+    }),
+  ],
+]
+
+/** Text only: callers render these as React children (T-02-38). */
+export function pageMeta(place: Place): PageMeta {
+  const page = place.page
+  const prefixed = PREFIXED.find(([prefix]) => page.startsWith(prefix))
+  if (prefixed) return prefixed[1](page.slice(prefixed[0].length))
   if (page === 'rooms') {
     return {
       kind: 'page',

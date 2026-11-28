@@ -3,9 +3,12 @@ import { DndContext } from '@dnd-kit/core'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Place } from '@evaos/shell-core'
 
 const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
+const openPlace = vi.fn<(p: Place) => void>()
+vi.mock('../navigation/navigate', () => ({ openPlace: (p: Place) => openPlace(p) }))
 
 import { AgentCardView, useCardSensors } from './AgentCard'
 import { agentsBoardStore } from './agents-store'
@@ -48,6 +51,7 @@ function ui(onOpen: () => void) {
 
 afterEach(() => {
   invoke.mockReset()
+  openPlace.mockReset()
   agentsBoardStore.setState({ handled: new Set() })
 })
 
@@ -84,16 +88,20 @@ describe('board card', () => {
     expect(onOpen).not.toHaveBeenCalled()
   })
 
-  it('a nested chip click opens its own target, never the card under it', async () => {
+  it('a nested chip opens its own place, never the card under it', async () => {
     const onOpen = vi.fn()
     ui(onOpen)
     const user = userEvent.setup()
+    // The waiting chip opens the comment on the ticket's page; the PR chip that PR's page.
     await user.click(screen.getByTestId('agents-wait-open'))
     await user.click(screen.getByTestId('agents-pr-12'))
-    // Each nested chip opened once (the side panel for now); the card's own click never ran.
-    expect(onOpen).toHaveBeenCalledTimes(2)
+    expect(openPlace.mock.calls.map(([p]) => p.page)).toEqual([
+      'ticket:ENG-1#comment-c-1',
+      'ticket:ENG-1/pr/acme/app/12',
+    ])
+    expect(onOpen).not.toHaveBeenCalled()
     await user.click(screen.getByTestId('agents-card-ENG-1'))
-    expect(onOpen).toHaveBeenCalledTimes(3)
+    expect(onOpen).toHaveBeenCalledTimes(1)
   })
 
   it('Enter on the card opens it', async () => {

@@ -28,8 +28,8 @@ import type { ListTone } from '../ui/list'
 import type { CardTicket } from './board-view'
 
 // The small pieces of a board card, after Linear's board: a status circle, priority bars, the
-// sub-issue ring and one chip per project, PR, label and session; plus the glyphs the side
-// panel shares.
+// sub-issue ring and one chip per project, PR, label and session; plus the glyphs the ticket
+// page shares.
 
 /** Column glyphs, colored per column in agents-board.css (the shape carries it without color). */
 export const COLUMN_ICON: Record<AgentColumn, Icon> = {
@@ -242,7 +242,7 @@ function prsOf(card: AgentCard): ChipPr[] {
   return card.pr ? [card.pr] : []
 }
 
-function PrChip({ pr, onOpen }: { pr: ChipPr; onOpen: () => void }) {
+function PrChip({ pr, onOpen }: { pr: ChipPr; onOpen: (pr: ChipPr) => void }) {
   const Glyph = PR_ICON[pr.state ?? 'open']
   return (
     <Tooltip label={prWords(pr)} openDelay={400}>
@@ -253,7 +253,7 @@ function PrChip({ pr, onOpen }: { pr: ChipPr; onOpen: () => void }) {
         onKeyDown={stopKeys}
         onClick={(e: MouseEvent) => {
           e.stopPropagation()
-          onOpen()
+          onOpen(pr)
         }}
       >
         <Glyph size={12} stroke={1.75} aria-hidden />#{pr.number}
@@ -305,7 +305,13 @@ function TicketTail({ t }: { t: CardTicket }) {
 }
 
 /** Everything under the title but the waiting chip: priority, project, PRs, sub-issues, labels, session. */
-export function CardChips({ card, onOpenPr }: { card: AgentCard; onOpenPr: () => void }) {
+export function CardChips({
+  card,
+  onOpenPr,
+}: {
+  card: AgentCard
+  onOpenPr: (pr: { repo: string; number: number }) => void
+}) {
   const t = card.ticket
   const Run = RUN_ICON[card.kind]
   const prs = prsOf(card)

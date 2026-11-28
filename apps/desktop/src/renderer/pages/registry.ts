@@ -23,9 +23,19 @@ import { SkillsPage } from '../skills/SkillsPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
 import { SetupPage } from '../setup/SetupPage'
 import { FeedPage } from '../feed/FeedPage'
+import { TicketPage } from '../tickets/TicketPage'
 
 export type PageRegistryKind =
-  'page' | 'settings' | 'workspace' | 'meeting' | 'canvas' | 'agent' | 'board' | 'review' | 'room'
+  | 'page'
+  | 'settings'
+  | 'workspace'
+  | 'meeting'
+  | 'canvas'
+  | 'agent'
+  | 'board'
+  | 'review'
+  | 'room'
+  | 'ticket'
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   assistants: AssistantsHome,
@@ -60,4 +70,5 @@ export const pageRegistry: Record<PageRegistryKind, ComponentType<{ place: Place
   board: BoardPage,
   review: ReviewPage,
   room: RoomPage,
+  ticket: TicketPage,
 }

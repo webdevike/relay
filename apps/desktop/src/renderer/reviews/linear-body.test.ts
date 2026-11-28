@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { linearBody, linearDisplay } from './LinearDetail'
+import { linearBody, linearDisplay } from '../tickets/Composer'
 
 const P = (name: string, handle: string) => ({
   name,
