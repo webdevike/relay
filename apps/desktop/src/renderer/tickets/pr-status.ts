@@ -237,11 +237,14 @@ const NO_MERGE: ReadonlyArray<(pr: ReviewPr, a: Actions) => string | null> = [
     a.mergeStateStatus === 'DIRTY' ? `Conflicts with ${pr.base}: resolve them first` : null,
   (_, a) =>
     a.mergeQueue.required ? 'This branch merges through a merge queue: add it on GitHub' : null,
-  (_, a) => {
+  (pr, a) => {
     const s = a.mergeStateStatus
     if (MERGES_NOW[s]) return null
+    // The status line's own words (a required review it names), so the box never says it twice differently.
     return (
-      MERGE_STATE_WORDS[s]?.blocked ?? MERGE_STATE_WORDS[s]?.note ?? 'GitHub won’t merge it yet'
+      prStatusOf(prSignalsOfReview(pr)).blocked ??
+      MERGE_STATE_WORDS[s]?.note ??
+      'GitHub won’t merge it yet'
     )
   },
 ]

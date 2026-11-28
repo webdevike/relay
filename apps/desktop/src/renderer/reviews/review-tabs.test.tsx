@@ -507,12 +507,11 @@ describe('PrView', () => {
     expect(calls('reviews.prCommit')).toHaveLength(0)
   })
 
-  it('never offers auto-merge: a PR GitHub won’t merge right now shows why, with no button', () => {
+  it('never offers auto-merge: a PR GitHub won’t merge right now shows why (the status line’s words), with no button', () => {
     showPr(prOf({ actions: { ...ACTIONS, mergeStateStatus: 'BLOCKED' } }))
     expect(screen.queryByTestId('pr-merge-start')).toBeNull()
-    expect(screen.getByTestId('pr-merge-none')).toHaveTextContent(
-      'Required reviews or checks are missing',
-    )
+    expect(screen.getByTestId('pr-status-line')).toHaveTextContent('Blocked: 1 failing check')
+    expect(screen.getByTestId('pr-merge-none')).toHaveTextContent('1 failing check')
   })
 
   it('hides merge, re-run, request review and reactions without the host’s actions facts', () => {

@@ -58,6 +58,7 @@ function proofPr(): Json {
     number: PR_REF.number,
     url: `https://github.example.test/${PR_REF.repo}/pull/${PR_REF.number}`,
     title: 'Sample bridge change',
+    reviewDecision: 'REVIEW_REQUIRED',
     headSha: HEAD,
     checks,
     actions: {
@@ -390,16 +391,10 @@ test('Board, ticket and PR', async ({ app, shell }) => {
     await expect(shell.locator(sel(`review-tab-${t}`))).toBeVisible()
   const rail = shell.locator(sel('review-rail'))
   await expect(rail.locator(sel('pr-status-line'))).toContainText('Blocked')
-  await expect(rail.locator(sel('pr-merge-start'))).toBeVisible()
+  // A blocked PR offers no merge (only an immediate, head-bound merge exists): the box says why.
+  await expect(rail.locator(sel('pr-merge-none'))).toBeVisible()
+  await expect(rail.locator(sel('pr-merge-start'))).toHaveCount(0)
   await shot(shell, 'pr')
-
-  // Merge confirm: names the head and the outcome; Cancel writes nothing.
-  await rail.locator(sel('pr-merge-start')).click()
-  await expect(shell.locator(sel('pr-merge-Head'))).toHaveText(HEAD.slice(0, 7))
-  await expect(shell.locator(sel('pr-merge-confirm'))).toBeVisible()
-  await shot(shell, 'merge-confirm')
-  await shell.getByRole('button', { name: 'Cancel' }).click()
-  await expect(shell.locator(sel('pr-merge-confirm'))).toHaveCount(0)
 
   // Diff: the file tree and the review thread on its line (the first file), then the long line
   // wrapped (the list jumps to its file from the tree; too far down to share one window).
