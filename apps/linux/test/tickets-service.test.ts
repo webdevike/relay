@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import signedImages from "@relay/protocol/fixtures/signed-images.json";
 import { ticketsFeatures, type HostConfig } from "../src/host-config";
 import { MAX_DETAIL_FRAME_BYTES } from "../src/tickets/service";
 import { FakeLinear, T0, ticketsHarness, type TicketsHarness } from "./tickets-fakes";
@@ -140,6 +141,20 @@ describe("TicketsService bounds and reads", () => {
       expect(text).not.toContain("eyJ");
       expect(text).not.toContain("private-user-images");
     }
+  });
+
+  it("keeps no credential from any shared signed-media fixture (titles, parenthesized labels, code) in the frame or the cache", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const all = [...Object.values(signedImages.forms), ...Object.values(signedImages.links)];
+    const comment = { id: "c-1", body: all.join("\n\n"), url: "https://linear.app/acme/issue/ENG-1#c-1", createdAt: new Date(T0 - MIN).toISOString(), editedAt: null, resolvedAt: null, quotedText: all.join(" "), documentContentId: null, parent: null, user: null, resolvingUser: null, reactionData: [] };
+    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), description: all.join("\n\n"), comments: { nodes: [comment] } });
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    const frame = JSON.stringify({ t: "tickets.res", rid: "r1", ...(await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })) });
+    const stored = readFileSync(join(h.dir, "tickets.json"), "utf8");
+    for (const text of [frame, stored]) for (const secret of signedImages.secrets) expect(text).not.toContain(secret);
   });
 
   it("keeps the whole ticket-page frame under its cap with 250 short comments carrying long quotes and full reactions", async () => {

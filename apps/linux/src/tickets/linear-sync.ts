@@ -200,55 +200,19 @@ function reactionsOf(data: unknown): TicketComment["reactions"] {
 
 /** A query parameter that carries a credential: GitHub's private-image `jwt`, signed storage or CDN links. */
 const SIGNED_PARAM = /[?&;](jwt|x-amz-(signature|credential|security-token)|x-goog-(signature|credential)|signature|sig|token|access_token|expires)=/i;
-/** A `<...>` link destination (spaces and parentheses allowed). */
-const ANGLE_URL = /<(https?:\/\/[^<>\n]*)>/gi;
-/** A bare URL, parentheses included (its unbalanced closing ones are given back to the text). */
-const BARE_URL = /https?:\/\/[^\s<>"'[\]]+/gi;
 
 /** An upload only the host's credentials open (GitHub's, Linear's) or any signed link. */
 const privateMedia = (url: string): boolean => isGithubUpload(url) || isLinearUpload(url) || SIGNED_PARAM.test(url);
 
-/** A bare private URL as UNAVAILABLE_MEDIA, keeping the `)`s that close text around it. */
-function bareUrl(url: string): string {
-  if (!privateMedia(url)) return url;
-  const extra = url.split(")").length - url.split("(").length;
-  const tail = /\)*$/.exec(url)?.[0].length ?? 0;
-  return UNAVAILABLE_MEDIA + ")".repeat(Math.max(0, Math.min(extra, tail)));
-}
-
-/** HTML entities a URL can hide behind (numeric, hex and the punctuation ones markdown decodes). */
-const NAMED_ENTITIES: Readonly<Record<string, string>> = { amp: "&", colon: ":", sol: "/", quest: "?", equals: "=", period: ".", num: "#", percnt: "%", lpar: "(", rpar: ")", lt: "<", gt: ">", quot: '"', apos: "'" };
-const ENTITY = /&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi;
-
-function decodeEntities(s: string): string {
-  return s.replace(ENTITY, (whole, dec: string | undefined, hex: string | undefined, name: string | undefined) => {
-    const code = dec !== undefined ? Number(dec) : hex !== undefined ? parseInt(hex, 16) : undefined;
-    if (code !== undefined) return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
-    return NAMED_ENTITIES[(name ?? "").toLowerCase()] ?? whole;
-  });
-}
-
-/** A run of text between spaces, quotes and brackets: where an entity-encoded URL can sit. */
-const TOKEN = /[^\s<>"'[\]]+/g;
-
-/** A token holding an entity-encoded private URL (`https&#58;//...`, `&#x3a;`, `&colon;`) as "(private link)". */
-function encodedUrl(token: string): string {
-  if (!token.includes("&")) return token;
-  const decoded = decodeEntities(token);
-  return (decoded.match(BARE_URL) ?? []).some(privateMedia) ? "(private link)" : token;
-}
-
 /**
  * Ticket text (description, comment, quote) with provider media made safe before it is cached or
- * sent, as Reviews' media localizer answers a source it can't serve: every image and private link
- * (the shared media grammar, `rewriteImages`), then every whole `<...>` destination and bare URL that
- * is a private upload or signed, and last any such URL hidden behind HTML entities, so neither the
- * URL nor its signature leaves the host.
+ * sent, as Reviews' media localizer answers a source it can't serve: the shared media grammar
+ * (`rewriteImages`) points private images at UNAVAILABLE_MEDIA and unwraps private links, and its
+ * final whole-string pass drops every private or signed URL left anywhere (bare, in `<...>`, behind
+ * entities or escapes), so neither the URL nor its signature leaves the host.
  */
 export function safeTicketText(text: string): string {
-  const images = rewriteImages(text, (url) => (privateMedia(url) ? UNAVAILABLE_MEDIA : undefined));
-  const literal = images.replace(ANGLE_URL, (whole, url: string) => (privateMedia(url) ? `<${UNAVAILABLE_MEDIA}>` : whole)).replace(BARE_URL, bareUrl);
-  return literal.replace(TOKEN, encodedUrl);
+  return rewriteImages(text, (url) => (privateMedia(url) ? UNAVAILABLE_MEDIA : undefined), privateMedia);
 }
 
 export function toComment(c: CommentNode): TicketComment {
