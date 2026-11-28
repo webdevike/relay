@@ -358,9 +358,11 @@ function throwGqlError(status: number, first: GqlError, budget: Budget | null): 
 
 /**
  * An answer's data, or the error it means: Linear said no (GraphQL `errors`, a 4xx) throws
- * `ProviderRejected` (nothing was written); a limit throws `RateLimited`; a 5xx a plain Error.
+ * `ProviderRejected` (nothing was written); a limit throws `RateLimited`; a 5xx, even with a
+ * GraphQL `errors` body, a plain Error (a write may or may not have happened).
  */
 function dataOf(status: number, body: unknown, budget: Budget | null): unknown {
+  if (status >= 500) throw new Error(`Linear answered ${String(status)}`);
   const parsed = GqlAnswer.safeParse(body);
   const first = parsed.success ? parsed.data.errors?.[0] : undefined;
   if (first !== undefined) throwGqlError(status, first, budget);

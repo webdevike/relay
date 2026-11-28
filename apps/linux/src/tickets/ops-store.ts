@@ -1,7 +1,9 @@
 // Durable op store of the tickets MutationGate (PLAN §2.5): `<tickets dir>/ops.json`, one record per
-// client-minted opId, so a retried commit answers the stored outcome instead of writing twice.
-// A record still `running` when the host stopped is `unknown` on load: the gate reconciles it with
-// the provider before it ever writes again.
+// client-minted opId, so a retried commit answers the stored outcome instead of writing twice. Each
+// record keeps the authority it was written under (Linear account, device, approved revision): a
+// retry from another account or device is refused, and a stable-id create is only resent at that
+// revision. A record still `running` when the host stopped is `unknown` on load: the gate
+// reconciles it with the provider and never reapplies it from a read of current state.
 
 import { join } from "node:path";
 import { z } from "zod";
@@ -35,6 +37,12 @@ const OpRecord = z.object({
   at: z.number(),
   result: OpResult.optional(),
   error: z.string().optional(),
+  /** The Linear account the write ran as; "" (a record without one) matches nobody. */
+  viewerId: z.string().default(""),
+  /** The device that started it; only it may retry or read it. */
+  deviceId: z.string().default(""),
+  /** check()'s revision the write was approved at (`approval.revision` for a confirmed kind). */
+  revision: z.string().default(""),
 });
 export type OpRecord = z.infer<typeof OpRecord>;
 

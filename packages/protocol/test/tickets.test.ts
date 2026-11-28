@@ -203,9 +203,14 @@ const ops: TicketsOp[] = [
     undo: true,
   },
   { kind: "summary", key: "ENG-1" },
-  ...mutations.map((mutation) => ({ kind: "prepare" as const, mutation })),
-  ...mutations.map((mutation) => ({ kind: "commit" as const, opId: OP, mutation })),
-  { kind: "commit", approvalId: "ap1", opId: OP, mutation: mutations[1]! },
+  ...mutations.map((mutation) => ({ kind: "prepare" as const, viewerId: "u1", mutation })),
+  ...mutations.map((mutation) => ({
+    kind: "commit" as const,
+    viewerId: "u1",
+    opId: OP,
+    mutation,
+  })),
+  { kind: "commit", viewerId: "u1", approvalId: "ap1", opId: OP, mutation: mutations[1]! },
   { kind: "plan", rows: [{ key: "ENG-1", plannedStart: "2026-11-21" }] },
   { kind: "replan", projectId: "p1" },
   { kind: "replan", projectId: "p1", milestoneId: "m1" },
@@ -327,11 +332,14 @@ describe("tickets frames", () => {
     const req = (op: unknown) =>
       parseClientMessage(JSON.stringify({ t: "tickets.req", rid: "r", op })).ok;
     const comment = (body: string) => ({ kind: "comment", issueId: "i", body });
-    expect(req({ kind: "prepare", mutation: comment("x".repeat(MAX_TICKET_TEXT)) })).toBe(true);
-    expect(req({ kind: "prepare", mutation: comment("x".repeat(MAX_TICKET_TEXT + 1)) })).toBe(
-      false,
-    );
-    expect(req({ kind: "prepare", mutation: comment("") })).toBe(false);
+    const prepare = (mutation: unknown) => ({ kind: "prepare", viewerId: "u1", mutation });
+    expect(req(prepare(comment("x".repeat(MAX_TICKET_TEXT))))).toBe(true);
+    expect(req(prepare(comment("x".repeat(MAX_TICKET_TEXT + 1))))).toBe(false);
+    expect(req(prepare(comment("")))).toBe(false);
+    // A write always names the account the device showed.
+    expect(req({ kind: "prepare", mutation: comment("x") })).toBe(false);
+    expect(req({ kind: "commit", opId: OP, mutation: comment("x") })).toBe(false);
+    expect(req({ kind: "commit", viewerId: "", opId: OP, mutation: comment("x") })).toBe(false);
     const keys = Array.from({ length: MAX_TICKET_WATCH + 1 }, (_, i) => `ENG-${String(i)}`);
     expect(req({ kind: "watch", keys, ttlMs: 1000 })).toBe(false);
     expect(req({ kind: "watch", keys: ["eng-1"], ttlMs: 1000 })).toBe(false);

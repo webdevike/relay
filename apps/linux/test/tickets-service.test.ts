@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ticketsFeatures, type HostConfig } from "../src/host-config";
-import { FakeLinear, T0, ticketsHarness } from "./tickets-fakes";
+import { FakeLinear, T0, ticketsHarness, type TicketsHarness } from "./tickets-fakes";
 
 const MIN = 60_000;
 const config = (features: Record<string, boolean>): HostConfig => ({ features }) as unknown as HostConfig;
@@ -80,23 +80,90 @@ describe("TicketsService ops", () => {
     expect(h.linear.count("viewer")).toBe(before + 1);
   });
 
-  it("hands prepare and commit to the gate as this device and the host's identity; a done commit syncs once", async () => {
+  it("hands prepare and commit to the gate as this device and the account it showed; a done commit syncs once", async () => {
     const h = started();
     await h.settled();
     const mutation = { kind: "comment" as const, issueId: "id-ENG-1", body: "On it" };
-    await h.service.handle("desk-a", { kind: "prepare", mutation });
-    expect(h.gate.prepare).toHaveBeenCalledWith({ deviceId: "desk-a" }, mutation, { linearViewerId: "user-me", ghLogin: "pat-example" });
+    await h.service.handle("desk-a", { kind: "prepare", viewerId: "user-me", mutation });
+    expect(h.gate.prepare).toHaveBeenCalledWith({ deviceId: "desk-a" }, mutation, "user-me");
     const before = h.linear.count("viewer");
-    const res = await h.service.handle("desk-a", { kind: "commit", approvalId: "approval-1", opId: OP_ID, mutation });
+    const res = await h.service.handle("desk-a", { kind: "commit", viewerId: "user-me", approvalId: "approval-1", opId: OP_ID, mutation });
     expect(res.outcome?.state).toBe("done");
-    expect(h.gate.commit).toHaveBeenCalledWith({ deviceId: "desk-a" }, { approvalId: "approval-1", opId: OP_ID, mutation }, { linearViewerId: "user-me", ghLogin: "pat-example" });
+    expect(h.gate.commit).toHaveBeenCalledWith({ deviceId: "desk-a" }, { approvalId: "approval-1", opId: OP_ID, mutation }, "user-me");
     h.advance(30_000);
     await h.settled();
     expect(h.linear.count("viewer")).toBe(before + 1);
   });
+});
 
-  it("refuses writes as nobody until a full cycle after an account change", async () => {
-    const h = started();
+describe("TicketsService writes as the account the device saw", () => {
+  const SUBSCRIBE = { kind: "subscribe" as const, issueId: "id-ENG-1", on: true };
+  const OPS = ["6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a41", "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a42", "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a43"] as const;
+
+  /** A writing host with its real gate; Linear answers the subscribe check and write. */
+  function writing(onCheck: () => void = () => undefined) {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const subscribers: string[] = [];
+    linear.gateOps.set("TicketIssueSubscribers", () => {
+      onCheck();
+      return { issue: { id: "id-ENG-1", identifier: "ENG-1", subscribers: { nodes: subscribers.map((id) => ({ id })) } } };
+    });
+    linear.gateOps.set("TicketIssueSubscribe", () => {
+      subscribers.push("user-me");
+      return { issueSubscribe: { success: true } };
+    });
+    const h = ticketsHarness({ linear, writes: true, realGate: true });
+    h.service.start();
+    return h;
+  }
+  const writes = (h: TicketsHarness) => h.linear.gateCalls.filter((c) => c.op === "TicketIssueSubscribe");
+
+  it("refuses a stale client's account with zero Linear calls", async () => {
+    const h = writing();
+    await h.settled();
+    expect((await h.service.handle("desk", { kind: "commit", viewerId: "user-old", opId: OPS[0], mutation: SUBSCRIBE })).refused?.code).toBe("identity");
+    expect((await h.service.handle("desk", { kind: "prepare", viewerId: "user-old", mutation: SUBSCRIBE })).refused?.code).toBe("identity");
+    expect(h.linear.gateCalls).toEqual([]);
+    expect((await h.service.handle("desk", { kind: "commit", viewerId: "user-me", opId: OPS[1], mutation: SUBSCRIBE })).outcome?.state).toBe("done");
+    expect(writes(h)).toEqual([{ op: "TicketIssueSubscribe", key: "lin_api_test" }]);
+  });
+
+  it("refuses a write whose key rotated during validation, and writes with the new key only once it is confirmed", async () => {
+    let rotate = true;
+    const h = writing(() => {
+      if (rotate) h.key.value = "lin_api_rotated";
+      rotate = false;
+    });
+    await h.settled();
+    expect((await h.service.handle("desk", { kind: "commit", viewerId: "user-me", opId: OPS[0], mutation: SUBSCRIBE })).refused?.code).toBe("identity");
+    // Before a cycle confirms who the new key is, nothing is checked or written with it.
+    const calls = h.linear.gateCalls.length;
+    expect((await h.service.handle("desk", { kind: "commit", viewerId: "user-me", opId: OPS[1], mutation: SUBSCRIBE })).refused?.code).toBe("identity");
+    expect(h.linear.gateCalls).toHaveLength(calls);
+    expect(writes(h)).toEqual([]);
+    h.advance(30_000);
+    await h.settled();
+    expect((await h.service.handle("desk", { kind: "commit", viewerId: "user-me", opId: OPS[2], mutation: SUBSCRIBE })).outcome?.state).toBe("done");
+    expect(writes(h)).toEqual([{ op: "TicketIssueSubscribe", key: "lin_api_rotated" }]);
+  });
+
+  it("drops an approval prepared before the key changed", async () => {
+    const h = writing();
+    await h.settled();
+    const approval = (await h.service.handle("desk", { kind: "prepare", viewerId: "user-me", mutation: SUBSCRIBE })).approval;
+    expect(approval).toBeDefined();
+    h.key.value = "lin_api_rotated";
+    h.advance(30_000);
+    h.advance(90_000);
+    await h.settled();
+    const res = await h.service.handle("desk", { kind: "commit", viewerId: "user-me", approvalId: approval?.id ?? "", opId: OPS[0], mutation: SUBSCRIBE });
+    expect(res.refused?.code).toBe("approval");
+    expect(writes(h)).toEqual([]);
+  });
+
+  it("refuses writes until a full cycle after an account change, and the old account's clients after it", async () => {
+    const h = writing();
     await h.settled();
     h.linear.viewer = { ...h.linear.viewer, id: "user-new" };
     // The new account's first issues page hangs: the cycle after the wipe is still running.
@@ -105,16 +172,14 @@ describe("TicketsService ops", () => {
     h.advance(30_000);
     h.advance(90_000);
     await vi.waitFor(() => {
-      expect(h.gate.invalidate).toHaveBeenCalledOnce();
       expect(h.linear.count("issues")).toBe(2);
     });
-    const mutation = { kind: "subscribe" as const, issueId: "id-ENG-1", on: true };
-    await h.service.handle("desk", { kind: "prepare", mutation });
-    expect(h.gate.prepare).toHaveBeenLastCalledWith({ deviceId: "desk" }, mutation, { linearViewerId: null, ghLogin: null });
+    expect((await h.service.handle("desk", { kind: "prepare", viewerId: "user-new", mutation: SUBSCRIBE })).refused?.code).toBe("identity");
     resolve();
     await h.settled();
-    await h.service.handle("desk", { kind: "prepare", mutation });
-    expect(h.gate.prepare).toHaveBeenLastCalledWith({ deviceId: "desk" }, mutation, { linearViewerId: "user-new", ghLogin: "pat-example" });
+    expect((await h.service.handle("desk", { kind: "prepare", viewerId: "user-me", mutation: SUBSCRIBE })).refused?.code).toBe("identity");
+    expect((await h.service.handle("desk", { kind: "prepare", viewerId: "user-new", mutation: SUBSCRIBE })).approval).toBeDefined();
+    expect(writes(h)).toEqual([]);
   });
 
   it("keeps the rev across restarts and starts empty from a tickets.json of another version", async () => {

@@ -3,12 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TicketMutation } from "@relay/protocol";
-import { MutationGate, type GateIdentity } from "../src/tickets/gate";
+import { linearGql } from "../src/reviews/linear";
+import { MutationGate } from "../src/tickets/gate";
 import { linearExecutor } from "../src/tickets/linear-writes";
 
 const T0 = Date.parse("2026-11-27T12:00:00Z");
 const ME = "viewer-isaac";
-const ACTOR: GateIdentity = { linearViewerId: ME, ghLogin: "webdevike" };
+const ACTOR = ME;
 const DEVICE = { deviceId: "device-1" };
 const OP1 = "6d796135-613d-4bd8-ae3f-d928a50f7531";
 const OP2 = "6d796135-613d-4bd8-ae3f-d928a50f7532";
@@ -195,11 +196,25 @@ class FakeLinear {
   };
 }
 
-function setup(writes = true) {
+/**
+ * Linear over HTTP as `linearGql` sees it: the fake's answer as a 200, or (`serverError`) the
+ * operation applied and then a 503 with a GraphQL `errors` body.
+ */
+function httpOver(linear: FakeLinear, serverError: (op: string) => boolean) {
+  return async (_url: string, init?: RequestInit): Promise<Response> => {
+    const { query, variables } = JSON.parse(String(init?.body)) as { query: string; variables: Vars };
+    const data = await linear.gql(query, variables);
+    const op = /^(?:query|mutation) (\w+)/.exec(query)?.[1] ?? "";
+    if (serverError(op)) return new Response(JSON.stringify({ errors: [{ message: "Internal server error" }] }), { status: 503 });
+    return new Response(JSON.stringify({ data }), { status: 200 });
+  };
+}
+
+function setup(writes = true, serverError?: (op: string) => boolean) {
   const linear = new FakeLinear();
-  const exec = linearExecutor(linear.gql, () => ME);
+  const exec = linearExecutor(serverError === undefined ? linear.gql : linearGql(() => "lin_api_test", httpOver(linear, serverError)), () => ME);
   const dir = mkdtempSync(join(tmpdir(), "tickets-linear-"));
-  const gate = new MutationGate({ dir, writesEnabled: () => writes, identity: () => ACTOR, linear: exec, now: () => T0, log: () => undefined });
+  const gate = new MutationGate({ dir, writesEnabled: () => writes, pin: () => ({ viewerId: ME, generation: 1, linear: exec }), current: () => true, now: () => T0, log: () => undefined });
   return { linear, exec, gate, dir };
 }
 
@@ -340,6 +355,27 @@ describe("linearExecutor writes through the gate", () => {
     await exec.run(react, OP1);
     expect(await exec.reconcile(react, OP1, T0)).toBe("done");
     expect(linear.mutations()).toHaveLength(1);
+  });
+
+  it("takes a 5xx with a GraphQL errors body as unknown, and the retry finds the comment instead of posting twice", async () => {
+    let failed = false;
+    const { gate, linear } = setup(true, (op) => op === "TicketCommentCreate" && !failed && (failed = true));
+    const reply: TicketMutation = { kind: "comment", issueId: "issue-1", parentId: "c-root", body: "Done, see PR" };
+    const first = await confirmAndCommit(gate, reply, OP1);
+    expect(first.outcome?.state).toBe("unknown");
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: reply }, ACTOR)).outcome?.state).toBe("done");
+    expect(linear.mutations("TicketCommentCreate")).toHaveLength(1);
+  });
+
+  it("never reapplies a move answered 5xx after someone moved the issue back", async () => {
+    let failed = false;
+    const { gate, linear } = setup(true, (op) => op === "TicketIssueUpdate" && !failed && (failed = true));
+    const move: TicketMutation = { kind: "setState", issueId: "issue-1", fromStateId: "s-todo", toStateId: "s-doing" };
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: move }, ACTOR)).outcome?.state).toBe("unknown");
+    expect(linear.issues.get("issue-1")?.stateId).toBe("s-doing");
+    linear.issues.get("issue-1")!.stateId = "s-todo";
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: move }, ACTOR)).outcome?.state).toBe("unknown");
+    expect(linear.mutations("TicketIssueUpdate")).toHaveLength(1);
   });
 });
 

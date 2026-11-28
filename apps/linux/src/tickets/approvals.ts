@@ -9,8 +9,10 @@ export const APPROVAL_TTL_MS = 120_000;
 /** What one approval is good for; `commit` must match every field. */
 export interface ApprovalBinding {
   readonly deviceId: string;
-  /** The Linear viewer id Isaac saw when he confirmed. */
+  /** The Linear viewer id Isaac saw when he confirmed (and the host's pinned key resolved to). */
   readonly identity: string;
+  /** The host's account/key generation at prepare; a key rotation or account change voids it. */
+  readonly generation: number;
   readonly kind: string;
   /** SHA-256 of the mutation's canonical JSON. */
   readonly hash: string;

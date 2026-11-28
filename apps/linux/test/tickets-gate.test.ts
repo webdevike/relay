@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TicketMutation } from "@relay/protocol";
-import { canonicalJson, MutationGate, mutationHash, ProviderRejected, type CheckResult, type GateIdentity, type MutationExecutor } from "../src/tickets/gate";
+import { canonicalJson, MutationGate, mutationHash, ProviderRejected, type CheckResult, type GatePin, type MutationExecutor } from "../src/tickets/gate";
 import { MAX_OPS, OPS_TTL_MS, OpsStore } from "../src/tickets/ops-store";
 
 const T0 = Date.parse("2026-11-27T12:00:00Z");
-const ME: GateIdentity = { linearViewerId: "viewer-isaac", ghLogin: "webdevike" };
+const ME = "viewer-isaac";
 const DEVICE = { deviceId: "device-1" };
 const OP1 = "6d796135-613d-4bd8-ae3f-d928a50f7531";
 const OP2 = "6d796135-613d-4bd8-ae3f-d928a50f7532";
@@ -35,6 +35,8 @@ interface Fake {
   checkAnswer: CheckResult;
   runBehavior: "ok" | "lost" | "reject" | "hang";
   reconcileAnswer: "done" | "notDone" | "unknown";
+  /** Runs inside check() (a key rotation while validating). */
+  onCheck: (() => void) | null;
   /** Resolved when a `hang` write reached the provider (the host "dies" there). */
   readonly hung: { readonly promise: Promise<void>; readonly resolve: () => void };
 }
@@ -45,10 +47,12 @@ function fakeExecutor(): Fake {
     checkAnswer: { ok: true, revision: "rev-1", summary: "Do it" },
     runBehavior: "ok",
     reconcileAnswer: "done",
+    onCheck: null,
     hung: Promise.withResolvers<void>(),
     exec: {
       check: (m) => {
         fake.calls.check++;
+        fake.onCheck?.();
         const a = fake.checkAnswer;
         return Promise.resolve(m.kind === "setState" && a.ok && a.toStateType === undefined ? { ...a, toStateType: m.toStateId === "s-done" ? "completed" : "started" } : a);
       },
@@ -71,17 +75,18 @@ function fakeExecutor(): Fake {
   return fake;
 }
 
-function setup(over: { dir?: string; fake?: Fake; writes?: boolean; identity?: GateIdentity } = {}) {
+function setup(over: { dir?: string; fake?: Fake; writes?: boolean; viewerId?: string | null } = {}) {
   const clock = { t: T0 };
   const fake = over.fake ?? fakeExecutor();
-  const state = { writes: over.writes ?? true, identity: over.identity ?? ME };
+  /** The host's verified account and key generation (a rotation moves `generation`). */
+  const state = { writes: over.writes ?? true, viewerId: over.viewerId === undefined ? ME : over.viewerId, generation: 1 };
   const dir = over.dir ?? mkdtempSync(join(tmpdir(), "tickets-gate-"));
   const lines: string[] = [];
   const gate = new MutationGate({
     dir,
     writesEnabled: () => state.writes,
-    identity: () => state.identity,
-    linear: fake.exec,
+    pin: (): GatePin | null => (state.viewerId === null ? null : { viewerId: state.viewerId, generation: state.generation, linear: fake.exec }),
+    current: (pin) => pin.viewerId === state.viewerId && pin.generation === state.generation,
     now: () => clock.t,
     log: (l) => lines.push(l),
   });
@@ -106,10 +111,10 @@ describe("MutationGate refusals", () => {
 
   it("refuses an actor that isn't the identity the host acts as, or an unresolved one", async () => {
     const { gate, fake, state } = setup();
-    const other = { linearViewerId: "viewer-other", ghLogin: "webdevike" };
+    const other = "viewer-other";
     expect((await gate.prepare(DEVICE, COMMENT, other)).refused?.code).toBe("identity");
     expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, other)).refused?.code).toBe("identity");
-    state.identity = { linearViewerId: null, ghLogin: null };
+    state.viewerId = null;
     expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).refused?.code).toBe("identity");
     expect(fake.calls).toEqual({ check: 0, run: [], reconcile: 0 });
   });
@@ -165,8 +170,8 @@ describe("MutationGate approvals", () => {
     const a3 = await approve(gate, COMMENT);
     expect((await gate.commit(DEVICE, { approvalId: a3, opId: OP1, mutation: EVERY_KIND[3] as TicketMutation }, ME)).refused?.code).toBe("approval");
     const a4 = await approve(gate, COMMENT);
-    const next = { linearViewerId: "viewer-new", ghLogin: "webdevike" };
-    state.identity = next;
+    const next = "viewer-new";
+    state.viewerId = next;
     expect((await gate.commit(DEVICE, { approvalId: a4, opId: OP1, mutation: COMMENT }, next)).refused?.code).toBe("approval");
     expect(fake.calls.run).toEqual([]);
   });
@@ -247,14 +252,48 @@ describe("MutationGate idempotency", () => {
   });
 });
 
+describe("MutationGate pins the account and key for the whole op", () => {
+  it("refuses with no write when the key rotates or the account changes while checking", async () => {
+    const { gate, fake, state } = setup();
+    fake.onCheck = () => {
+      state.generation += 1;
+    };
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).refused?.code).toBe("identity");
+    expect((await gate.prepare(DEVICE, COMMENT, ME)).refused?.code).toBe("identity");
+    fake.onCheck = () => {
+      state.viewerId = "viewer-new";
+    };
+    state.viewerId = ME;
+    expect((await gate.commit(DEVICE, { opId: OP2, mutation: MOVE }, ME)).refused?.code).toBe("identity");
+    expect(fake.calls.run).toEqual([]);
+  });
+
+  it("voids an approval made before a key rotation", async () => {
+    const { gate, fake, state } = setup();
+    const approvalId = await approve(gate, COMMENT);
+    state.generation += 1;
+    expect((await gate.commit(DEVICE, { approvalId, opId: OP1, mutation: COMMENT }, ME)).refused?.code).toBe("approval");
+    expect(fake.calls.run).toEqual([]);
+  });
+
+  it("answers a stored outcome only to the account and device that started it", async () => {
+    const { gate, fake } = setup();
+    await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME);
+    expect((await gate.commit({ deviceId: "device-2" }, { opId: OP1, mutation: MOVE }, ME)).refused?.code).toBe("identity");
+    expect(fake.calls.run).toEqual([OP1]);
+  });
+});
+
 describe("MutationGate after a restart", () => {
-  async function crashMidWrite(): Promise<{ dir: string; fake: Fake }> {
+  /** Starts `m` (approved when confirmed) and leaves its write hanging, as a host that died there. */
+  async function crashMidWrite(m: TicketMutation = MOVE): Promise<{ dir: string; fake: Fake }> {
     const first = setup();
     first.fake.runBehavior = "hang";
-    void first.gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME);
+    const approvalId = m.kind === "setState" ? undefined : await approve(first.gate, m);
+    void first.gate.commit(DEVICE, { opId: OP1, mutation: m, ...(approvalId === undefined ? {} : { approvalId }) }, ME);
     await first.fake.hung.promise;
-    const file = JSON.parse(readFileSync(join(first.dir, "ops.json"), "utf8")) as { ops: Record<string, { state: string }> };
-    expect(file.ops[OP1]?.state).toBe("running");
+    const file = JSON.parse(readFileSync(join(first.dir, "ops.json"), "utf8")) as { ops: Record<string, { state: string; viewerId: string; deviceId: string; revision: string }> };
+    expect(file.ops[OP1]).toMatchObject({ state: "running", viewerId: ME, deviceId: DEVICE.deviceId, revision: "rev-1" });
     first.fake.runBehavior = "ok";
     return { dir: first.dir, fake: first.fake };
   }
@@ -267,12 +306,53 @@ describe("MutationGate after a restart", () => {
     expect(fake.calls.reconcile).toBe(1);
   });
 
-  it("writes again with the same opId only when reconcile says it didn't happen", async () => {
+  it("never reapplies a move Linear doesn't show now (someone may have moved it back since it landed)", async () => {
     const { dir, fake } = await crashMidWrite();
     fake.reconcileAnswer = "notDone";
+    const checks = fake.calls.check;
     const { gate } = setup({ dir, fake });
-    expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).outcome?.state).toBe("done");
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).outcome?.state).toBe("unknown");
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).outcome?.state).toBe("unknown");
+    expect(fake.calls.run).toEqual([OP1]);
+    expect(fake.calls.check).toBe(checks);
+  });
+
+  it("resends a stable-id create Linear doesn't have once, with the same id, at the approved revision", async () => {
+    const { dir, fake } = await crashMidWrite(COMMENT);
+    fake.reconcileAnswer = "notDone";
+    const { gate } = setup({ dir, fake });
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: COMMENT }, ME)).outcome?.state).toBe("done");
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: COMMENT }, ME)).outcome?.state).toBe("done");
     expect(fake.calls.run).toEqual([OP1, OP1]);
+  });
+
+  it("doesn't resend a create whose approved revision changed", async () => {
+    const { dir, fake } = await crashMidWrite(COMMENT);
+    fake.reconcileAnswer = "notDone";
+    fake.checkAnswer = { ok: true, revision: "rev-2", summary: "Do it" };
+    const { gate } = setup({ dir, fake });
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: COMMENT }, ME)).refused?.code).toBe("conflict");
+    expect(fake.calls.run).toEqual([OP1]);
+  });
+
+  it("keeps a resent create Linear refuses as unknown (the first may have landed late)", async () => {
+    const { dir, fake } = await crashMidWrite(COMMENT);
+    fake.reconcileAnswer = "notDone";
+    fake.runBehavior = "reject";
+    const { gate } = setup({ dir, fake });
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: COMMENT }, ME)).outcome?.state).toBe("unknown");
+    expect(fake.calls.run).toEqual([OP1, OP1]);
+  });
+
+  it("refuses a retry as another account or from another device, with no provider call", async () => {
+    const { dir, fake } = await crashMidWrite(COMMENT);
+    const reconciles = fake.calls.reconcile;
+    const other = setup({ dir, fake, viewerId: "viewer-new" });
+    expect((await other.gate.commit(DEVICE, { opId: OP1, mutation: COMMENT }, "viewer-new")).refused?.code).toBe("identity");
+    const { gate } = setup({ dir, fake });
+    expect((await gate.commit({ deviceId: "device-2" }, { opId: OP1, mutation: COMMENT }, ME)).refused?.code).toBe("identity");
+    expect(fake.calls.reconcile).toBe(reconciles);
+    expect(fake.calls.run).toEqual([OP1]);
   });
 
   it("stays unknown (never writes blindly) while reconcile can't tell", async () => {
@@ -282,25 +362,16 @@ describe("MutationGate after a restart", () => {
     expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).outcome).toEqual({ opId: OP1, state: "unknown" });
     expect(fake.calls.run).toEqual([OP1]);
   });
-
-  it("refuses a reconciled-as-not-written op whose live state moved on, and remembers it", async () => {
-    const { dir, fake } = await crashMidWrite();
-    fake.reconcileAnswer = "notDone";
-    fake.checkAnswer = { ok: false, code: "conflict", message: "Changed in Linear since you looked" };
-    const { gate } = setup({ dir, fake });
-    expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).refused?.code).toBe("conflict");
-    expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).outcome?.state).toBe("failed");
-    expect(fake.calls.run).toEqual([OP1]);
-  });
 });
 
 describe("OpsStore", () => {
   it("drops records older than 14 days and keeps the newest 2000", () => {
     const dir = mkdtempSync(join(tmpdir(), "tickets-ops-"));
-    const ops = Object.fromEntries(Array.from({ length: MAX_OPS + 1 }, (_, i) => [`op-${String(i)}`, { state: "done", kind: "react", hash: "h", at: T0 + i }]));
-    writeFileSync(join(dir, "ops.json"), JSON.stringify({ v: 1, ops: { ...ops, stale: { state: "done", kind: "react", hash: "h", at: T0 - OPS_TTL_MS - 1 } } }));
+    const rec = { state: "done", kind: "react", hash: "h", viewerId: ME, deviceId: DEVICE.deviceId, revision: "r" } as const;
+    const ops = Object.fromEntries(Array.from({ length: MAX_OPS + 1 }, (_, i) => [`op-${String(i)}`, { ...rec, at: T0 + i }]));
+    writeFileSync(join(dir, "ops.json"), JSON.stringify({ v: 1, ops: { ...ops, stale: { ...rec, at: T0 - OPS_TTL_MS - 1 } } }));
     const store = new OpsStore(dir, () => T0);
-    store.put("op-new", { state: "done", kind: "react", hash: "h", at: T0 + MAX_OPS + 5 });
+    store.put("op-new", { ...rec, at: T0 + MAX_OPS + 5 });
     const saved = JSON.parse(readFileSync(join(dir, "ops.json"), "utf8")) as { v: number; ops: Record<string, unknown> };
     expect(saved.v).toBe(1);
     expect(Object.keys(saved.ops)).toHaveLength(MAX_OPS);

@@ -1,9 +1,13 @@
 // The tickets MutationGate (PLAN §2.5): the only way a device's `tickets.req prepare/commit` writes to
-// Linear as Isaac. Every write passes, in order: writes enabled on this host, the actor the device saw
-// equals the identity the host acts as, the op store (a repeated opId answers its stored outcome;
-// one left unknown is reconciled with the provider before anything is written again), the
-// executor's live check, and for a confirmed kind a single-use approval bound to the device, the
-// identity, the kind, the payload hash and the revision check() saw at prepare.
+// Linear as Isaac. Every write passes, in order: writes enabled on this host; the account the device
+// showed (`viewerId`) equals the account the host's verified key acts as, pinned with that key for
+// the whole op; the op store (a repeated opId answers its stored outcome, only to the account and
+// device that started it; one left unknown is reconciled with the provider, and only a create with a
+// stable provider id is ever sent again, under its original approval revision); the executor's live
+// check; for a confirmed kind a single-use approval bound to the device, the account, the key
+// generation, the kind, the payload hash and the revision check() saw at prepare; and right before
+// the side effect, the pin is checked again (a key rotation or account change during validation
+// stops the write).
 
 import { createHash } from "node:crypto";
 import { ticketMutationConfirmed, type TicketMutation, type TicketOutcome, type TicketsRefusalCode, type TicketsResult, type TicketStateType } from "@relay/protocol";
@@ -12,11 +16,6 @@ import { OpResult, OpsStore, type OpRecord } from "./ops-store";
 
 export interface GateContext {
   readonly deviceId: string;
-}
-
-export interface GateIdentity {
-  readonly linearViewerId: string | null;
-  readonly ghLogin: string | null;
 }
 
 export type CheckResult =
@@ -45,11 +44,23 @@ export class ProviderRejected extends Error {
   override readonly name = "ProviderRejected";
 }
 
+/** The account and credential one op runs as, from the host's last identity resolution. */
+export interface GatePin {
+  /** The Linear viewer the pinned key resolved to. */
+  readonly viewerId: string;
+  /** Moves on every account or key change: approvals and ops pinned to an older one never write. */
+  readonly generation: number;
+  /** The executor bound to exactly the pinned key (check, run and reconcile all use it). */
+  readonly linear: MutationExecutor<TicketMutation>;
+}
+
 export interface MutationGateDeps {
   readonly dir: string;
   readonly writesEnabled: () => boolean;
-  readonly identity: () => GateIdentity;
-  readonly linear: MutationExecutor<TicketMutation>;
+  /** The verified account and key now; null while none is verified or the key changed since. */
+  readonly pin: () => GatePin | null;
+  /** Whether `pin` is still the host's account, key and generation (asked right before each write). */
+  readonly current: (pin: GatePin) => boolean;
   readonly now: () => number;
   readonly log: (line: string) => void;
 }
@@ -61,11 +72,25 @@ interface CommitRequest {
   readonly opId: string;
   readonly mutation: TicketMutation;
 }
+/** Who started an op: only they may retry it or read its outcome. */
+interface Authority {
+  readonly viewerId: string;
+  readonly deviceId: string;
+}
+
+/**
+ * Creates sent with `id: opId` (Linear's CommentCreateInput.id and IssueCreateInput.id): Linear
+ * refuses a second create with that id, so after reconcile found no entity with it, sending it again
+ * can't make a duplicate. Every other kind is never sent again on our own after an unknown outcome.
+ */
+const STABLE_ID_CREATES: ReadonlySet<TicketMutation["kind"]> = new Set(["comment", "createIssue"]);
 
 const MAX_LINE = 2000;
 const line = (text: string): string => (text.length > MAX_LINE ? `${text.slice(0, MAX_LINE - 3)}...` : text);
 const refuse = (code: TicketsRefusalCode, message: string): GateAnswer => ({ ok: false, refused: { code, message: line(message) } });
 const errorText = (e: unknown): string => line(e instanceof Error ? e.message : String(e));
+const STALE_PIN = "The host's Linear key or account changed while checking. Reload and try again.";
+const sameAuthority = (a: Authority, b: Authority): boolean => a.viewerId === b.viewerId && a.deviceId === b.deviceId;
 
 /** JSON with sorted keys and no undefined fields, so equal mutations hash equally. */
 export function canonicalJson(value: unknown): string {
@@ -100,32 +125,37 @@ function answerOf(opId: string, rec: OpRecord): GateAnswer {
 export class MutationGate {
   private readonly approvals: Approvals;
   private readonly ops: OpsStore;
-  private readonly inflight = new Map<string, { hash: string; answer: Promise<GateAnswer> }>();
+  private readonly inflight = new Map<string, { hash: string; authority: Authority; answer: Promise<GateAnswer> }>();
 
   constructor(private readonly deps: MutationGateDeps) {
     this.approvals = new Approvals(deps.now);
     this.ops = new OpsStore(deps.dir, deps.now);
   }
 
-  async prepare(ctx: GateContext, mutation: TicketMutation, actor: GateIdentity): Promise<GateAnswer> {
-    const identity = this.allowed(actor);
-    if (typeof identity !== "string") return identity;
-    const checked = await this.check(mutation);
+  /** `viewerId`: the Linear account the device showed. */
+  async prepare(ctx: GateContext, mutation: TicketMutation, viewerId: string): Promise<GateAnswer> {
+    const pin = this.allowed(viewerId);
+    if (!("generation" in pin)) return pin;
+    const checked = await this.check(pin, mutation);
     if (!checked.ok) return checked.answer;
-    const binding = { deviceId: ctx.deviceId, identity, kind: mutation.kind, hash: mutationHash(mutation), revision: checked.revision };
+    if (!this.deps.current(pin)) return refuse("identity", STALE_PIN);
+    const binding = { deviceId: ctx.deviceId, identity: pin.viewerId, generation: pin.generation, kind: mutation.kind, hash: mutationHash(mutation), revision: checked.revision };
     return { ok: true, approval: this.approvals.create(binding, line(checked.summary)) };
   }
 
-  async commit(ctx: GateContext, req: CommitRequest, actor: GateIdentity): Promise<GateAnswer> {
-    const identity = this.allowed(actor);
-    if (typeof identity !== "string") return identity;
+  /** `viewerId`: the Linear account the device showed when Isaac acted. */
+  async commit(ctx: GateContext, req: CommitRequest, viewerId: string): Promise<GateAnswer> {
+    const pin = this.allowed(viewerId);
+    if (!("generation" in pin)) return pin;
     const hash = mutationHash(req.mutation);
+    const authority: Authority = { viewerId: pin.viewerId, deviceId: ctx.deviceId };
     const running = this.inflight.get(req.opId);
-    if (running !== undefined) return running.hash === hash ? running.answer : refuse("invalid", "This write id was used for a different change");
+    if (running !== undefined) return this.join(running, hash, authority);
     const rec = this.ops.get(req.opId);
     if (rec !== undefined && rec.hash !== hash) return refuse("invalid", "This write id was used for a different change");
-    const answer = rec === undefined ? this.fresh(ctx, req, identity, hash) : this.resume(req, rec);
-    this.inflight.set(req.opId, { hash, answer });
+    if (rec !== undefined && !sameAuthority(rec, authority)) return refuse("identity", "This change was started as another Linear account or on another device");
+    const answer = rec === undefined ? this.fresh(ctx, req, pin, hash) : this.resume(req, rec, pin);
+    this.inflight.set(req.opId, { hash, authority, answer });
     try {
       return await answer;
     } finally {
@@ -133,85 +163,101 @@ export class MutationGate {
     }
   }
 
-  /** Identity change or revocation: pending approvals are void. */
+  /** Identity or key change, or revocation: pending approvals are void. */
   invalidate(reason: string): void {
     this.approvals.clear();
     this.deps.log(`tickets gate: approvals dropped (${reason})`);
   }
 
-  /** The Linear viewer id the host acts as, or the refusal. */
-  private allowed(actor: GateIdentity): string | GateAnswer {
+  /** The pinned account and key when the device saw that account, or the refusal. */
+  private allowed(viewerId: string): GatePin | GateAnswer {
     if (!this.deps.writesEnabled()) return refuse("writesOff", "Writing to Linear is off on this host");
-    const live = this.deps.identity().linearViewerId;
-    if (live === null) return refuse("identity", "The host has no Linear account resolved yet");
-    if (actor.linearViewerId !== live) return refuse("identity", "The host now writes as a different Linear account. Reload and try again.");
-    return live;
+    const pin = this.deps.pin();
+    if (pin === null) return refuse("identity", "The host hasn't confirmed its Linear account yet. Try again in a moment.");
+    if (pin.viewerId !== viewerId) return refuse("identity", "The host now writes as a different Linear account. Reload and try again.");
+    return pin;
   }
 
-  private async check(m: TicketMutation): Promise<Checked | { ok: false; answer: GateAnswer }> {
+  /** A retry while the first try still runs: the same answer, only for the same change, account and device. */
+  private join(running: { hash: string; authority: Authority; answer: Promise<GateAnswer> }, hash: string, authority: Authority): Promise<GateAnswer> | GateAnswer {
+    if (running.hash !== hash) return refuse("invalid", "This write id was used for a different change");
+    if (!sameAuthority(running.authority, authority)) return refuse("identity", "This change was started as another Linear account or on another device");
+    return running.answer;
+  }
+
+  private async check(pin: GatePin, m: TicketMutation): Promise<Checked | { ok: false; answer: GateAnswer }> {
     try {
-      const checked = await this.deps.linear.check(m);
+      const checked = await pin.linear.check(m);
       return checked.ok ? checked : { ok: false, answer: refuse(checked.code, checked.message) };
     } catch (e) {
       return { ok: false, answer: { ok: false, error: `Couldn't check Linear: ${errorText(e)}` } };
     }
   }
 
-  private async fresh(ctx: GateContext, req: CommitRequest, identity: string, hash: string): Promise<GateAnswer> {
-    const checked = await this.check(req.mutation);
+  private async fresh(ctx: GateContext, req: CommitRequest, pin: GatePin, hash: string): Promise<GateAnswer> {
+    const checked = await this.check(pin, req.mutation);
     if (!checked.ok) return checked.answer;
     const needsApproval = ticketMutationConfirmed(req.mutation, checked.toStateType) || req.approvalId !== undefined;
-    const refused = needsApproval ? this.spendApproval(ctx, req, { identity, hash, revision: checked.revision }) : null;
-    return refused ?? this.write(req.mutation, req.opId, hash);
+    const refused = needsApproval ? this.spendApproval(ctx, req, { pin, hash, revision: checked.revision }) : null;
+    return refused ?? this.write(pin, req, { hash, deviceId: ctx.deviceId, revision: checked.revision }, false);
   }
 
   /** Null when the commit's approval matches every binding; it is spent either way. */
-  private spendApproval(ctx: GateContext, req: CommitRequest, live: { identity: string; hash: string; revision: string }): GateAnswer | null {
+  private spendApproval(ctx: GateContext, req: CommitRequest, live: { pin: GatePin; hash: string; revision: string }): GateAnswer | null {
     if (req.approvalId === undefined) return refuse("approval", "Confirm this change first");
     const taken = this.approvals.take(req.approvalId);
     if (!taken.ok) return refuse("approval", taken.message);
     const b = taken.binding;
-    const same = b.deviceId === ctx.deviceId && b.identity === live.identity && b.kind === req.mutation.kind && b.hash === live.hash;
+    const same = b.deviceId === ctx.deviceId && b.identity === live.pin.viewerId && b.generation === live.pin.generation && b.kind === req.mutation.kind && b.hash === live.hash;
     if (!same) return refuse("approval", "This confirm was for a different change. Confirm again.");
     return b.revision === live.revision ? null : refuse("conflict", "Changed in Linear since you confirmed. Check it and confirm again.");
   }
 
-  /** A known opId: its stored outcome, or (unknown) the provider's answer before any second write. */
-  private async resume(req: CommitRequest, rec: OpRecord): Promise<GateAnswer> {
+  /**
+   * A known opId: its stored outcome, or (unknown) what the provider says now. A write the provider
+   * doesn't show is never reapplied from a read of current state, except a stable-id create.
+   */
+  private async resume(req: CommitRequest, rec: OpRecord, pin: GatePin): Promise<GateAnswer> {
     if (rec.state === "done" || rec.state === "failed") return answerOf(req.opId, rec);
-    const status = await this.deps.linear.reconcile(req.mutation, req.opId, rec.at).catch(() => "unknown" as const);
+    const status = await pin.linear.reconcile(req.mutation, req.opId, rec.at).catch(() => "unknown" as const);
     this.deps.log(`tickets gate: reconciled ${rec.kind} ${req.opId}: ${status}`);
-    if (status === "unknown") return answerOf(req.opId, { ...rec, state: "unknown" });
     if (status === "done") {
       const { error: _lost, ...written } = rec;
       const done: OpRecord = { ...written, state: "done" };
       this.ops.put(req.opId, done);
       return answerOf(req.opId, done);
     }
-    return this.rewrite(req, rec);
+    if (status === "notDone" && STABLE_ID_CREATES.has(req.mutation.kind)) return this.recreate(req, rec, pin);
+    return answerOf(req.opId, { ...rec, state: "unknown" });
   }
 
-  /** Reconciled as not written: check the live state again, then write with the same opId. */
-  private async rewrite(req: CommitRequest, rec: OpRecord): Promise<GateAnswer> {
-    const checked = await this.check(req.mutation);
-    if (checked.ok) return this.write(req.mutation, req.opId, rec.hash);
-    if (checked.answer.refused !== undefined) this.ops.put(req.opId, { ...rec, state: "failed", error: checked.answer.refused.message });
-    return checked.answer;
+  /** A stable-id create Linear doesn't have: sent again with the same id, only at the approved revision. */
+  private async recreate(req: CommitRequest, rec: OpRecord, pin: GatePin): Promise<GateAnswer> {
+    const checked = await this.check(pin, req.mutation);
+    if (!checked.ok) return checked.answer;
+    if (checked.revision !== rec.revision) return refuse("conflict", "Changed in Linear since you confirmed; not sent again. Check it and confirm again.");
+    return this.write(pin, req, { hash: rec.hash, deviceId: rec.deviceId, revision: rec.revision }, true);
   }
 
-  private async write(m: TicketMutation, opId: string, hash: string): Promise<GateAnswer> {
-    const at = this.deps.now();
-    this.ops.put(opId, { state: "running", kind: m.kind, hash, at });
+  /**
+   * The side effect, after one last pin check. `again`: a resend of a stable-id create, where a
+   * refusal may be Linear seeing the first one land late, so it stays unknown.
+   */
+  private async write(pin: GatePin, req: CommitRequest, base: { hash: string; deviceId: string; revision: string }, again: boolean): Promise<GateAnswer> {
+    if (!this.deps.current(pin)) return refuse("identity", STALE_PIN);
+    const m = req.mutation;
+    const rec0 = { kind: m.kind, hash: base.hash, at: this.deps.now(), viewerId: pin.viewerId, deviceId: base.deviceId, revision: base.revision };
+    this.ops.put(req.opId, { ...rec0, state: "running" });
     let rec: OpRecord;
     try {
-      const parsed = OpResult.safeParse(await this.deps.linear.run(m, opId));
+      const parsed = OpResult.safeParse(await pin.linear.run(m, req.opId));
       const result = parsed.success ? parsed.data : undefined;
-      rec = { state: stateOf(result), kind: m.kind, hash, at, ...(result === undefined ? {} : { result }) };
+      rec = { ...rec0, state: stateOf(result), ...(result === undefined ? {} : { result }) };
     } catch (e) {
-      rec = { state: e instanceof ProviderRejected ? "failed" : "unknown", kind: m.kind, hash, at, error: errorText(e) };
+      rec = { ...rec0, state: e instanceof ProviderRejected && !again ? "failed" : "unknown", error: errorText(e) };
     }
-    this.ops.put(opId, rec);
-    this.deps.log(`tickets gate: ${m.kind} ${opId}: ${rec.state}`);
-    return answerOf(opId, rec);
+    this.ops.put(req.opId, rec);
+    this.deps.log(`tickets gate: ${m.kind} ${req.opId}: ${rec.state}`);
+    return answerOf(req.opId, rec);
   }
 }

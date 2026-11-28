@@ -54,6 +54,10 @@ export class FakeLinear {
   readonly queued: Response[] = [];
   /** While set, issue pages wait for it (a cycle caught mid-flight). */
   blocked: Promise<void> | null = null;
+  /** The gate's named queries and mutations (`TicketIssueSubscribers`, ...), answered by name. */
+  readonly gateOps = new Map<string, (v: Json) => unknown>();
+  /** Every gate call with the key it was sent with. */
+  readonly gateCalls: { op: string; key: string }[] = [];
 
   add(key: string, updatedAt: number, prs: readonly string[] = []): void {
     this.members.set(key, issueNode(key, updatedAt, prs));
@@ -65,6 +69,12 @@ export class FakeLinear {
 
   readonly fetch = async (_url: string, init?: RequestInit): Promise<Response> => {
     const { query, variables = {} } = JSON.parse(String(init?.body)) as { query: string; variables?: Json };
+    const named = /^(?:query|mutation) (Ticket\w+)/.exec(query)?.[1];
+    if (named !== undefined) {
+      this.gateCalls.push({ op: named, key: new Headers(init?.headers).get("authorization") ?? "" });
+      const handler = this.gateOps.get(named);
+      return handler === undefined ? answer({ errors: [{ message: `unexpected ${named}` }] }, 400) : answer({ data: handler(variables) });
+    }
     const kind = kindOf(query, variables);
     this.calls.push(kind);
     if (kind === "issues" && this.blocked !== null) await this.blocked;
@@ -185,6 +195,8 @@ export interface TicketsHarness {
   readonly linear: FakeLinear;
   readonly gh: FakeGh;
   readonly gate: Record<keyof TicketsGate, Mock>;
+  /** The host's Linear key file; set `value` to rotate it. */
+  readonly key: { value: string | null };
   readonly pushes: TicketsPush[];
   readonly dir: string;
   now(): number;
@@ -202,13 +214,15 @@ export interface StoreFileView {
   readonly sync: { readonly watermark: number | null; readonly cursor: unknown };
 }
 
-export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh } = {}): TicketsHarness {
+/** `realGate`: the service's own MutationGate over `linear`'s gate ops instead of the `gate` mocks. */
+export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: FakeLinear; gh?: FakeGh; realGate?: boolean } = {}): TicketsHarness {
   let now = T0;
   const clock = new SimulatedClock();
   const budgets = providerBudgets(() => now);
   const linear = o.linear ?? new FakeLinear();
   const gh = o.gh ?? new FakeGh();
   const dir = o.dir ?? mkdtempSync(join(tmpdir(), "relay-tickets-"));
+  const key: { value: string | null } = { value: "lin_api_test" };
   const gate = {
     prepare: vi.fn(() => Promise.resolve({ ok: true, approval: { id: "approval-1", expiresAt: now + 120_000, summary: "ok" } })),
     commit: vi.fn(() => Promise.resolve({ ok: true, outcome: { opId: "00000000-0000-4000-8000-000000000000", state: "done" as const } })),
@@ -217,7 +231,9 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
   const pushes: TicketsPush[] = [];
   const service = new TicketsService({
     dir,
-    gql: linearGql(() => "lin_api_test", linear.fetch, budgets.linear.background),
+    gql: linearGql(() => key.value, linear.fetch, budgets.linear.background),
+    linearKey: () => key.value,
+    keyedGql: (k) => linearGql(() => k, linear.fetch, budgets.linear),
     ghGraphql: ghGraphql(gh.run, "gh", budgets.github.background),
     ghLogin: async () => (await ghCall(gh.run, "gh", budgets.github.background, ["api", "user", "--jq", ".login"]).catch(() => "")).trim() || null,
     budgets,
@@ -225,7 +241,7 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
     now: () => now,
     log: () => undefined,
     sync: { clock, timing: { random: () => 0.5 } },
-    gate,
+    ...(o.realGate === true ? {} : { gate }),
   });
   service.onPush = (m) => pushes.push(m);
   return {
@@ -233,6 +249,7 @@ export function ticketsHarness(o: { writes?: boolean; dir?: string; linear?: Fak
     linear,
     gh,
     gate,
+    key,
     pushes,
     dir,
     now: () => now,

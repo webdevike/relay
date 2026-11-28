@@ -8,10 +8,12 @@
 // `tickets.status` whenever sync health or identity changes. Hot frames carry board facts only
 // (no description, no comments); `ticket` answers carry those.
 //
-// Writes: `prepare {mutation}` answers a single-use approval for a confirmed kind
-// (CONFIRMED_TICKET_MUTATIONS, and moves into a terminal state); `commit {approvalId?, opId,
-// mutation}` writes, where `opId` is minted by the client when Isaac acts and reused on retry, so
-// a repeated commit answers the stored outcome instead of writing twice.
+// Writes: `prepare {viewerId, mutation}` answers a single-use approval for a confirmed kind
+// (CONFIRMED_TICKET_MUTATIONS, and moves into a terminal state); `commit {viewerId, approvalId?,
+// opId, mutation}` writes, where `opId` is minted by the client when Isaac acts and reused on retry,
+// so a repeated commit answers the stored outcome instead of writing twice. `viewerId` is the Linear
+// account the device showed (`tickets.status` identity.linear.viewerId): the host refuses
+// `identity` when it no longer acts as that account, so a stale client never writes as another one.
 //
 // Only sent to a host whose `welcome.features` has TICKETS_FEATURE; `prepare`/`commit` only when it
 // also has TICKETS_WRITES_FEATURE. An older host closes the socket on an unknown frame.
@@ -440,10 +442,11 @@ export const TicketsOp = z.discriminatedUnion("kind", [
   /** The 2-3 sentence summary; answers `summary`. */
   z.object({ kind: z.literal("summary"), key: TicketKey }),
   /** A confirmed kind's approval; answers `approval`. */
-  z.object({ kind: z.literal("prepare"), mutation: TicketMutation }),
+  z.object({ kind: z.literal("prepare"), viewerId: Id, mutation: TicketMutation }),
   /** The write; answers `outcome`. A repeated `opId` answers the stored outcome. */
   z.object({
     kind: z.literal("commit"),
+    viewerId: Id,
     approvalId: Id.optional(),
     opId: TicketOpId,
     mutation: TicketMutation,

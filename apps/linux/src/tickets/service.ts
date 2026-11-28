@@ -6,6 +6,7 @@
 // `handle(deviceId, op)` answers every `tickets.req`. Pushes (`tickets.snapshot`, `tickets.delta`,
 // `tickets.status`) go through `onPush`, which the server sends only to sockets that subscribed.
 
+import { createHash } from "node:crypto";
 import { TERMINAL_TICKET_STATE_TYPES, type Attention, type ServerMessage, type TicketBoardFacts, type TicketsBoard, type TicketsOp, type TicketsResult, type TicketsStatus } from "@relay/protocol";
 import { ticketsFeatures, type HostConfig } from "../host-config";
 import type { ToolRun } from "../reviews/exec";
@@ -15,7 +16,7 @@ import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { providerBudgets, RateLimited, type Budgets } from "./budget";
-import { MutationGate, type GateIdentity } from "./gate";
+import { MutationGate, type GatePin } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
@@ -33,8 +34,12 @@ export type TicketsGate = Pick<MutationGate, "prepare" | "commit" | "invalidate"
 export interface TicketsServiceDeps {
   /** `$XDG_CONFIG_HOME/relay/tickets`: tickets.json, handled.json, seen.json, ops.json. */
   readonly dir: string;
-  /** Linear's GraphQL with the host's key, through `budgets.linear`. */
+  /** Linear's GraphQL for the sync's reads (the host's key, re-read per call; background lane). */
   readonly gql: LinearGql;
+  /** The host's Linear key now. */
+  readonly linearKey: () => string | null;
+  /** Linear's GraphQL with exactly this key (identity and writes pin one key per op; interactive lane). */
+  readonly keyedGql: (key: string) => LinearGql;
   /** GitHub's GraphQL through gh, through `budgets.github`. */
   readonly ghGraphql: GhGraphql;
   /** gh's login; null when gh is signed out. */
@@ -54,6 +59,8 @@ const UNAVAILABLE: Answer = { ok: false, error: "Not available yet" };
 const NO_ATTENTION: Attention = { waiting: [], needsYou: null };
 const clip = (s: string | null): string | null => (s === null ? null : s.slice(0, 2000));
 const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+/** A key is compared by its hash; the key itself is never kept. */
+const sha256 = (s: string): string => createHash("sha256").update(s).digest("hex");
 
 export class TicketsService implements TicketsRelaying {
   readonly writes: boolean;
@@ -70,6 +77,10 @@ export class TicketsService implements TicketsRelaying {
   private errors: TicketsStatus["errors"] = { linear: null, github: null };
   /** The account changed (or was never confirmed this run): writes wait for a full cycle. */
   private verified = false;
+  /** SHA-256 of the key the last identity resolution used; writes pin exactly that key. */
+  private keyHash: string | null = null;
+  /** Moves on every account or key change: approvals and in-flight writes of an older one stop. */
+  private generation = 0;
   /** The identity a detected change moves to, applied by the wipe. */
   private pending: HostIdentity | null = null;
   private readonly watches = new Map<string, { keys: readonly string[]; until: number }>();
@@ -88,8 +99,8 @@ export class TicketsService implements TicketsRelaying {
       new MutationGate({
         dir: deps.dir,
         writesEnabled: () => deps.writes,
-        identity: () => this.gateIdentity(),
-        linear: linearExecutor(deps.gql, () => this.gateIdentity().linearViewerId),
+        pin: () => this.pin(),
+        current: (pin) => this.current(pin),
         now: deps.now,
         log: deps.log,
       });
@@ -137,7 +148,7 @@ export class TicketsService implements TicketsRelaying {
       },
       seen: (o) => ({ ok: true, previousSeenAt: this.seen.visit(o.key, this.deps.now()) }),
       handled: (o) => this.markHandled(o),
-      prepare: (o) => this.gate.prepare({ deviceId }, o.mutation, this.gateIdentity()),
+      prepare: (o) => this.gate.prepare({ deviceId }, o.mutation, o.viewerId),
       commit: (o) => this.commit(deviceId, o),
       summary: () => UNAVAILABLE,
       plan: () => UNAVAILABLE,
@@ -220,7 +231,7 @@ export class TicketsService implements TicketsRelaying {
   }
 
   private async commit(deviceId: string, op: Op<"commit">): Promise<Answer> {
-    const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, this.gateIdentity());
+    const answer = await this.gate.commit({ deviceId }, { opId: op.opId, mutation: op.mutation, ...(op.approvalId === undefined ? {} : { approvalId: op.approvalId }) }, op.viewerId);
     // The board shows the write once Linear has it: one coalesced cycle.
     if (answer.outcome?.state === "done") this.actor.send({ type: "sync.now" });
     return answer;
@@ -285,22 +296,45 @@ export class TicketsService implements TicketsRelaying {
     this.pushStatus();
   }
 
-  private gateIdentity(): GateIdentity {
-    const identity = this.store.sync.identity;
-    if (!this.verified || identity === null) return { linearViewerId: null, ghLogin: null };
-    return { linearViewerId: identity.linear?.viewerId ?? null, ghLogin: identity.github?.login ?? null };
+  /** The verified account with the key it was verified with, for one write; null when there is none. */
+  private pin(): GatePin | null {
+    const viewerId = this.verified ? (this.store.sync.identity?.linear?.viewerId ?? null) : null;
+    const key = this.deps.linearKey();
+    if (viewerId === null || key === null) return null;
+    if (sha256(key) !== this.keyHash) {
+      // The key changed since the account was confirmed: confirm it again before anything is written.
+      this.actor.send({ type: "sync.now" });
+      return null;
+    }
+    return { viewerId, generation: this.generation, linear: linearExecutor(this.deps.keyedGql(key), () => viewerId) };
+  }
+
+  /** Whether a pinned write may still go out: same generation, account still verified, same key on disk. */
+  private current(pin: GatePin): boolean {
+    const key = this.deps.linearKey();
+    const viewerId = this.verified ? (this.store.sync.identity?.linear?.viewerId ?? null) : null;
+    return pin.generation === this.generation && pin.viewerId === viewerId && key !== null && sha256(key) === this.keyHash;
   }
 
   // ---- Sync steps ----
 
+  /** Resolves who the host's key acts as, reading the key once; a new key or account voids pending writes. */
   private async identify(): Promise<IdentifyOutput> {
     const prev = this.store.sync.identity;
-    const resolved = await resolveIdentity(this.deps.gql, this.deps.ghLogin, prev);
+    const key = this.deps.linearKey();
+    const resolved = await resolveIdentity(key === null ? this.deps.gql : this.deps.keyedGql(key), this.deps.ghLogin, prev);
     this.linearNames = resolved.linearNames;
     this.errors = resolved.errors;
+    const keyHash = key === null ? null : sha256(key);
+    if (keyHash !== this.keyHash) {
+      if (this.keyHash !== null) this.gate.invalidate("the host's Linear key changed");
+      this.keyHash = keyHash;
+      this.generation += 1;
+    }
     if (identityChanged(prev, resolved.identity)) {
       this.pending = resolved.identity;
       this.verified = false;
+      this.generation += 1;
       this.gate.invalidate("the host's Linear or GitHub account changed");
       return { kind: "changed" };
     }
@@ -372,13 +406,18 @@ export interface HostTicketsOptions {
 /** gh signed out (as opposed to failing): its login is then nobody's. */
 const GH_SIGNED_OUT = /auth login|not logged in/i;
 
-/** The service as the host runs it: the sync on the budgets' background lane, the host's key and gh's login. */
+/**
+ * The service as the host runs it: the sync on the budgets' background lane, identity and writes on
+ * the interactive one with exactly the key they pinned, and gh's login.
+ */
 export function hostTicketsService(o: HostTicketsOptions): TicketsService {
   const linear = o.budgets.linear.background;
   const github = o.budgets.github.background;
   return new TicketsService({
     dir: o.dir,
     gql: linearGql(o.linearKey, o.fetch, linear),
+    linearKey: o.linearKey,
+    keyedGql: (key) => linearGql(() => key, o.fetch, o.budgets.linear),
     ghGraphql: ghGraphql(o.run, o.gh, github),
     ghLogin: async () => {
       try {
