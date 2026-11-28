@@ -108,8 +108,8 @@ const A_OPEN = new RegExp(tag("a"), "gi");
 const A_AROUND_IMG = new RegExp(String.raw`(${tag("a")})\s*(${tag("img")})\s*</a\s*>`, "gi");
 const A_OPEN_ONLY = new RegExp(`^${tag("a")}$`, "i");
 const A_CLOSE_ONLY = /^<\/a\s*>$/i;
-/** URL-like runs in raw HTML (plain or entity-escaped), for the last check of what stays. */
-const URL_RUN = /(?:https?|&#\d+;|&#x[\da-f]+;|&[a-z]+;|[a-z])[^\s"'<>()[\]`]*(?::|&#0*58;|&#x0*3a;|&colon;)\/\/[^\s"'<>()[\]`]+/gi;
+/** Runs that may hold a URL in raw HTML (plain or entity-escaped); scanned once, no backtracking. */
+const URL_RUN = /[^\s"'<>()[\]`]+/g;
 
 class Rewriter {
   readonly edits: Edit[] = [];
@@ -161,19 +161,24 @@ class Rewriter {
       return href !== undefined && this.hidesLink(href, false) ? "" : t;
     });
     return links.replace(URL_RUN, (run) => {
+      if (!run.includes("/") && !run.includes("&")) return run;
       const url = decodeEntities(run);
-      return signed(url) ? (this.map(url) ?? run) : run;
+      return url.includes("://") && signed(url) ? (this.map(url) ?? run) : run;
     });
   }
 
-  /** `<a href>` … `</a>` as sibling inline HTML around content: a markdown link, or unwrapped. */
+  /** `<a href>` … `</a>` as sibling inline HTML around content: a markdown link, or unwrapped (only around an image, or when signed). */
   private anchor(open: Html, close: Html, inner: Nodes[]): void {
     const href = attr(open.value, "href");
     const hasImage = inner.some(holdsImage);
-    if (href === undefined || this.hidesLink(href, hasImage)) {
+    const unwrap = (): void => {
       this.edit(startOf(open), endOf(open), "");
       this.edit(startOf(close), endOf(close), "");
-    } else if (hasImage) {
+    };
+    if (href === undefined) {
+      if (hasImage) unwrap();
+    } else if (this.hidesLink(href, hasImage)) unwrap();
+    else if (hasImage) {
       this.edit(startOf(open), endOf(open), "[");
       this.edit(startOf(close), endOf(close), `](${dest(href)}${titlePart(attr(open.value, "title"))})`);
     }
@@ -182,10 +187,11 @@ class Rewriter {
   /** The children of `parent`, pairing inline `<a>` and `</a>` around their content. */
   private children(parent: Parent): void {
     const kids = parent.children as Nodes[];
+    const closes = closingAnchors(kids);
     let skipTo = 0;
     for (const [at, kid] of kids.entries()) {
       if (at < skipTo) continue;
-      const close = kid.type === "html" && A_OPEN_ONLY.test(kid.value) ? kids.findIndex((k, j) => j > at && k.type === "html" && A_CLOSE_ONLY.test(k.value)) : -1;
+      const close = kid.type === "html" && A_OPEN_ONLY.test(kid.value) ? (closes[at] ?? -1) : -1;
       if (close < 0) {
         this.node(kid);
         continue;
@@ -246,6 +252,18 @@ class Rewriter {
   }
 }
 
+/** For each sibling, the index of the next `</a>` after it (-1 when none): one pass from the end. */
+function closingAnchors(kids: readonly Nodes[]): number[] {
+  const closes: number[] = [];
+  let next = -1;
+  for (let j = kids.length - 1; j >= 0; j -= 1) {
+    closes[j] = next;
+    const k = kids[j];
+    if (k?.type === "html" && A_CLOSE_ONLY.test(k.value)) next = j;
+  }
+  return closes;
+}
+
 function holdsImage(node: Nodes): boolean {
   if (node.type === "image" || node.type === "imageReference") return true;
   if (node.type === "html") return /<img\b/i.test(node.value);
@@ -265,12 +283,24 @@ function apply(md: string, edits: readonly Edit[]): string {
 }
 
 /**
+ * Whether `md` can hold anything `rewriteImages` changes: an image (`![`, `<img`), or a signed URL,
+ * whose source has a scheme `:` before its query `?` (either may be entity-escaped, with `&`). Every
+ * rule needs one of these, so text without them is returned as it is, unparsed (most ticket and PR
+ * text). Each check is one linear scan.
+ */
+function mayChange(md: string): boolean {
+  const colon = md.indexOf(":");
+  return md.includes("![") || md.includes("&") || (colon >= 0 && md.lastIndexOf("?") > colon) || /<img\b/i.test(md);
+}
+
+/**
  * `md` with every image as canonical markdown `![alt](src "title")` pointing at `map(src)` (its own
  * `src` when `map` keeps it), image references `map` maps made inline (their definitions dropped),
  * private links around images and signed private links unwrapped, and raw HTML `<img>`/`<a>` handled
- * the same way. Text no rule touches stays exactly as written.
+ * the same way. Text no rule touches stays exactly as written; text no rule can touch is not parsed.
  */
 export function rewriteImages(md: string, map: MapUrl): string {
+  if (!mayChange(md)) return md;
   const root = parse(md);
   const rewriter = new Rewriter(md, map, root);
   rewriter.node(root);
@@ -300,8 +330,9 @@ function definitions(node: Nodes, defs: Map<string, string>): void {
   if ("children" in node) for (const c of node.children) definitions(c, defs);
 }
 
-/** Every image source in `md` (markdown images, image references' definitions, `<img>` tags), once each, in order. */
+/** Every image source in `md` (markdown images, image references' definitions, `<img>` tags), once each, in order; none without `![` or `<img`, unparsed. */
 export function imageSources(md: string): string[] {
+  if (!md.includes("![") && !/<img\b/i.test(md)) return [];
   const root = parse(md);
   const defs = new Map<string, string>();
   definitions(root, defs);

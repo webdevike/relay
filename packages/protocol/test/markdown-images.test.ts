@@ -119,3 +119,51 @@ describe("markdown images", () => {
     ]);
   });
 });
+
+describe("markdown images, cost", () => {
+  /** Maps every URL: the strictest map, so any rule that could fire would. */
+  const all = (): string => LOCAL;
+  const unparsed = [
+    "Ticket 12 title: fix the thing",
+    "[a link](https://example.com/page) and <https://example.com/x> and https://example.com/bare",
+    '<a name="x">anchor</a> <a href="https://example.com/y">y</a> [ref]\n\n[ref]: https://example.com/r',
+    "Done? Yes: shipped. [x][r]\n\n[r]: <https://example.com/a b>",
+    "<details><summary>Logs</summary>\n\nhttps://example.com/run/1\n</details>",
+  ];
+
+  it.each(unparsed)("skips text no rule can change, and the full parse agrees: %s", (md) => {
+    expect(rewriteImages(md, all)).toBe(md);
+    expect(imageSources(md)).toEqual([]);
+    // `&amp;` forces the parse without changing anything: the parsed result must be the text as it was.
+    expect(rewriteImages(`${md}\n\n&amp;`, all)).toBe(`${md}\n\n&amp;`);
+  });
+
+  const para = (i: number, query: boolean): string =>
+    `Comment ${String(i)} looks fine, see [the run](https://github.com/o/r/actions/runs/${String(i)}${query ? "?check=1" : ""}) and \`code\` with **bold** text.\n\n`;
+  const body = (query: boolean): string => Array.from({ length: 200 }, (_, i) => para(i, query)).join("");
+  const time = (f: () => void): number => {
+    const t = performance.now();
+    f();
+    return performance.now() - t;
+  };
+  const localize = (md: string): string => {
+    imageSources(md);
+    return rewriteImages(md, map);
+  };
+
+  it("handles 2,000 plain texts and 300 comment bodies of 20 KB well within budget", () => {
+    const plain = Array.from({ length: 2000 }, (_, i) => `Ticket ${String(i)}: fix the thing\nDescription with [a link](https://example.com/${String(i)}).`);
+    const comments = Array.from({ length: 300 }, () => body(false));
+    expect(comments[0]!.length).toBeGreaterThan(20_000);
+    expect(time(() => [...plain, ...comments].forEach(localize))).toBeLessThan(1_000);
+    // Bodies that must be parsed (a query after a scheme): linear in their size.
+    expect(time(() => Array.from({ length: 30 }, () => body(true)).forEach(localize))).toBeLessThan(10_000);
+  }, 30_000);
+
+  it("parses in time linear in the text, many raw `<a>` tags included", () => {
+    const doc = (n: number): string => Array.from({ length: 1200 * n }, (_, i) => `<a href="https://x.example/${String(i)}?q">${para(i, true)}`).join("");
+    const one = time(() => rewriteImages(doc(1), map));
+    const ten = time(() => rewriteImages(doc(10), map));
+    expect(ten).toBeLessThan(30 * one + 500);
+  }, 60_000);
+});
